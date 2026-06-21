@@ -118,7 +118,7 @@ def minimize_bfgs(
             nfev += 2 * n
         s = (x_new - x).reshape(-1, 1)
         y = (g_new - g).reshape(-1, 1)
-        sy = float(s.T @ y)
+        sy = float((s.T @ y).item())
         if sy > 1e-12:
             rho = 1.0 / sy
             I = np.eye(n)

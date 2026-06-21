@@ -1,0 +1,143 @@
+\section{Poisson and Hawkes}
+\label{sec:poisson-hawkes}
+
+We need two building blocks: the Poisson process (which the MBPP will be) and the
+Hawkes process (which we want to fit). The crucial contrast is whether the
+\emph{compensator} is deterministic.
+
+\subsection{Counting processes, intensity, compensator}
+
+A simple temporal point process is described by its counting process
+$N(t)=\#\{i:t_i\le t\}$, adapted to its internal history
+$\Hist_t=\sigma\{N(s):s\le t\}$. By the Doob--Meyer decomposition there is a unique
+predictable increasing \emph{compensator} $\Lambda$ with
+\begin{equation}
+M(t)=N(t)-\Lambda(t)\ \text{an }(\Hist_t)\text{-local martingale.}
+\end{equation}
+When $\Lambda$ is absolutely continuous, $\Lambda(t)=\int_0^t\lambda$, and the
+density $\lambda$ is the \emph{conditional intensity}
+$\lambda(t)=\lim_{h\downarrow0}\frac1h\,\E[N(t{+}h)-N(t)\mid\Hist_{t^-}]$.
+
+\begin{intuition}
+$\Lambda$ is the predictable ``running forecast'' of how many events should have
+happened by time $t$; $\lambda$ is that forecast's instantaneous rate. Subtracting
+the forecast from reality leaves pure surprise --- the martingale $M$ --- so
+$\lambda$ captures exactly the part of the future the past lets us anticipate.
+\end{intuition}
+
+\subsection{The Poisson process and why deterministic $\Lambda$ matters}
+
+\begin{definition}[Poisson process]
+$N$ is an inhomogeneous Poisson process with mean measure $\Lambda$ if for disjoint
+bounded sets $A_1,\dots,A_k$ the counts $N(A_i)$ are independent with
+$N(A_i)\sim\mathrm{Poisson}(\Lambda(A_i))$.
+\end{definition}
+
+Two consequences are used constantly: a Poisson process has \emph{independent
+increments}, and $\E[N(t)]=\Lambda(t)$. The deep fact we rely on is the converse.
+
+\begin{theorem}[Watanabe characterisation]\label{thm:watanabe}
+Let $N$ be a simple point process with continuous compensator $\Lambda$. Then $N$
+is an inhomogeneous Poisson process with mean measure $\Lambda$ \emph{if and only
+if $\Lambda$ is deterministic.}
+\end{theorem}
+
+\begin{intuition}
+Dependence between increments can only come from the intensity \emph{reacting to
+history}. If the intensity --- hence the compensator --- is fixed in advance, there
+is no channel through which the past can speak to the future, so the process must
+be Poisson. \textbf{This single fact is why the MBPP works}: replacing the random
+Hawkes intensity $\lambda$ by its deterministic mean $\xi$ severs the feedback loop
+and gives us back independent increments (and therefore a product likelihood,
+\S\ref{sec:no-covariates}).
+\end{intuition}
+
+\subsection{The likelihood of a point process}
+
+\begin{theorem}[Jacod formula]\label{thm:jacod}
+A simple point process with $(\Prob,\Hist_t)$-intensity $\lambda$ has, on $[0,T]$,
+the log-likelihood (relative to a unit-rate Poisson reference, up to a constant)
+\begin{equation}
+\ell(\theta)=\sum_{t_i\le T}\log\lambda(t_i;\theta)-\int_0^T\lambda(s;\theta)\dd s .
+\label{eq:ppll}
+\end{equation}
+\end{theorem}
+
+\begin{intuition}
+The likelihood rewards forecasting high intensity exactly where events landed
+($\sum\log\lambda(t_i)$) and penalises total forecast mass ($\int\lambda$): ``put
+probability on the bumps, don't waste it elsewhere.'' It is the point-process
+analogue of $\prod_i p(x_i)$, and it manifestly needs the times $t_i$ --- the
+obstruction in the interval-censored setting.
+\end{intuition}
+
+\subsection{The Hawkes process and why it is \emph{not} Poisson}
+
+\begin{model}[Hawkes process]\label{mod:hawkes}
+The Hawkes process has stochastic intensity
+\begin{equation}
+\lambda(t)=s(t)+\int_0^{t^-}\!\phi(t-u)\dd N(u)
+=s(t)+\sum_{t_i<t}\phi(t-t_i),
+\label{eq:hawkes}
+\end{equation}
+with exogenous (immigrant) rate $s$ and triggering kernel $\phi$. The
+\emph{exponential kernel} is $\phi(t)=\kappa\theta\,e^{-\theta t}\,\one[t>0]$, for
+which $\int_0^\infty\phi=\kappa$ is the \emph{branching ratio} and $\theta$ the
+decay rate.
+\end{model}
+
+Because $\lambda$ depends on the realised history, the compensator
+$\Lambda(t)=\int_0^t\lambda$ is \emph{random}; by Theorem~\ref{thm:watanabe} the
+Hawkes process is therefore \emph{not} Poisson and has dependent increments.
+
+\subsection{The cluster representation and the mean-intensity equation}
+
+\begin{theorem}[Hawkes--Oakes cluster representation]\label{thm:cluster}
+The Hawkes process of \eqref{eq:hawkes} is distributionally equal to the following
+branching construction: \emph{(i)} immigrants arrive as a Poisson process of
+intensity $s$; \emph{(ii)} each event at time $u$ independently produces direct
+offspring as a Poisson process of intensity $\phi(\cdot-u)$ on $(u,\infty)$;
+\emph{(iii)} the process is the superposition of all immigrants and descendants.
+\end{theorem}
+
+\begin{intuition}
+Self-excitation made literal: every event founds a ``family,'' and the whole
+process is a \emph{forest of independent family trees} rooted at immigrants. The
+mean number of direct children per event is $\int\phi=\kappa$, so a family is a
+Galton--Watson tree with mean offspring $\kappa$ --- finite on average iff
+$\kappa<1$ (\emph{subcritical}), with expected total size $1/(1-\kappa)$.
+\end{intuition}
+
+Averaging the cluster representation gives the equation at the heart of everything.
+
+\begin{proposition}[Mean-intensity / MBPP equation]\label{prop:mbpp-eq}
+Under the standing assumptions of \S\ref{sec:assumptions}, the expected intensity
+$\xi(t)=\E[\lambda(t)]$ satisfies
+\begin{equation}
+\xi(t)=s(t)+\int_0^t\phi(t-u)\,\xi(u)\dd u .
+\label{eq:mbpp}
+\end{equation}
+\end{proposition}
+\begin{proof}
+Take $\E[\cdot]$ in \eqref{eq:hawkes}. By Tonelli (non-negative integrands) the
+expectation passes inside, and using the tower property
+$\E[\dd N(u)]=\E[\E[\dd N(u)\mid\Hist_{u^-}]]=\E[\lambda(u)]\dd u=\xi(u)\dd u$.
+\end{proof}
+
+\begin{intuition}
+Average the \emph{stochastic} feedback over all realisations and it becomes
+\emph{deterministic} feedback: ``on average, today's rate is the baseline plus the
+kernel-weighted echo of the average past.'' Equation~\eqref{eq:mbpp} is the object
+we will solve again and again. It is a \emph{Volterra integral equation of the
+second kind} (Appendix~\ref{app:volterra}); when --- as here --- the kernel depends
+only on $t-u$, it is moreover a \emph{convolution}, which is what makes the next
+section entirely closed-form.
+\end{intuition}
+
+\begin{remark}[Why interval censoring is hard for Hawkes directly]
+Decomposing a bucket count over offspring generations produces nested
+\emph{Borel} convolutions with no finite closed form at finite $T$, and Monte
+Carlo over the generation structure scales poorly. This is the formal sense in
+which ``the Hawkes process cannot be fit interval-censored'' --- and the reason we
+detour through the MBPP.
+\end{remark}

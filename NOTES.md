@@ -166,3 +166,26 @@ useful when triggering depends on regime (e.g.\ market stress, time of day). The
 **Goodness-of-fit.** By the time-rescaling theorem, the compensated process $\tilde t_{m,k}=\int_0^{t_{m,k}}\lambda_m(s)\,ds$ should be a unit-rate Poisson process. KS tests or QQ plots against $\mathrm{Exp}(1)$ on the rescaled inter-arrival times of each component diagnose mis-specification.
 
 **Branching ratio and elicitation summary statistics.** Beyond entry-wise inspection, one can summarize the elicitation structure by (i) the spectral radius of $G=A/\beta$, which is the asymptotic fraction of events that are "offspring" rather than "exogenous"; (ii) the right principal eigenvector of $G$, which gives a Pagerank-style importance ranking of components in the network; and (iii) the row sums $\sum_j \alpha_{m,j}/\beta_{m,j}$, which measure how susceptible $m$ is to being excited overall.
+
+## 10. Interval-censored data (the MBPP extension)
+
+Everything above assumes we observe **exact event times**. When only aggregate
+counts per time interval are available (hospital admissions per day, video views
+per day, traffic-loop volumes), the point-process log-likelihood in §2 cannot be
+evaluated, and the Hawkes process — lacking independent increments — has no
+tractable interval-censored likelihood either.
+
+The extension implemented in `mbpp.py`, `exogenous.py`, `ic_simulate.py` and
+`interval_censored.py` follows Rizoiu et al. (2022) and fits Hawkes processes in
+this regime through the **Mean Behavior Poisson process** (a Poisson process
+whose deterministic intensity equals the *expected* Hawkes intensity). Because
+the MBPP *is* Poisson, its interval-censored likelihood is a product of Poisson
+terms in the interval compensators, and its one-to-one parameter correspondence
+with the Hawkes process lets us recover the kernel parameters
+$(\kappa,\theta)=(\alpha/\beta,\ \beta)$ from counts alone.
+
+The full derivation — MBPP definition, the impulse-response solution of the
+self-consistent intensity equation (with proofs), the interval-censored
+log-likelihood and its Bregman/KL interpretation, the multi-impulse and
+latent-Poisson exogenous functions, and the forecasting scheme — is written up
+in [`PAPER_SUMMARY.md`](./PAPER_SUMMARY.md).

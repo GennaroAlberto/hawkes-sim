@@ -1,0 +1,77 @@
+\section{Adding covariates to the baseline}
+\label{sec:baseline-cov}
+
+The first and easiest place to let data drive the model is the \emph{baseline}
+(immigrant) rate. Let observed covariates $X(t)\in\R^p$ enter through a log-linear
+link,
+\begin{equation}
+s(t)=\exp\!\bigl(\gamma_0+\gamma^\top X(t)\bigr),
+\label{eq:loglinear}
+\end{equation}
+which keeps $s\ge0$ for all $\gamma$.
+
+\subsection{Why this stays easy}
+
+The MBPP equation~\eqref{eq:mbpp} is \emph{linear in the forcing $s$} and its
+kernel is unchanged: \eqref{eq:loglinear} only changes \emph{what} we feed in, not
+the operator $\mathcal I-\mathcal V$. So the entire LTI solution of
+\S\ref{sec:no-covariates} carries over verbatim, $\xi=E\conv s$ and
+$\Xi=E\conv\sfont S$ with $\sfont S=\int_0^t s$.
+
+\begin{proposition}[Piecewise-constant covariates remain closed-form]
+\label{prop:pc-cov}
+If $X(t)$ is piecewise-constant, then $s(t)=\exp(\gamma_0+\gamma^\top X(t))$ is
+piecewise-constant, with rate $\exp(\gamma_0+\gamma^\top X_k)$ on the $k$-th
+covariate interval. The MBPP intensity and compensator are then the same
+closed-form piecewise-constant responses as in \S\ref{sec:no-covariates}; only the
+per-interval \emph{rates} are reparameterised.
+\end{proposition}
+
+\begin{intuition}
+A covariate that is constant on each bucket simply re-labels the height of the
+baseline on that bucket. The self-excitation machinery does not know or care that
+the height came from a regression rather than a free parameter --- so nothing about
+the solution method changes, and the closed forms of \S\ref{sec:no-covariates}
+apply unchanged.
+\end{intuition}
+
+\subsection{Fitting the covariate effects}
+
+We now optimise \eqref{eq:icll} over $(\gamma_0,\gamma)$ \emph{jointly} with the
+kernel parameters $(\kappa,\theta)$. The compensator $\Xi$ is assembled from the
+log-linear baseline exactly as before, so the only change from
+\S\ref{sub:icll} is a larger but still smooth parameter vector. This is the
+interval-censored analogue of the event-time covariate model, implemented as
+\code{fit\_mbpp\_ic\_covariates}.
+
+\begin{remark}[Tabular data]
+A time-bucketed table --- one row per observation interval, with covariate columns
+$X$ and an event-count column $\sfont C$ --- maps directly onto the fit: the row
+endpoints are the observation grid, $\sfont C$ is the count vector, and the
+covariate columns are $X$. Categorical covariates are one-hot encoded first.
+\end{remark}
+
+\subsection{What is and is not identified}
+
+Empirically and theoretically (Appendix~\ref{app:estimation}), the covariate
+\emph{effects} $\gamma$ are recovered tightly, because they are read off from how
+counts change \emph{across} buckets as $X$ varies; the absolute split between the
+baseline level $\gamma_0$ and the self-excitation $\kappa$ is more weakly
+identified, sharing the $\kappa$--$\theta$ ridge. A covariate that does not vary
+across buckets carries no information about its coefficient: identification of
+$\gamma$ requires covariate \emph{contrast}.
+
+\begin{intuition}
+The model can explain a given level of activity either as ``a high baseline'' or
+``a modest baseline strongly amplified.'' Counts alone struggle to separate the
+two. But \emph{differences} in activity that track \emph{differences} in a
+covariate pin that covariate's effect cleanly --- which is why $\gamma$ is the
+trustworthy output here.
+\end{intuition}
+
+\medskip
+\noindent
+Crucially, in \eqref{eq:loglinear} the kernel $\phi$ is still a fixed convolution
+kernel: covariates have entered only the \emph{forcing}. The next section asks what
+happens when they enter the \emph{kernel} --- and that is where the convolution
+structure, and with it the LTI shortcuts, finally break.

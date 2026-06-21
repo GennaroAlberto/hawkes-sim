@@ -1,0 +1,50 @@
+\contentsline {section}{\numberline {1}Introduction: the problem, and how we solve it}{2}{section.1}%
+\contentsline {subsection}{\numberline {1.1}The problem}{2}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}How we solve it}{3}{subsection.1.2}%
+\contentsline {subsection}{\numberline {1.3}Roadmap, in increasing order of difficulty}{3}{subsection.1.3}%
+\contentsline {section}{\numberline {2}Poisson and Hawkes}{4}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Counting processes, intensity, compensator}{4}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}The Poisson process and why deterministic $\Lambda $ matters}{4}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}The likelihood of a point process}{5}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}The Hawkes process and why it is \emph {not} Poisson}{5}{subsection.2.4}%
+\contentsline {subsection}{\numberline {2.5}The cluster representation and the mean-intensity equation}{5}{subsection.2.5}%
+\contentsline {section}{\numberline {3}Standing assumptions for our model}{6}{section.3}%
+\contentsline {section}{\numberline {4}The MBPP without covariates}{7}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Existence, uniqueness, and the resolvent}{7}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}The exponential kernel closes everything}{7}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Multivariate MBPP}{8}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Fitting on interval-censored counts (IC-LL)}{8}{subsection.4.4}%
+\contentsline {section}{\numberline {5}Adding covariates to the baseline}{9}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Why this stays easy}{9}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Fitting the covariate effects}{9}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}What is and is not identified}{9}{subsection.5.3}%
+\contentsline {section}{\numberline {6}Excitation covariates: the Volterra system that arises}{10}{section.6}%
+\contentsline {subsection}{\numberline {6.1}The model}{10}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}The mean-intensity equation is now a general Volterra equation}{10}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}What survives, and what is lost}{10}{subsection.6.3}%
+\contentsline {subsection}{\numberline {6.4}Exponential shape $\Rightarrow $ a finite linear time-varying ODE}{11}{subsection.6.4}%
+\contentsline {subsection}{\numberline {6.5}Fitting with excitation covariates}{11}{subsection.6.5}%
+\contentsline {subsection}{\numberline {6.6}Summary of the three regimes}{12}{subsection.6.6}%
+\contentsline {section}{\numberline {A}Volterra integral equations: a primer}{12}{appendix.A}%
+\contentsline {subsection}{\numberline {A.1}What is an integral equation, and why ``Volterra''?}{12}{subsection.A.1}%
+\contentsline {subsection}{\numberline {A.2}The operator form and the Neumann (resolvent) series}{13}{subsection.A.2}%
+\contentsline {subsection}{\numberline {A.3}Existence and uniqueness: why Volterra is so forgiving}{13}{subsection.A.3}%
+\contentsline {subsection}{\numberline {A.4}Three solution strategies, by kernel type}{14}{subsection.A.4}%
+\contentsline {paragraph}{(i) Convolution kernel $K(t,u)=\phi (t-u)$ $\Rightarrow $ transforms / LTI.}{14}{section*.2}%
+\contentsline {paragraph}{(ii) Separable (degenerate) kernel $K(t,u)=\DOTSB \sum@ \slimits@ _{r=1}^{\rho }a_r(t)\,b_r(u)$ $\Rightarrow $ finite ODE.}{14}{section*.3}%
+\contentsline {paragraph}{(iii) General kernel $\Rightarrow $ numerical quadrature (Nyström).}{14}{section*.4}%
+\contentsline {section}{\numberline {B}Laplace and Fourier methods for convolution kernels}{14}{appendix.B}%
+\contentsline {subsection}{\numberline {B.1}The transforms and the convolution theorem}{15}{subsection.B.1}%
+\contentsline {subsection}{\numberline {B.2}Solving the convolution Volterra equation}{15}{subsection.B.2}%
+\contentsline {subsection}{\numberline {B.3}The spectral (neural-operator) viewpoint, and why it is exact here}{15}{subsection.B.3}%
+\contentsline {subsection}{\numberline {B.4}Why transforms fail under excitation covariates}{15}{subsection.B.4}%
+\contentsline {section}{\numberline {C}ODE and state-space methods}{16}{appendix.C}%
+\contentsline {subsection}{\numberline {C.1}The exponential kernel gives a first-order ODE}{16}{subsection.C.1}%
+\contentsline {subsection}{\numberline {C.2}Rational Laplace transform $\Leftrightarrow $ finite ODE}{16}{subsection.C.2}%
+\contentsline {subsection}{\numberline {C.3}Sums of exponentials: the state-space realisation}{16}{subsection.C.3}%
+\contentsline {subsection}{\numberline {C.4}Numerical integration and the time-varying case}{17}{subsection.C.4}%
+\contentsline {section}{\numberline {D}Estimation, Bregman geometry, and identifiability}{17}{appendix.D}%
+\contentsline {subsection}{\numberline {D.1}IC-LL is a Bregman divergence}{17}{subsection.D.1}%
+\contentsline {subsection}{\numberline {D.2}Consistency, information, and goodness of fit}{17}{subsection.D.2}%
+\contentsline {subsection}{\numberline {D.3}The $\kappa $--$\theta $ ridge, and the cost of covariates}{18}{subsection.D.3}%
+\contentsline {paragraph}{Excitation covariates add non-convexity.}{18}{section*.5}%
