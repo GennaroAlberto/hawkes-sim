@@ -1,0 +1,98 @@
+\chapter{Volterra integral equations: a primer}
+\label{app:volterra}
+
+This appendix is self-contained and assumes no prior exposure to integral
+equations. Everything the main text uses about Volterra equations is here.
+
+\section{What is it, and why ``Volterra''?}
+
+A \emph{linear Volterra equation of the second kind} is
+\begin{equation}
+\xi(t)=s(t)+\int_0^t K(t,u)\,\xi(u)\dd u,\qquad t\in[0,T],
+\label{eq:appv-2nd}
+\end{equation}
+with $s$ (forcing) and $K$ (kernel) given and $\xi$ unknown. ``Second kind'' means
+the unknown also appears outside the integral (the lone $\xi(t)$); a
+\emph{first-kind} equation $s=\int_0^t K\xi$ has it only inside and is typically
+ill-posed (a deconvolution). ``Volterra'' refers to the upper limit being the
+running time $t$: the integral looks only at the \emph{past} $u\le t$ (contrast
+Fredholm, $\int_0^T$). That causal, ``lower-triangular in time'' structure is the
+source of all the good behaviour below.
+
+\begin{intuitionbox}
+Read \eqref{eq:appv-2nd} as a feedback rule unrolling in time: $\xi(t)$ now equals
+an external input $s(t)$ plus a weighted echo of all of $\xi$'s past, with weight
+$K(t,u)$. Because the echo only reaches backward, you can sweep forward and build
+$\xi$ left to right --- nothing in the future is needed.
+\end{intuitionbox}
+
+\section{The Neumann series and the resolvent}
+
+With the Volterra operator $(\mathcal K\xi)(t)=\int_0^t K(t,u)\xi(u)\dd u$,
+equation \eqref{eq:appv-2nd} is $(\mathcal I-\mathcal K)\xi=s$, formally inverted by
+the geometric (Neumann) series
+$\xi=\sum_{n\ge0}\mathcal K^n s$. The sum
+$R(t,u)=\sum_{n\ge1}K_n(t,u)$ of the iterated kernels is the \emph{resolvent}, and
+$\xi(t)=s(t)+\int_0^t R(t,u)s(u)\dd u$: solve for $R$ once, then one integral per
+forcing.
+
+\begin{intuitionbox}
+$\mathcal K s$ is the first-generation echo, $\mathcal K^2 s$ the echo of the echo,
+and the Neumann series sums all generations. In the Hawkes setting $R$ is literally
+the renewal density of the branching tree (Ch.~\ref{ch:hawkes}).
+\end{intuitionbox}
+
+\section{Existence and uniqueness --- why Volterra is forgiving}
+
+\begin{theorem}\label{thm:appv-exist}
+If $|K|\le\bar K$ on $0\le u\le t\le T$ and $s\in C[0,T]$, then \eqref{eq:appv-2nd}
+has a unique continuous solution on $[0,T]$, the (uniformly convergent) Neumann
+series.
+\end{theorem}
+\begin{proof}
+By induction $|(\mathcal K^n\xi)(t)|\le\bar K^{\,n}\|\xi\|_\infty t^n/n!$ (each
+nested integration over a shrinking triangle contributes a $1/n!$). Hence
+$\|\mathcal K^n\|\le(\bar K T)^n/n!\to0$, $\sum_n\mathcal K^n$ converges in operator
+norm, and $(\mathcal I-\mathcal K)^{-1}$ exists.
+\end{proof}
+
+\begin{whybox}[: the factorial saves you]
+The decisive estimate is $\bar K^n t^n/n!$: the factorial overwhelms any fixed gain,
+so on a finite horizon the loop is \emph{always} invertible --- \emph{no} smallness
+condition on the kernel. This is why the MBPP equation is solvable even when the
+excitation is covariate-modulated and time-varying (Ch.~\ref{ch:excitation}): the
+proof never used convolution structure. A smallness condition ($\int\phi=\kappa<1$)
+appears only for the \emph{global} resolvent on $[0,\infty)$.
+\end{whybox}
+
+\section{Three solution strategies, by kernel type}
+
+\paragraph{(i) Convolution $K(t,u)=\phi(t-u)$ $\Rightarrow$ transforms.} The system
+is time-invariant; Laplace/Fourier give $\hat\xi=\hat s/(1-\hat\phi)$
+(Appendix~\ref{app:transforms}), and the resolvent is itself a convolution
+(a single exponential for the exponential kernel). \emph{Ch.~\ref{ch:solving}.}
+
+\paragraph{(ii) Separable $K(t,u)=\sum_r a_r(t)b_r(u)$ $\Rightarrow$ ODE.} Finite
+rank collapses \eqref{eq:appv-2nd} to ODEs: with $y_r=\int_0^t b_r\xi$,
+$\xi=s+\sum_r a_r y_r$ and $y_r'=b_r(t)\xi$. Constant $a_r,b_r$ give a constant-coefficient
+ODE; a $t$-dependent $a_r$ (the covariate factor $e^{\delta^\top Z(t)}$) gives a
+\emph{time-varying} one. \emph{This is why Ch.~\ref{ch:excitation} reduces to the LTV
+system.}
+
+\paragraph{(iii) General $\Rightarrow$ quadrature (Nystr\"om).} Discretise the
+integral on a grid; \eqref{eq:appv-2nd} becomes a lower-triangular linear system
+solved by forward substitution in $O(N^2)$ (\code{solve\_mbpp\_volterra}).
+First-order accurate; the fallback for power-law $+$ excitation covariates.
+
+\begin{intuitionbox}
+Same idea --- invert $\mathcal I-\mathcal K$ --- specialised to how much structure
+$K$ has: maximum (convolution) $\to$ a formula; medium (finite rank) $\to$ a few
+ODEs; none $\to$ march forward in time, which the causal form always allows.
+\end{intuitionbox}
+
+\begin{pitfall}
+The inverse problem --- recovering $\phi$ from observed mean behaviour --- is a
+\emph{first-kind} (deconvolution) Volterra problem and is ill-posed. The book never
+inverts in that direction for estimation; it always poses a well-posed second-kind
+forward solve inside a likelihood.
+\end{pitfall}

@@ -26,7 +26,8 @@ What it gives you
 
 This module is numpy + matplotlib only, so it runs today.  To stress-test the
 TensorFlow models instead of the linear baseline, pass a ``fit_eval`` callback to
-``noise_sweep`` (see ``TF_PLAYBOOK.md`` for a ready-made one).
+``noise_sweep`` (see the README, "High-dimensional learning + noise-stress lab",
+for a ready-made one).
 """
 
 from __future__ import annotations

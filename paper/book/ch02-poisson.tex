@@ -1,0 +1,96 @@
+\chapter{Poisson processes, intensity, and compensators}
+\label{ch:poisson}
+
+\begin{motivation}
+Everything we build rests on one fact: a point process whose ``rate forecast'' is
+fixed in advance --- not reacting to history --- is a Poisson process, and Poisson
+counts are independent and easy. This chapter makes ``rate forecast'' precise
+(the \emph{compensator}) and proves the fact (Watanabe). Keep this chapter close;
+we invoke it constantly.
+\end{motivation}
+
+\section{Counting processes and conditional intensity}
+
+A simple point process produces times $t_1<t_2<\cdots$; its counting process is
+$N(t)=\#\{i:t_i\le t\}$, and its internal history is
+$\Hist_t=\sigma\{N(s):s\le t\}$. The \emph{conditional intensity} is the
+instantaneous event rate given the past,
+\begin{equation}
+\lambda(t)=\lim_{h\downarrow0}\tfrac1h\,\E\!\big[N(t{+}h)-N(t)\mid\Hist_{t^-}\big],
+\end{equation}
+so heuristically $\E[\dd N(t)\mid\Hist_{t^-}]=\lambda(t)\dd t$.
+
+\section{The compensator}
+
+By the Doob--Meyer decomposition there is a unique predictable increasing process
+$\Lambda$ (the \emph{compensator}) with $\Lambda(0)=0$ such that
+$M(t)=N(t)-\Lambda(t)$ is a local martingale; when $\Lambda$ is absolutely
+continuous, $\Lambda(t)=\int_0^t\lambda$.
+
+\begin{intuitionbox}
+$\Lambda(t)$ is the predictable ``running forecast'' of how many events should have
+happened by $t$; $\lambda$ is its instantaneous rate. Subtract the forecast from
+reality and what's left, $M=N-\Lambda$, is pure surprise (a martingale). So
+$\lambda$ is exactly the part of the future the past lets you anticipate.
+\end{intuitionbox}
+
+\section{The Poisson process and the theorem that runs the book}
+
+\begin{definition}
+$N$ is an (inhomogeneous) Poisson process with mean measure $\Lambda$ if for
+disjoint sets $A_1,\dots,A_k$ the counts $N(A_i)$ are \emph{independent} with
+$N(A_i)\sim\mathrm{Poisson}(\Lambda(A_i))$.
+\end{definition}
+
+Two consequences are used everywhere: independent increments, and
+$\E[N(t)]=\Lambda(t)$. The converse is the crux.
+
+\begin{theorem}[Watanabe]\label{thm:ch2-watanabe}
+A simple point process with a \emph{continuous} compensator $\Lambda$ is a Poisson
+process with mean measure $\Lambda$ \emph{if and only if $\Lambda$ is
+deterministic}.
+\end{theorem}
+
+\begin{whybox}[: this is the whole idea]
+Dependence between increments can only come from the intensity \emph{reacting to
+history}. If the intensity --- hence the compensator --- is fixed in advance, there
+is no channel for the past to influence the future, so the process must be Poisson.
+This is precisely why, in Part II, we replace the random Hawkes intensity
+$\lambda$ by its deterministic mean $\xi=\E[\lambda]$: doing so \emph{manufactures}
+independent increments and hands us a product likelihood.
+\end{whybox}
+
+\section{The likelihood (why it needs timestamps)}
+
+\begin{theorem}[Jacod]\label{thm:ch2-jacod}
+A point process with intensity $\lambda$ has, on $[0,T]$, log-likelihood (up to a
+constant)
+\begin{equation}
+\ell(\theta)=\sum_{t_i\le T}\log\lambda(t_i;\theta)-\int_0^T\lambda(s;\theta)\dd s.
+\label{eq:ch2-ppll}
+\end{equation}
+\end{theorem}
+The first term rewards having forecast high intensity exactly where events landed;
+the second penalises total forecast mass. It manifestly needs the times $t_i$ ---
+the obstruction of Chapter~\ref{ch:problem}.
+
+\begin{examplebox}[: homogeneous Poisson]
+For constant $\lambda$ on $[0,T]$ with $n$ events, \eqref{eq:ch2-ppll} is
+$n\log\lambda-\lambda T$; setting the derivative to zero gives the obvious MLE
+$\hat\lambda=n/T$. We will reuse this ``rate $=$ count $/$ exposure'' logic when we
+estimate the latent immigrant rate from interval-censored data (Ch.~\ref{ch:fitting}).
+\end{examplebox}
+
+\begin{recap}
+The compensator is the predictable forecast of accumulated events; Watanabe says a
+deterministic compensator $\Leftrightarrow$ Poisson $\Rightarrow$ independent
+increments; and the point-process likelihood needs timestamps. Part II turns the
+first two facts into a method.
+\end{recap}
+
+\exercise{Show that for a homogeneous Poisson process the inter-event times are
+i.i.d.\ Exponential. (We use the converse --- the time-rescaling theorem --- as a
+goodness-of-fit test in Ch.~\ref{ch:identif}.)}
+\exercise{Why does Watanabe require the compensator to be \emph{deterministic}, not
+merely continuous? Give a process with a continuous but random compensator that is
+not Poisson.}

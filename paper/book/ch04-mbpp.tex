@@ -1,0 +1,96 @@
+\chapter{The Mean Behavior Poisson process}
+\label{ch:mbpp}
+
+\begin{motivation}
+Here is the pivot of the book. We define the companion process whose deterministic
+intensity is the expected Hawkes intensity, observe that it is therefore Poisson
+(so its counts are independent and easy), and note that it shares parameters with
+the Hawkes process we want. Everything afterwards is solving and exploiting one
+equation.
+\end{motivation}
+
+\section{Definition and parameter correspondence}
+
+\begin{definition}[MBPP]\label{def:ch4-mbpp}
+Given a Hawkes process with exogenous $s$ and kernel $\phi$, the Mean Behavior
+Poisson process is the inhomogeneous Poisson process whose intensity is the
+expected Hawkes intensity,
+\begin{equation}
+\xi(t)=\E[\lambda(t)]=s(t)+\int_0^t\phi(t-u)\,\xi(u)\dd u .
+\label{eq:ch4-mbpp}
+\end{equation}
+\end{definition}
+
+The same two objects $(s,\phi)$ define both processes, so they are in
+\emph{one-to-one parameter correspondence}: fit the MBPP, read off the Hawkes
+parameters.
+
+\begin{intuitionbox}
+The MBPP is the Hawkes process with its randomness averaged out. Figure-2-style
+experiments confirm it: the mean of thousands of simulated Hawkes intensities lies
+right on top of the (deterministic) MBPP curve $\xi$.
+\end{intuitionbox}
+
+\section{Why it is Poisson --- and why that is the point}
+
+$\xi$ is deterministic, hence so is the compensator $\Xi(t)=\int_0^t\xi$; by
+Watanabe (Thm~\ref{thm:ch2-watanabe}) the MBPP is a genuine Poisson process. Its
+bucket counts are therefore \emph{independent}
+$\mathrm{Poisson}(\Xi(o_{i-1},o_i])$, and the joint law factorises:
+\begin{equation}
+\Prob\big(N(o_{i-1},o_i]=\sfont C_i,\ i=1,\dots,m\big)
+=\prod_{i=1}^m \frac{\Xi(o_{i-1},o_i]^{\sfont C_i}}{\sfont C_i!}\,e^{-\Xi(o_{i-1},o_i]} .
+\end{equation}
+
+\begin{whybox}[: a deterministic mean buys a product likelihood]
+The Hawkes process failed precisely because its compensator is random
+(Ch.~\ref{ch:problem}). Replacing $\lambda$ by its mean $\xi$ makes the compensator
+deterministic, which by Watanabe restores independent increments, which gives the
+product above --- the interval-censored likelihood we will minimise
+(Ch.~\ref{ch:fitting}). One substitution converts an intractable problem into a sum
+of Poisson terms.
+\end{whybox}
+
+\section{In code}
+
+The package's \code{MBPP} object holds a kernel and an exogenous function and
+exposes the intensity and compensator (Ch.~\ref{ch:solving} explains how they are
+computed):
+
+\begin{lstlisting}[caption={Constructing and evaluating an MBPP.}]
+from hawkes_calibration import MBPP, ExponentialKernel, Constant
+import numpy as np
+
+mbpp = MBPP(ExponentialKernel(kappa=0.6, theta=0.8), Constant(2.0, horizon=40))
+t = np.linspace(0, 30, 600)
+xi = mbpp.intensity(t)          # the deterministic mean intensity
+Xi = mbpp.compensator(t)        # its cumulative integral (the Poisson means)
+\end{lstlisting}
+
+\begin{examplebox}[: the MBPP is the mean]
+Experiment \code{exp5\_mbpp\_impulse.py} overlays $\xi$ on the Monte-Carlo mean of
+thousands of Hawkes intensities for a single impulse and for rectangle, Dassios,
+and sine exogenous functions; the closed-form $\xi$ matches the simulated mean to
+Monte-Carlo error ($\sim$2--6\%). This is the empirical content of
+Definition~\ref{def:ch4-mbpp}.
+\end{examplebox}
+
+\begin{pitfall}
+The MBPP is \emph{not} the Hawkes process --- only its mean. It cannot reproduce the
+clustering/over-dispersion of real Hawkes counts, which is why interval-censored
+counts are over-dispersed relative to the MBPP's Poisson assumption
+(Ch.~\ref{ch:identif}). The parameters transfer; the higher moments do not.
+\end{pitfall}
+
+\begin{recap}
+The MBPP is the inhomogeneous Poisson process with intensity
+$\xi=\E[\lambda]=s+\phi*\xi$. Being deterministic-mean it is Poisson (Watanabe), so
+its counts are independent and its likelihood is a product; and it shares
+parameters with the Hawkes process. Next: how to actually solve
+\eqref{eq:ch4-mbpp}.
+\end{recap}
+
+\exercise{Argue that if $\phi=0$ (no excitation) the MBPP and the Hawkes process
+coincide and both are the inhomogeneous Poisson process of rate $s$.}
+\exercise{Why is the MBPP count distribution \emph{narrower} (less dispersed) than
+the true Hawkes count distribution with the same parameters?}

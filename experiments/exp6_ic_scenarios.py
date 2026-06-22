@@ -32,13 +32,13 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from hawkes_calibration.exogenous import PiecewiseConstant, MultiImpulse, LHPP
-from hawkes_calibration.ic_simulate import (
+from hawkes_calibration.mbpp.exogenous import PiecewiseConstant, MultiImpulse, LHPP
+from hawkes_calibration.mbpp.ic_simulate import (
     simulate_separable_hawkes,
     interval_censor,
     uniform_obs_times,
 )
-from hawkes_calibration.interval_censored import fit_mbpp_ic_multi
+from hawkes_calibration.mbpp.interval_censored import fit_mbpp_ic_multi
 
 
 # HP-pc exogenous of the paper (Eq. 52): immigrant volumes 7,6,8 over [0,5,10,15].

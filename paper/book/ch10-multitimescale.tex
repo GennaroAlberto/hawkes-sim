@@ -1,0 +1,73 @@
+\chapter{Multi-timescale kernels}
+\label{ch:multitimescale}
+
+\begin{motivation}
+Real excitation often has \emph{several} timescales: a fast burst of immediate
+reactions and a slow tail of long-term influence. A sum of exponentials captures
+this, stays inside our closed-form machinery, and --- with a fixed bank of decay
+rates --- is well-conditioned to fit.
+\end{motivation}
+
+\section{Sum-of-exponentials kernels}
+
+Replace the single exponential by
+\begin{equation}
+\phi(t)=\sum_{q=1}^{Q}\kappa_q\theta_q e^{-\theta_q t},\qquad
+\text{branching ratio }=\sum_q\kappa_q .
+\end{equation}
+Every result of Ch.~\ref{ch:solving} still holds per component, and the state-space
+ODE (Ch.~\ref{ch:solvers}) simply carries $Q$ states instead of one.
+
+\section{A closed-form compensator via the matrix exponential}
+
+For a constant baseline the compensator has an exact closed form. The state vector
+$u\in\R^Q$ obeys $\dot u=Au+a\mu$ with $A=a\mathbf 1^\top-\diag(b)$,
+$a_q=\kappa_q\theta_q$, $b_q=\theta_q$, and $\xi=\mu+\mathbf 1^\top u$. Diagonalising
+$A=V\Lambda V^{-1}$ gives, with $w=A^{-1}a$ and $p_i=(\mathbf 1^\top V)_i(V^{-1}w)_i$,
+\begin{equation}
+\Xi(t)=\mu\Big(t+\sum_i p_i\big(\tfrac{e^{\lambda_i t}-1}{\lambda_i}-t\big)\Big).
+\end{equation}
+
+\begin{whybox}[: why this matters for speed]
+The pure-Python ODE-in-a-loop is too slow to call thousands of times inside an
+optimiser. This matrix-exponential formula evaluates the compensator at all bucket
+endpoints in $O(Q^3+mQ)$ with \emph{no} time grid --- turning a multi-minute fit
+into a fraction of a second (Ch.~\ref{ch:neural} discusses the general remedy).
+$A$ is invertible because $\sum_q\kappa_q<1$ makes it Hurwitz.
+\end{whybox}
+
+\section{Fitting: a fixed bank of timescales}
+
+\begin{whybox}[: fix the decays, fit the weights]
+Estimating both the rates $\theta_q$ and weights $\kappa_q$ is ill-posed
+(timescales are weakly identified --- Ch.~\ref{ch:identif}, now $\times Q$). The
+standard, well-conditioned remedy is to fix a \emph{bank} of decay rates (fast,
+medium, slow) and fit only the non-negative weights $\kappa_q\ge0$, optionally with
+an $\ell_1$ penalty to select a sparse set of active timescales.
+\end{whybox}
+
+\begin{lstlisting}[caption={Multi-timescale fit over a fixed decay bank.}]
+from hawkes_calibration import fit_mbpp_ic_sumexp
+bank = np.array([0.4, 1.0, 2.0, 5.0])     # fixed decay rates (slow ... fast)
+res  = fit_mbpp_ic_sumexp(obs, counts, bank, l1=0.02)   # fit non-negative weights
+res.kappas, res.thetas                     # weight per timescale; total = sum(kappas)
+\end{lstlisting}
+
+\begin{examplebox}[: total vs.\ split]
+With a true 2-timescale kernel and a 3-rate bank, the fit recovers the \emph{total}
+branching ratio well ($0.58$ vs.\ $0.60$) but spreads the weights across the bank ---
+the per-timescale split is weakly identified, exactly as the $\kappa$--$\theta$
+analysis predicts. Report the total and the rough fast/slow balance, not a precise
+decomposition.
+\end{examplebox}
+
+\begin{recap}
+Sum-of-exponentials kernels model fast+slow excitation, stay closed-form (matrix
+exponential for the compensator), and are fit by fixing a decay bank and estimating
+non-negative weights (with $\ell_1$). The total branching ratio identifies well;
+the timescale split does not.
+\end{recap}
+
+\exercise{Show that a single-exponential kernel is the $Q=1$ case and recovers
+Ch.~\ref{ch:solving}. Why does the matrix $A$ have all eigenvalues with negative
+real part when $\sum_q\kappa_q<1$?}

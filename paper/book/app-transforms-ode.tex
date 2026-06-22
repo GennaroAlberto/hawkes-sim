@@ -1,0 +1,55 @@
+\chapter{Transforms, ODEs, and state space}
+\label{app:transforms}
+
+The methods of this appendix apply to the convolution case $K(t,u)=\phi(t-u)$; their
+failure off it is what makes excitation covariates hard (Ch.~\ref{ch:excitation}).
+
+\section{Laplace, Fourier, and the convolution theorem}
+
+The transforms turn convolution into multiplication,
+$\Lap\{\phi*\xi\}=\Lap\{\phi\}\Lap\{\xi\}$. Applying $\Lap$ to $\xi=s+\phi*\xi$,
+\begin{equation}
+\Lap\{\xi\}=\frac{\Lap\{s\}}{1-\Lap\{\phi\}},\qquad
+\hat\xi(\omega)=R(\omega)\hat s(\omega),\quad R=\frac{1}{1-\hat\phi}.
+\end{equation}
+$R$ is the \emph{transfer function} (the resolvent of Appendix~\ref{app:volterra} in
+the frequency domain). For the exponential kernel $\hat\phi=\kappa\theta/(\theta+i\omega)$,
+so $R(\omega)=(\theta+i\omega)/((1-\kappa)\theta+i\omega)$ --- a one-pole filter
+whose pole is the ODE rate below.
+
+\begin{intuitionbox}
+Transforms re-express $\xi$ in pure oscillations; a shift-invariant system scales
+each independently, so the tangled convolution becomes a per-frequency multiply. A
+covariate that changes the gain over time breaks shift-invariance --- hence no single
+transfer function in Ch.~\ref{ch:excitation}, and one must return to the time domain.
+\end{intuitionbox}
+
+\section{From exponential kernel to a first-order ODE}
+
+Differentiating $y=\phi*\xi$ for $\phi=\kappa\theta e^{-\theta t}$ gives
+\begin{equation}
+y'(t)=(\kappa-1)\theta\,y(t)+\kappa\theta\,s(t),\qquad \xi=s+y,
+\end{equation}
+a stable first-order ODE forced by the baseline (pole $(\kappa-1)\theta<0$).
+
+\begin{theorem}[realisation]\label{thm:appode-rational}
+The convolution MBPP equation is equivalent to a finite linear constant-coefficient
+ODE iff $\phi$ has a strictly proper rational Laplace transform --- equivalently,
+$\phi$ is a finite exponential-polynomial.
+\end{theorem}
+A sum of $Q$ exponentials gives the $Q$-state realisation
+$\dot u=Au+a\,s$, $\xi=s+\mathbf 1^\top u$ (Ch.~\ref{ch:multitimescale}); the
+multivariate kernel gives the $M^2$-state system of Ch.~\ref{ch:solvers}.
+
+\section{Time-varying systems and the fractional case}
+
+For excitation covariates the realisation is the same in form but with a
+time-varying gain (Ch.~\ref{ch:excitation}): a \emph{linear time-varying} ODE,
+integrable step by step (exactly per-regime for piecewise-constant covariates) but
+with no closed matrix exponential when the $A(t)$ do not commute --- the
+differential-equations echo of ``no constant transfer function.'' For a power-law
+kernel the transform is \emph{not} rational, no finite ODE exists, and the resolvent
+is a Mittag--Leffler function $E_{\alpha,\alpha}$ (the dynamics are fractional);
+$E_{1,1}=\exp$ recovers the exponential case. In practice one approximates the
+power law by a sum of exponentials (restoring a finite ODE) or solves by Volterra
+quadrature.

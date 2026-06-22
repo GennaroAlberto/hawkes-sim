@@ -1,0 +1,80 @@
+\chapter{A guided tour of the package}
+\label{ch:package}
+
+\begin{motivation}
+Theory is only useful if you can run it. This chapter maps the mathematics of the
+book onto the \code{hawkes\_calibration} package: which module does what, which
+experiment reproduces which figure, and how the test suite backs every numerical
+claim.
+\end{motivation}
+
+\section{Module map}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Module & Role (chapter)\\
+\midrule
+\code{eventtime/} & event-time Hawkes MLE: simulate, likelihood, estimate, lasso, covariates (Ch.~\ref{ch:hawkes})\\
+\code{mbpp/core.py} & MBPP intensity/compensator, closed \& numeric (Ch.~\ref{ch:mbpp},\ref{ch:solving})\\
+\code{mbpp/exogenous.py} & baseline functions incl.\ covariate link (Ch.~\ref{ch:solving},\ref{ch:baseline})\\
+\code{mbpp/ic\_simulate.py} & cluster \& excitation-modulated simulators (Ch.~\ref{ch:hawkes},\ref{ch:excitation})\\
+\code{mbpp/interval\_censored.py} & IC-LL/SSE, all fitters, SEs, forecasting (Ch.~\ref{ch:fitting}--\ref{ch:multitimescale})\\
+\code{mbpp/gof.py} & time-rescaling KS, dispersion (Ch.~\ref{ch:identif})\\
+\code{mbpp/bayes.py} & Bayesian posterior, priors, hierarchical pooling (Ch.~\ref{ch:bayes})\\
+\code{operators/linear.py} & ODE/state-space, Volterra, spectral operator (Ch.~\ref{ch:solvers})\\
+\code{operators/nn.py} & numpy DeepONet, amortised inference (Ch.~\ref{ch:neural})\\
+\code{operators/tf.py} & TensorFlow high-dim FNO/DeepONet/SSM (Ch.~\ref{ch:neural})\\
+\code{operators/neural\_solver*.py} & PINN/PINO in JAX \& TensorFlow (Ch.~\ref{ch:neural})\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Experiments}
+
+Each experiment is runnable (\code{python -m experiments.expN\_...}) and writes a
+figure to \code{results/}:
+
+\begin{itemize}[leftmargin=1.4em]
+\item \code{exp1--4} --- event-time Hawkes: bias/variance, elicitation-matrix
+recovery, covariates, sparse high-dimensional lasso.
+\item \code{exp5} --- MBPP $=$ mean Hawkes intensity (Ch.~\ref{ch:mbpp}).
+\item \code{exp6} --- recover $(\kappa,\theta)$ from counts across scenarios; IC-LL
+vs.\ SSE (Ch.~\ref{ch:fitting}).
+\item \code{exp7} --- interval-censored forecasting (ACTIVE-style).
+\item \code{exp8} --- baseline covariates (Ch.~\ref{ch:baseline}).
+\item \code{exp9} --- operator backends: ODE/spectral/DeepONet/amortised
+(Ch.~\ref{ch:solvers},\ref{ch:neural}).
+\item \code{exp10} --- excitation covariates on true Hawkes data, multi-timescale,
+goodness-of-fit (Ch.~\ref{ch:excitation},\ref{ch:identif}).
+\end{itemize}
+
+\section{Reproducibility and tests}
+
+Every numerical claim in the book is checked by the test suite
+(\code{tests/test\_interval\_censored.py}, \code{test\_operators.py},
+\code{test\_deep.py}, \code{test\_neural\_solver.py}) --- e.g.\ the MBPP equals the
+Monte-Carlo Hawkes mean, the closed-form and numerical solvers agree, the IC-LL
+recovers $\kappa$, the Volterra and LTV solvers agree where both apply, the family
+residual is exactly zero, and the standard errors cover at the nominal rate on
+model-correct data. The package \code{README} consolidates the practical
+reference --- the capability matrix, the learned-solver (PINN/PINO) recipe, and
+the TensorFlow noise-stress harness --- alongside this book.
+
+\begin{whybox}[: tests as the book's ground truth]
+Where the text asserts a number (``$\hat\kappa\approx0.60\pm0.03$'', ``residual
+$=0$ to $10^{-9}$''), there is a test that produces it. Treat the suite as the
+executable version of this book.
+\end{whybox}
+
+\begin{recap}
+The package mirrors the book: simulation and MLE for the event-time case; the MBPP,
+its solvers, and its fitters for counts; covariate and multi-timescale extensions;
+the operator and neural-solver machinery; and goodness-of-fit. Experiments
+reproduce the figures and tests certify the claims.
+\end{recap}
+
+\exercise{Run \code{exp6} and \code{exp10} and match each panel to a chapter result.}
+\exercise{Pick one theorem from Part II and find the test that numerically
+verifies it.}

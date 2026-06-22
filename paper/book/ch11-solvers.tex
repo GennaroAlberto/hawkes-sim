@@ -1,0 +1,95 @@
+\chapter{A zoo of solvers, and the operator viewpoint}
+\label{ch:solvers}
+
+\begin{motivation}
+We now have several ways to compute $\xi$ and $\Xi$. This chapter organises them
+into a decision guide --- which solver for which model --- and then steps back to
+the unifying picture: the MBPP map $s\mapsto\xi$ is a linear operator, which is
+what lets us, in the next chapter, \emph{learn} it.
+\end{motivation}
+
+\section{The solvers, and when to use each}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Situation & Method & Function & Status\\
+\midrule
+exp.\ kernel, any baseline & closed-form impulse response & \code{MBPP(method="closed")} & exact\\
+general kernel (power-law) & finite convolution sum & \code{MBPP(method="numeric")} & $O(\Delta t)$\\
+sum-of-exp, any forcing & state-space ODE & \code{solve\_mbpp\_ode} & exact\\
+multivariate, exp.\ & $M^2$-state ODE & \code{solve\_mbpp\_ode\_multivariate} & exact\\
+excitation covariates (exp.) & linear time-varying ODE & \code{solve\_mbpp\_ltv} & exact (per-regime)\\
+sum-of-exp, const.\ baseline & matrix exponential & \code{\_sumexp\_compensator\_const} & exact\\
+\emph{any} non-separable kernel & Volterra--Nystr\"om quadrature & \code{solve\_mbpp\_volterra} & $O(\Delta t)$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{whybox}[: exact beats approximate when you can]
+Prefer a closed form or an exact ODE whenever the kernel allows; fall back to
+Nystr\"om quadrature only for genuinely non-separable kernels (power-law $+$
+excitation covariates). The exact solvers are both faster and free of
+discretisation error, and --- crucially for fitting --- give clean gradients.
+\end{whybox}
+
+\section{Rational Laplace transform $\Leftrightarrow$ finite ODE}
+
+The bridge between the integral equation and the ODE solvers:
+
+\begin{theorem}[realisation]\label{thm:ch11-rational}
+The convolution MBPP equation is equivalent to a finite linear constant-coefficient
+ODE iff $\phi$ has a strictly proper rational Laplace transform --- equivalently,
+iff $\phi$ is a finite sum of (polynomial$\times$) exponentials.
+\end{theorem}
+
+\begin{intuitionbox}
+A memory built from finitely many decaying modes can be tracked by finitely many
+state variables: rational transfer function $\Leftrightarrow$ finite-dimensional
+machine. A power-law memory has infinitely many timescales, so no finite ODE
+exists --- hence the quadrature fallback (and, for the curious, the Mittag--Leffler
+/ fractional treatment in Appendix~\ref{app:estimation}).
+\end{intuitionbox}
+
+\section{The operator viewpoint}
+
+The solution map $G:s\mapsto\xi$ is \emph{linear and translation-invariant}. In
+the Fourier domain it is a pointwise multiply,
+\begin{equation}
+\hat\xi(\omega)=R(\omega)\,\hat s(\omega),\qquad R(\omega)=\frac{1}{1-\hat\phi(\omega)},
+\end{equation}
+the \emph{transfer function}. For the exponential kernel
+$R(\omega)=(\theta+i\omega)/((1-\kappa)\theta+i\omega)$ --- a one-pole filter whose
+pole is the ODE rate. Time domain, frequency domain, and state space are three
+views of one operator.
+
+\begin{whybox}[: a spectral neural operator is exact here]
+Because $G$ is diagonalised by the Fourier transform, a single linear
+Fourier-neural-operator layer with weights $R(\omega)$ \emph{is} the exact MBPP
+operator. Conversely, \emph{learning} $R(\omega)$ from input/output pairs is
+nonparametric identification of the operator (and of $\phi=$
+$\mathcal F^{-1}\{1-1/R\}$) --- the Wiener--Hopf idea in neural-operator clothing.
+This is the springboard for Ch.~\ref{ch:neural}. (Note: this exactness relies on
+translation invariance, which the excitation-covariate model of
+Ch.~\ref{ch:excitation} breaks.)
+\end{whybox}
+
+\begin{lstlisting}[caption={The operator backends (from \code{operators/linear.py}).}]
+from hawkes_calibration import FunctionalMBPP, SpectralOperator
+FunctionalMBPP(kernel, method="ode").solve(forcing, t_grid)        # state-space ODE
+FunctionalMBPP(kernel, method="spectral").solve(forcing, t_grid)   # exact R(omega)
+SpectralOperator(t_grid).fit(S, XI).recover_kernel()               # LEARN R, recover phi
+\end{lstlisting}
+
+\begin{recap}
+The solvers form a ladder from exact closed form to general $O(\Delta t)$
+quadrature; rational Laplace transform $\Leftrightarrow$ finite ODE tells you which
+rung you are on. Underneath, the MBPP map is a linear operator, exact as one
+spectral layer --- the bridge to learning the solver.
+\end{recap}
+
+\exercise{Place the multi-timescale and excitation-covariate models on the solver
+table and justify the choice.}
+\exercise{Derive $R(\omega)$ for the exponential kernel from
+$\hat\phi(\omega)=\kappa\theta/(\theta+i\omega)$ and identify its pole.}

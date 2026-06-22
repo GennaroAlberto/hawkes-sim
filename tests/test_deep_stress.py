@@ -33,7 +33,7 @@ from hawkes_calibration import (
     simulate_separable_hawkes, interval_censor, uniform_obs_times,
     fit_mbpp_ic_multi, solve_mbpp_ode_multivariate,
 )
-from hawkes_calibration.likelihood import log_likelihood_and_grad
+from hawkes_calibration.eventtime.likelihood import log_likelihood_and_grad
 
 
 # --------------------------------------------------------------------------

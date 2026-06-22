@@ -1,0 +1,129 @@
+\chapter{Estimation theory}
+\label{app:estimation}
+
+\section{IC-LL as a Bregman divergence}
+
+A Bregman divergence for strictly convex $\varphi$ is
+$B_\varphi(x,y)=\varphi(x)-\varphi(y)-\langle x-y,\nabla\varphi(y)\rangle\ge0$.
+
+\begin{proposition}
+With $\varphi(x)=\sum_i(x_i\log x_i-x_i)$, $\mathcal L_{\mathrm{IC}}=\KL(\sfont C,\Xi)+\text{const}$.
+The squared generator $\tfrac12\|x\|^2$ instead gives the least-squares loss.
+\end{proposition}
+\begin{proof}
+The MBPP makes the bucket counts $C_i$ independent Poisson with mean
+$\Xi_i=\int_{\tau_{i-1}}^{\tau_i}\xi$. Up to the $\theta$-independent constant
+$\sum_i\log C_i!$, the negative log-likelihood is
+$\mathcal L_{\mathrm{IC}}=\sum_i(\Xi_i-C_i\log\Xi_i)$. Take $\varphi(x)=\sum_i(x_i\log x_i-x_i)$,
+so $\nabla\varphi(y)_i=\log y_i$. Then
+\[
+B_\varphi(\sfont C,\Xi)=\sum_i\big(C_i\log C_i-C_i\big)-\big(\Xi_i\log\Xi_i-\Xi_i\big)-\log\Xi_i\,(C_i-\Xi_i)
+=\sum_i\big(\Xi_i-C_i\log\Xi_i\big)+\underbrace{\sum_i(C_i\log C_i-C_i)}_{\text{const in }\theta}.
+\]
+The bracketed term depends only on the data, so
+$\mathcal L_{\mathrm{IC}}=B_\varphi(\sfont C,\Xi)+\text{const}=\KL(\sfont C,\Xi)+\text{const}$.
+Replacing $\varphi$ by $\tfrac12\|x\|^2$ gives $\nabla\varphi(y)=y$ and
+$B_\varphi=\tfrac12\|\sfont C-\Xi\|^2$, the SSE.
+\end{proof}
+
+\begin{theorem}[Bregman $\leftrightarrow$ exponential family; Banerjee et al.]
+For a regular exponential family with cumulant $\psi$ and mean $\mu=\nabla\psi$, the
+negative log-likelihood equals $B_{\psi^\star}(x,\mu)$ up to a constant. Poisson
+gives $\psi^\star(\mu)=\mu\log\mu-\mu$ (so $B=\KL$ --- IC-LL); Gaussian gives
+$\tfrac12(x-\mu)^2$ (least squares).
+\end{theorem}
+Choosing the divergence is choosing the noise model; KL is correct because a
+Poisson bucket has variance equal to its mean, so it weights bucket $i$ by
+$1/\Xi_i$ (Ch.~\ref{ch:fitting}). The HIP method is least squares against the
+\emph{intensity} under unit-bucket and discrete-convolution assumptions --- a
+triply-restricted special case the MBPP framework derives and corrects.
+
+\section{Consistency, information, goodness of fit}
+
+\begin{theorem}[Ogata]
+For a stationary, ergodic, subcritical process with $\theta_0$ interior to a compact
+identifiable set and the usual smoothness/moment regularity, the MLE is consistent
+and asymptotically normal, $\sqrt T(\hat\theta_T-\theta_0)\to\mathcal N(0,\mathfrak i(\theta_0)^{-1})$.
+\end{theorem}
+SEs come from the observed information (Hessian of $-\ell$); under interval
+censoring, from $\mathcal I^{\mathrm{IC}}_{jk}=\sum_i\partial_j\Xi_i\partial_k\Xi_i/\Xi_i$,
+inflated by $\sqrt{\text{dispersion}}$ for Hawkes over-dispersion (Ch.~\ref{ch:identif}).
+
+\begin{theorem}[time-rescaling]
+If $\Lambda$ is continuous and strictly increasing, the rescaled gaps
+$\Lambda(t_k)-\Lambda(t_{k-1})$ are i.i.d.\ $\mathrm{Exp}(1)$.
+\end{theorem}
+Hence the KS-against-$\mathrm{Exp}(1)$ goodness-of-fit test (\code{gof.py}).
+
+\section{The $\kappa$--$\theta$ ridge, derived}
+
+We can see the ridge directly in the Fisher information. Write the interval-censored
+information $\mathcal I_{jk}=\sum_i \Xi_i^{-1}(\partial_j\Xi_i)(\partial_k\Xi_i)$
+(the Poisson/KL weight $1/\Xi_i$ from the proposition above). The sensitivities
+$\partial_j\Xi_i$ flow from $\xi=s+\phi\conv\xi$ through the kernel parameters.
+
+\begin{proposition}[near-degeneracy]\label{prop:ridge-degenerate}
+For $\phi=\alpha e^{-\beta t}$ with $\alpha=\kappa\theta,\ \beta=\theta$, the
+information $\mathcal I(\kappa,\theta)$ has a large eigenvalue with eigenvector
+$\approx\partial_\kappa$ and a small eigenvalue with eigenvector $\approx\partial_\theta$,
+and the small eigenvalue $\to0$ as the bucket width $\Delta\to\infty$.
+\end{proposition}
+\begin{proof}[Sketch]
+The total kernel mass is $\int_0^\infty\phi=\alpha/\beta=\kappa$, independent of
+$\theta$. Differentiating the resolvent identity $\xi=s+\phi\conv\xi$ gives, in the
+stationary/constant-baseline regime, $\partial_\kappa\xi=\partial_\kappa(\text{mass})\cdot(\text{gain})$
+with gain $1/(1-\kappa)$, a $\theta$-free first-order shift of the \emph{level} of
+$\xi$. By contrast $\partial_\theta\phi=\alpha e^{-\beta t}(1-\beta t)/\theta\cdot(\cdots)$
+has zero integral ($\int_0^\infty\partial_\theta\phi=\partial_\theta(\alpha/\beta)=0$
+along constant $\kappa$): changing $\theta$ \emph{reshapes} $\phi$ in time without
+changing its mass, so it perturbs only the \emph{timing} of $\xi$, not its level.
+A censoring bucket reports $\Xi_i=\int_{\tau_{i-1}}^{\tau_i}\xi$, which averages over
+exactly that timing; as $\Delta\to\infty$ the bucket integral becomes insensitive to
+the shape perturbation, $\partial_\theta\Xi_i\to0$, and the corresponding eigenvalue
+of $\mathcal I$ vanishes while $\partial_\kappa\Xi_i$ (a level shift) persists. Hence
+$\kappa$ stays identified, $\theta$ degrades, and the weak eigenvector aligns with
+constant-$\kappa$ curves.
+\end{proof}
+
+\begin{remarknote}
+This is why the Bayesian posterior of Chapter~\ref{ch:bayes} is a banana along
+constant-$\kappa$ curves, why the Laplace covariance $\mathcal I^{-1}$ blows up in
+the $\theta$ direction, and why an informative prior on $\theta$ (not more buckets)
+is the correct remedy. Excitation covariates add non-convexity and require
+covariate--event co-occurrence to identify $\delta$.
+\end{remarknote}
+\emph{Practical guidance:} trust $\kappa$ and covariate effects $\gamma$; fix or
+prior-constrain $\theta$; report wide intervals for it.
+
+\section{Bernstein--von Mises: from likelihood to posterior}
+
+The Bayesian and frequentist large-sample stories coincide. Let
+$\ell_n(\theta)=-\mathcal L_{\mathrm{IC}}(\theta)$ be the log-likelihood from $n$
+buckets and $\hat\theta_n$ the MLE.
+
+\begin{theorem}[LAN $\Rightarrow$ BvM]\label{thm:bvm-proof}
+Suppose $\ell_n$ is locally asymptotically normal at $\theta_0$:
+$\ell_n(\theta_0+h/\sqrt n)-\ell_n(\theta_0)=h^\top\Delta_n-\tfrac12 h^\top\mathcal I h+o_P(1)$
+with $\Delta_n\to\mathcal N(0,\mathcal I)$ and $\mathcal I\succ0$, the prior $\pi$ is
+continuous and positive at $\theta_0$, and the MLE is consistent. Then the posterior
+for $\vartheta=\sqrt n(\theta-\hat\theta_n)$ converges in total variation to
+$\mathcal N(0,\mathcal I^{-1})$.
+\end{theorem}
+\begin{proof}[Sketch]
+Write the posterior density of $\vartheta$ as
+$p_n(\vartheta)\propto \exp\{\ell_n(\hat\theta_n+\vartheta/\sqrt n)-\ell_n(\hat\theta_n)\}\,\pi(\hat\theta_n+\vartheta/\sqrt n)$.
+A second-order expansion at the MLE (where $\nabla\ell_n=0$) gives the exponent
+$-\tfrac12\vartheta^\top \mathcal I\vartheta+o_P(1)$ uniformly on compacts, and the
+prior factor $\to\pi(\theta_0)$ by continuity. Thus $p_n(\vartheta)\to c\,e^{-\frac12\vartheta^\top\mathcal I\vartheta}$
+pointwise; Scheff\'e's lemma upgrades this to total-variation convergence to
+$\mathcal N(0,\mathcal I^{-1})$. The prior washes out at rate $1/\sqrt n$ --- but
+\emph{only} in directions where $\mathcal I\succ0$.
+\end{proof}
+
+\begin{remarknote}
+Proposition~\ref{prop:ridge-degenerate} is exactly the failure mode: along the
+$\theta$ eigenvector $\mathcal I\to0$, the $o_P(1)$ remainder is not negligible
+relative to the (vanishing) curvature, and the posterior does \emph{not} forget the
+prior there. BvM holds on the identified subspace ($\kappa$, $\gamma$) and fails on
+the ridge --- precisely matching the wide $\theta$ credible intervals we observe.
+\end{remarknote}

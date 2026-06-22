@@ -1,0 +1,82 @@
+\chapter{Covariates in the baseline}
+\label{ch:baseline}
+
+\begin{motivation}
+Real systems have known drivers --- weather, day-of-week, a marketing spend, a
+tweet volume. The easiest place to let them in is the immigrant rate. This chapter
+shows that doing so changes \emph{nothing} about the solution machinery, and fits
+the covariate effects from counts.
+\end{motivation}
+
+\section{The log-linear baseline}
+
+Let covariates $X(t)\in\R^p$ enter through a log link that keeps the rate
+non-negative for any coefficients:
+\begin{equation}
+s(t)=\exp\!\big(\gamma_0+\gamma^\top X(t)\big).
+\label{eq:ch8-loglin}
+\end{equation}
+
+\begin{whybox}[: only the forcing changes]
+The MBPP equation $\xi=s+\phi*\xi$ is \emph{linear in the forcing $s$} and its
+kernel $\phi$ is untouched. Equation~\eqref{eq:ch8-loglin} changes \emph{what} we
+feed in, not the operator $\mathcal I-\mathcal V$. So the entire closed-form
+solution of Ch.~\ref{ch:solving} carries over verbatim --- $\xi=E*s$,
+$\Xi=E*\sfont S$ --- with no new mathematics.
+\end{whybox}
+
+\begin{proposition}
+If $X(t)$ is piecewise-constant then so is $s(t)$ (rate
+$\exp(\gamma_0+\gamma^\top X_k)$ on interval $k$), so $\xi$ and $\Xi$ are the same
+closed-form piecewise-constant responses as in Ch.~\ref{ch:solving}; only the
+per-interval rates are reparameterised.
+\end{proposition}
+
+\begin{intuitionbox}
+A covariate constant on each bucket merely relabels the baseline height there. The
+self-excitation machinery neither knows nor cares that the height came from a
+regression rather than a free parameter, so the solver is unchanged.
+\end{intuitionbox}
+
+\section{Fitting the effects}
+
+We now optimise the IC-LL over $(\gamma_0,\gamma)$ jointly with $(\kappa,\theta)$.
+A time-bucketed table --- one row per interval, with covariate columns and a count
+column --- maps directly onto the fit.
+
+\begin{lstlisting}[caption={Estimating covariate effects from a daily table.}]
+from hawkes_calibration import PiecewiseConstantCovariate, fit_mbpp_ic_covariates
+breaks = np.arange(n_days + 1)                       # interval endpoints
+cov    = PiecewiseConstantCovariate(breaks, X)       # X: (n_days, p) covariate columns
+res = fit_mbpp_ic_covariates(breaks, counts, cov, loss="ic-ll")
+res.gamma0, res.gamma, res.kappa, res.theta          # recovered from counts + covariates
+\end{lstlisting}
+
+\begin{examplebox}[: regime-switching baseline]
+\code{exp8\_ic\_covariates.py} drives the baseline with a regime indicator that
+flips every few buckets. Over repeats the covariate effect is recovered tightly
+($\gamma_1=0.90$ as $0.90\pm0.06$ from counts alone), even though $\theta$ and the
+absolute level $\gamma_0$ scatter --- the $\kappa$--$\theta$ ridge of
+Ch.~\ref{ch:identif} again.
+\end{examplebox}
+
+\begin{whybox}[: effects are identified by contrast]
+$\gamma$ is read off from how counts change \emph{across} buckets as $X$ varies;
+the absolute split between baseline level and self-excitation is weaker. A covariate
+that does not vary carries no information about its coefficient: identification of
+$\gamma$ needs covariate \emph{contrast}.
+\end{whybox}
+
+\begin{recap}
+Baseline covariates enter through a log link and change only the forcing, so the
+closed-form solver is untouched; we fit $\gamma$ jointly with $(\kappa,\theta)$ and
+recover the \emph{effects} tightly (given contrast). Crucially, the kernel is still
+a fixed convolution. The next chapter asks what happens when covariates enter the
+\emph{kernel} --- and there the convolution structure finally breaks.
+\end{recap}
+
+\exercise{Argue that with one-hot encoded categorical covariates, \eqref{eq:ch8-loglin}
+gives a separate baseline level per category, and the fit reduces to estimating
+those levels plus $(\kappa,\theta)$.}
+\exercise{Why can the covariate-effect $\gamma$ be well identified even when the
+absolute baseline $\gamma_0$ is not?}

@@ -1,0 +1,56 @@
+\chapter{API cheat-sheet}
+\label{app:api}
+
+A task-oriented index into the \code{hawkes\_calibration} package. Import names are
+top-level (\code{from hawkes\_calibration import ...}) unless a submodule is given.
+
+\section{``I want to \dots''}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}p{0.46\linewidth}p{0.5\linewidth}@{}}
+\toprule
+Task & Use\\
+\midrule
+simulate a Hawkes process (event times) & \code{simulate\_multivariate\_hawkes}\\
+simulate keeping immigrants/offspring separate & \code{simulate\_separable\_hawkes}\\
+simulate with covariate-modulated excitation & \code{simulate\_hawkes\_excitation}\\
+turn event times into bucket counts & \code{interval\_censor}, \code{uniform\_obs\_times}\\
+\midrule
+build an MBPP, get $\xi$ / $\Xi$ & \code{MBPP(ExponentialKernel(...), exo).intensity/compensator}\\
+solve for an arbitrary forcing / sum-of-exp & \code{operators.solve\_mbpp\_ode}\\
+solve the multivariate MBPP & \code{operators.solve\_mbpp\_ode\_multivariate}\\
+solve with excitation covariates (LTV) & \code{operators.solve\_mbpp\_ltv}\\
+solve a general (power-law) Volterra MBPP & \code{operators.solve\_mbpp\_volterra}\\
+\midrule
+fit $(\kappa,\theta)$ from counts & \code{fit\_mbpp\_ic} (\code{loss="ic-ll"})\\
+fit jointly over many sequences & \code{fit\_mbpp\_ic\_multi}\\
+fit baseline covariates $\gamma$ & \code{fit\_mbpp\_ic\_covariates}\\
+fit excitation covariates $\delta$ & \code{fit\_mbpp\_ic\_excitation}\\
+fit a multi-timescale kernel & \code{fit\_mbpp\_ic\_sumexp}\\
+forecast future counts & \code{forecast\_counts}\\
+get standard errors & \code{ICFitResult.se\_kappa/se\_theta} (quasi-Poisson)\\
+\midrule
+check goodness of fit & \code{gof}: \code{time\_rescaling\_residuals}, \code{ks\_test\_exp1}, \code{dispersion}\\
+learn the operator / kernel & \code{SpectralOperator}, \code{operators\_nn.DeepONetOperator}\\
+amortise inference (counts$\to$params) & \code{operators\_nn.AmortizedInference}\\
+high-dim TF operators & \code{operators\_tf} (FNO, DeepONet, SSM)\\
+neural PDE solver (PINN / PINO) & \code{neural\_solver.make\_neural\_solver(backend, mode)}\\
+exact anchors / training diagnostics & \code{neural\_solver.make\_anchor\_data}, \code{solver\_accuracy\_report}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Parameter conventions}
+
+The theory uses $\phi(t)=\kappa\theta e^{-\theta t}$ ($\kappa=$ branching ratio,
+$\theta=$ decay); the event-time code uses $\phi(t)=\alpha e^{-\beta t}$. They match
+via $\alpha=\kappa\theta$, $\beta=\theta$, i.e.\ $\kappa=\alpha/\beta$; convert with
+\code{kappa\_theta\_to\_alpha\_beta} / \code{alpha\_beta\_to\_kappa\_theta}.
+
+\section{Further reading in the repository}
+
+the package \code{README} (the practical reference: a status matrix of every
+model/solver/fitter, the learned-solver and PINN/PINO recipe with hybrid training,
+and a noise-stress harness for the TF models), and the \code{tests/} suite (the
+executable ground truth for every numerical claim in this book).

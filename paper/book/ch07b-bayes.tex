@@ -1,0 +1,159 @@
+\chapter{Bayesian calibration and the identifiability ridge}
+\label{ch:bayes}
+
+\begin{motivation}
+Chapter~\ref{ch:identif} showed the painful truth: counts pin down $\kappa$ but
+barely constrain $\theta$, and a single standard error cannot express that. The
+Bayesian posterior can. It reports honest, possibly non-Gaussian uncertainty;
+exposes the $\kappa$--$\theta$ ridge as a \emph{correlation}; lets us inject prior
+knowledge on the weak direction; and --- through hierarchical pooling --- borrows
+strength across series to sharpen estimates the data alone cannot.
+\end{motivation}
+
+\section{The posterior}
+
+Place a prior $\pi(\theta)$ on the parameters $\theta=(\kappa,\vartheta,\dots)$.
+With the interval-censored likelihood of Chapter~\ref{ch:fitting},
+$L(\theta)=\exp(-\mathcal L_{\mathrm{IC}}(\theta))$ (a product of independent
+Poisson bucket terms), Bayes' theorem gives
+\begin{equation}
+p(\theta\mid\sfont C)=\frac{L(\theta)\,\pi(\theta)}{\int L(\theta')\pi(\theta')\dd\theta'}
+\;\propto\;\exp\!\big(-\mathcal L_{\mathrm{IC}}(\theta)\big)\,\pi(\theta).
+\label{eq:ch7b-posterior}
+\end{equation}
+Everything we need --- point estimates, intervals, the joint shape --- is a summary
+of \eqref{eq:ch7b-posterior}.
+
+\begin{whybox}[: priors on the unconstrained scale]
+We must keep $\kappa\in(0,1)$ and $\vartheta>0$. Rather than constrained priors with
+awkward Jacobians, we work in the \emph{unconstrained} coordinates
+$u=(\operatorname{logit}\kappa,\ \log\vartheta,\dots)$ and place independent
+Gaussian priors there. A $\mathcal N$ on $\operatorname{logit}\kappa$ is a
+\emph{logit-normal} prior on $\kappa$; a $\mathcal N$ on $\log\vartheta$ is a
+\emph{log-normal} on $\vartheta$. The sampler then explores an unbounded space (where
+random-walk Metropolis behaves well), and we transform samples back. Because the
+prior is defined directly on $u$, no change-of-variables Jacobian is needed.
+\end{whybox}
+
+\section{The Laplace approximation}
+
+A second-order Taylor expansion of the log-posterior about its mode (the MAP
+$\hat u$) gives the cheapest useful posterior. Writing $g(u)=\log p(u\mid\sfont C)$
+and $\nabla g(\hat u)=0$,
+\begin{equation}
+g(u)\approx g(\hat u)-\tfrac12 (u-\hat u)^\top H (u-\hat u),\quad H=-\nabla^2 g(\hat u),
+\end{equation}
+so $p(u\mid\sfont C)\approx\mathcal N(\hat u,\,H^{-1})$. $H$ is the observed
+information (Hessian of $\mathcal L_{\mathrm{IC}}$) plus the prior's curvature;
+the MAP and $H$ are exactly the quantities the frequentist fitter already
+computes, so Laplace is essentially free.
+
+\begin{intuitionbox}
+Laplace says: ``near its peak the posterior looks Gaussian, with width set by how
+sharply the data curve the log-likelihood.'' Along the $\kappa$--$\theta$ ridge the
+curvature is tiny, so $H^{-1}$ is huge in that direction --- the Gaussian is a long
+ellipse, the linearised picture of the banana we see in MCMC.
+\end{intuitionbox}
+
+\section{Metropolis--Hastings, and why it samples the posterior}
+
+When the posterior is non-Gaussian (small data, near criticality), we sample it
+exactly with Markov-chain Monte Carlo. Random-walk Metropolis proposes
+$u'=u+\varepsilon$, $\varepsilon\sim\mathcal N(0,\Sigma)$, and accepts with
+probability $a=\min\{1,\,p(u')/p(u)\}$.
+
+\begin{proposition}[stationarity]\label{prop:ch7b-detbal}
+The Metropolis chain has the posterior $p$ as its stationary distribution.
+\end{proposition}
+\begin{proof}
+With symmetric proposal $q(u'\mid u)=q(u\mid u')$, the transition density for
+$u\neq u'$ is $K(u',u)=q(u'\mid u)\min\{1,p(u')/p(u)\}$. Then
+$p(u)K(u',u)=q\min\{p(u),p(u')\}=p(u')K(u,u')$: \emph{detailed balance} holds, so
+$p$ is invariant. With an irreducible, aperiodic chain the law converges to $p$.
+\end{proof}
+
+\begin{whybox}[: adaptive proposals]
+The proposal covariance $\Sigma$ controls mixing: too small and the chain crawls,
+too large and it rarely accepts. We use Haario's \emph{adaptive Metropolis} ---
+after a warm-up, set $\Sigma=(2.38^2/d)\,\widehat{\mathrm{Cov}}$ from the chain's own
+history (the $2.38^2/d$ is the asymptotically optimal RWM scaling). Adaptation must
+\emph{diminish} (we freeze it / decay it) to preserve ergodicity. We run several
+chains and check the Gelman--Rubin $\hat R\approx1$.
+\end{whybox}
+
+\begin{lstlisting}[caption={Bayesian fit: posterior over $(\kappa,\theta)$ from counts (from \code{bayes.py}).}]
+from hawkes_calibration import fit_mbpp_bayes, GaussianPrior
+res = fit_mbpp_bayes(obs, counts, exogenous, method="mcmc", n_chains=4)
+print(res.summary())          # means, 95% credible intervals, R-hat, corr(kappa,theta)
+# inject knowledge of the timescale: a tight prior on log(theta)
+prior = GaussianPrior(means=[0.0, np.log(1.0)], sds=[1.5, 0.12])
+res_t = fit_mbpp_bayes(obs, counts, exogenous, prior=prior)   # tightens theta
+\end{lstlisting}
+
+\begin{examplebox}[: the ridge, made visible]
+On the standard synthetic problem (\code{exp11\_bayes.py}) the posterior gives
+$\kappa$ a 95\% credible interval $[0.47,0.57]$ (truth $0.5$) but $\theta$ a broad
+$[0.37,3.1]$, with posterior correlation $\mathrm{corr}(\kappa,\theta)\approx-0.35$
+--- the ridge as a number. An informative prior on $\theta$ collapses its interval
+to $[0.79,1.26]$; Laplace and MCMC agree on $\kappa$ to $0.005$; and $\hat R<1.01$.
+\end{examplebox}
+
+\section{Hierarchical pooling: identification by borrowing strength}
+
+Suppose we observe $J$ short series, each too weak to pin down its own $\kappa_j$.
+Model them hierarchically (with $\theta$ fixed as the weak nuisance):
+\begin{equation}
+\operatorname{logit}\kappa_j\sim\mathcal N(\mu,\tau^2),\quad
+\mu\sim\mathcal N(\mu_0,s_0^2),\quad \log\tau\sim\mathcal N(0,1),
+\end{equation}
+with the per-series IC-LL likelihoods. The posterior \emph{shrinks} each
+$\kappa_j$ toward the population mean by an amount set by its own information.
+
+\begin{intuitionbox}
+In the conjugate Gaussian caricature, if series $j$ alone would estimate
+$\hat u_j$ with precision $1/\sigma_j^2$ and the population has precision
+$1/\tau^2$, the posterior mean is the precision-weighted average
+$\frac{\sigma_j^{-2}\hat u_j+\tau^{-2}\mu}{\sigma_j^{-2}+\tau^{-2}}$: an
+uninformative (large $\sigma_j$) series is pulled hard toward the population, a
+sharp one barely moves. \textbf{This is a genuine identifiability gain} --- pooling
+extracts a population-level $\kappa$ that no single short series could.
+\end{intuitionbox}
+
+In \code{exp11} the pooled population branching ratio has 95\% credible interval
+$[0.47,0.59]$ from six short series each individually uninformative
+(\code{fit\_mbpp\_bayes\_hierarchical}).
+
+\section{Bernstein--von Mises, and what Bayes can and cannot do}
+
+\begin{theorem}[Bernstein--von Mises, informal]\label{thm:ch7b-bvm}
+Under the regularity of Theorem in Appendix~\ref{app:estimation} and a prior
+positive at $\theta_0$, as data accumulate the posterior concentrates and becomes
+asymptotically Gaussian, $p(\theta\mid\sfont C)\approx\mathcal N(\hat\theta_{\mathrm{MLE}},\,\mathcal I^{-1})$;
+Bayesian credible sets then coincide with frequentist confidence sets.
+\end{theorem}
+
+\begin{pitfall}
+BvM needs the parameter to be \emph{identified}. Along the $\kappa$--$\theta$ ridge
+the information $\mathcal I$ is near-singular, so the posterior does \emph{not}
+concentrate in $\theta$ no matter how many buckets you collect --- it relaxes to the
+prior in that direction. Bayes reports this honestly (a wide marginal); it does not
+manufacture information the counts lack. To learn $\theta$ you need finer time
+resolution, event times, or a genuine prior --- not more buckets.
+\end{pitfall}
+
+\begin{recap}
+The posterior $p(\theta\mid\sfont C)\propto e^{-\mathcal L_{\mathrm{IC}}}\pi(\theta)$
+gives honest uncertainty: Laplace for a fast Gaussian approximation, adaptive
+Metropolis for the exact (banana-shaped) posterior. Priors on the unconstrained
+scale keep parameters valid; an informative $\theta$-prior tightens the weak
+direction; hierarchical pooling sharpens many weak series at once. Bernstein--von
+Mises ties credible to confidence sets \emph{where the model is identified} ---
+which, for $\theta$ from coarse counts, is exactly where it is not.
+\end{recap}
+
+\exercise{Show that placing a $\mathcal N(m,s^2)$ prior on $\log\theta$ induces a
+log-normal prior on $\theta$ with median $e^m$. What does $s\to\infty$ correspond to?}
+\exercise{Prove detailed balance for Metropolis--Hastings with a \emph{non}-symmetric
+proposal $q$, where $a=\min\{1,\frac{p(u')q(u\mid u')}{p(u)q(u'\mid u)}\}$.}
+\exercise{In the conjugate Gaussian hierarchy, derive the shrinkage factor and
+explain why a short, noisy series is shrunk more.}

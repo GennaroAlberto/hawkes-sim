@@ -1,0 +1,99 @@
+\chapter{What you can and cannot learn}
+\label{ch:identif}
+
+\begin{motivation}
+A responsible fit reports not just point estimates but \emph{which} of them to
+trust. This chapter explains, with the information geometry behind it, why the
+branching ratio $\kappa$ is well identified from counts while the decay $\theta$ is
+not; how to get standard errors that are honest under the Hawkes over-dispersion;
+and how to check the fit at all (goodness-of-fit).
+\end{motivation}
+
+\section{The $\kappa$--$\theta$ ridge}
+
+Write $\phi=\alpha e^{-\beta t}$ with $\alpha=\kappa\theta$, $\beta=\theta$. The
+data inform two nearly-orthogonal things: the \emph{branching ratio}
+$\kappa=\alpha/\beta=\int\phi$ (how much: the offspring fraction, visible in counts
+and cross-correlations) and the \emph{timescale} $1/\theta$ (how fast: visible only
+in timing).
+
+\begin{whybox}[: counts hide the timescale]
+A bucket compensator $\Xi_i=\int_{o_{i-1}}^{o_i}\xi$ \emph{integrates away} the
+within-bucket timing that carries $\theta$. So $\partial\Xi_i/\partial\theta$ is
+small and sign-oscillating while $\partial\Xi_i/\partial\kappa$ is order-one and
+monotone: the Fisher information is ill-conditioned along the
+$\alpha/\beta$-preserving ridge. As buckets coarsen, the $\theta$-information
+$\to0$ while $\kappa$ persists.
+\end{whybox}
+
+\begin{intuitionbox}
+Counts tell you \emph{how much} activity is self-generated ($\kappa$) but not
+\emph{how fast} the echo decays ($\theta$). Treat $\kappa$ (and, later, covariate
+effects) as trustworthy; fix or prior-constrain $\theta$ from domain knowledge or
+finer data, and report it with wide intervals.
+\end{intuitionbox}
+
+\section{Standard errors under over-dispersion}
+
+The observed information (Hessian of the IC-LL) gives model-based SEs. But true
+Hawkes counts are \emph{over-dispersed} relative to the MBPP's Poisson assumption
+(offspring clustering), so the naive SEs are too small. The package applies a
+\emph{quasi-Poisson} correction --- inflate by $\sqrt{\text{dispersion}}$:
+
+\begin{lstlisting}[caption={Standard errors with the quasi-Poisson correction (from \code{interval\_censored.py}).}]
+se = _observed_information_se(objective, best.x, build_to_natural)   # Hessian^-1, delta method
+disp = np.sum((counts - Xi_opt)**2 / Xi_opt) / (m - 2)               # Pearson dispersion
+se_kappa, se_theta = se[0]*np.sqrt(max(disp,1.0)), se[1]*np.sqrt(max(disp,1.0))
+\end{lstlisting}
+
+\begin{examplebox}[: coverage]
+On \emph{model-correct} (MBPP-Poisson) data the 95\% interval for $\kappa$ covers
+the truth $\approx94\%$ of the time --- the SE computation is right. On genuine
+over-dispersed Hawkes data the naive SE undercovers (57\%); the quasi-Poisson
+correction lifts it to $\approx82\%$. The residual gap is serial clustering a
+scalar dispersion cannot fully capture --- honest, and a reason to also run a
+goodness-of-fit check.
+\end{examplebox}
+
+\section{Goodness of fit}
+
+Two complementary checks (Appendix~\ref{app:estimation}, \code{gof.py}):
+
+\paragraph{Time-rescaling (event-time).} If the fitted compensator is right, the
+rescaled inter-event gaps $\Lambda(t_k)-\Lambda(t_{k-1})$ are i.i.d.\
+$\mathrm{Exp}(1)$; a Kolmogorov--Smirnov test against $\mathrm{Exp}(1)$ detects
+misspecification.
+
+\paragraph{Dispersion (interval-censored).} The Pearson statistic
+$\sum_i(\sfont C_i-\Xi_i)^2/\Xi_i$ divided by degrees of freedom should be near 1;
+$>1$ flags over-dispersion (unmodelled clustering), $\gg1$ a wrong model.
+
+\begin{lstlisting}
+from hawkes_calibration import ks_test_exp1, time_rescaling_residuals, dispersion
+D, p = ks_test_exp1(time_rescaling_residuals(events, compensator))   # event-time
+phi  = dispersion(counts, Xi, n_params=2)                            # interval counts
+\end{lstlisting}
+
+\begin{examplebox}[: GOF separates models]
+In \code{exp10\_deep.py}, the dispersion under the \emph{correct} kernel clusters
+near $1.9$ (the inherent Hawkes over-dispersion), while a deliberately
+\emph{wrong} kernel gives dispersion $\approx67$ --- a decisive separation.
+\end{examplebox}
+
+\begin{pitfall}
+Never report $\hat\theta$ from interval-censored data as if it were as reliable as
+$\hat\kappa$. And a dispersion near 1 does not by itself prove the model --- combine
+it with the time-rescaling test when timestamps are available.
+\end{pitfall}
+
+\begin{recap}
+$\kappa$ is well identified, $\theta$ weakly so (counts integrate away timing).
+Honest SEs need a quasi-Poisson inflation for Hawkes over-dispersion; goodness-of-fit
+uses time-rescaling (KS vs Exp(1)) and the Pearson dispersion. With Part II
+complete --- model, solve, fit, diagnose --- Part III adds covariates.
+\end{recap}
+
+\exercise{Explain why coarser buckets make $\theta$ \emph{less} identifiable but
+leave $\kappa$ essentially unchanged.}
+\exercise{Simulate over-dispersed counts and verify the dispersion statistic
+exceeds 1; then confirm the quasi-Poisson SE widens accordingly.}

@@ -1,0 +1,56 @@
+\chapter*{Preface}
+\addcontentsline{toc}{chapter}{Preface}
+\markboth{Preface}{Preface}
+
+This book is about a deceptively simple question: \emph{how do you fit a
+self-exciting process when you never see the individual events, only how many
+happened in each time bucket?} Daily hospital admissions, hourly transaction
+volumes, per-day video views --- in all of these the natural model is a Hawkes
+process (events trigger more events), yet the data are \emph{counts}, not
+timestamps, and the Hawkes likelihood needs timestamps. The resolution we build,
+piece by piece, is the \emph{Mean Behavior Poisson process} (MBPP): a companion
+process whose deterministic intensity equals the expected Hawkes intensity, which
+\emph{can} be fit to counts and which shares its parameters with the Hawkes
+process we actually want.
+
+\paragraph{Who this is for.} A reader comfortable with calculus, linear algebra,
+and a little probability, who wants both the \emph{mathematics} (stated
+carefully, with proofs) and the \emph{code} (a working Python package,
+\code{hawkes\_calibration}) --- and, above all, the \emph{reasons} behind each
+modelling and computational choice. Every chapter explains \emph{why} we do what
+we do before showing \emph{how}.
+
+\paragraph{How to read it.} The chapters build strictly in difficulty:
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{Part I} assembles the two ingredients --- the Poisson process (and the
+one theorem that makes the whole approach possible) and the Hawkes process (and why
+it resists counts).
+\item \textbf{Part II} constructs the MBPP, solves its governing equation, fits it
+to counts, and asks what is actually learnable.
+\item \textbf{Part III} adds realism: covariates in the baseline, then --- the hard
+case --- covariates in the \emph{excitation}, which turns the governing equation
+into a genuine Volterra system.
+\item \textbf{Part IV} is computation: the family of exact and numerical solvers,
+the operator viewpoint, and learning the solver with neural networks (DeepONet,
+FNO, PINN, PINO).
+\item \textbf{Part V} is a guided tour of the package and its experiments.
+\item The \textbf{appendices} are self-contained primers (Volterra equations,
+Laplace/Fourier, ODE/state-space, estimation theory) and an API cheat-sheet.
+\end{itemize}
+
+\paragraph{The boxes.} Coloured boxes carry the pedagogy. \emph{Why we care}
+motivates; \emph{Intuition} gives the one-sentence mental model; \emph{Why this
+choice} defends a design decision against alternatives; \emph{Worked example} does
+a concrete computation; \emph{Pitfall} flags a trap; and each chapter ends with a
+\emph{recap}. Grey code listings show the actual implementation, and short
+exercises invite you to check understanding.
+
+\paragraph{A note on honesty.} We are candid about limitations throughout --- which
+parameters are well identified and which are not, where a method is exact and where
+it is only an $O(\Delta t)$ approximation, and which models are easy versus hard to
+fit. Good modelling is as much about knowing the failure modes as the successes.
+
+\bigskip
+\noindent\emph{All code shown is from the companion package; every numerical claim
+in the book is reproduced by its test suite or experiments.}

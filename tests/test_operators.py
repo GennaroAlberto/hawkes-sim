@@ -18,7 +18,7 @@ from hawkes_calibration import (
     AmortizedInference, simulate_separable_hawkes, interval_censor, uniform_obs_times,
     PiecewiseConstantCovariate, fit_mbpp_ic_excitation,
 )
-from hawkes_calibration.interval_censored import _excitation_modulation
+from hawkes_calibration.mbpp.interval_censored import _excitation_modulation
 
 
 def test_kernel_exponentials_exponential():
@@ -136,7 +136,7 @@ def _excitation_dXi(obs, Z, kappa, theta, mu, delta, n_sub=6):
 def test_excitation_likelihood_detects_modulation():
     # the IC-LL built on the LTV solver correctly prefers the true excitation
     # modulation over no modulation (delta=0): the machinery is sensitive to delta.
-    from hawkes_calibration.interval_censored import ic_ll
+    from hawkes_calibration.mbpp.interval_censored import ic_ll
     rng = np.random.default_rng(0)
     m = 60
     obs = np.arange(m + 1, dtype=float)

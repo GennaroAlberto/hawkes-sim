@@ -1,0 +1,81 @@
+\chapter{Fitting from counts}
+\label{ch:fitting}
+
+\begin{motivation}
+We can now solve for $\Xi$; this chapter turns it into a likelihood and an
+estimator. We derive the interval-censored log-likelihood, show it is a
+Kullback--Leibler (Bregman) divergence between counts and compensators, explain why
+that --- not least squares --- is the right loss, and fit on synthetic data.
+\end{motivation}
+
+\section{The interval-censored log-likelihood (IC-LL)}
+
+By Ch.~\ref{ch:mbpp} the buckets are independent $\mathrm{Poisson}(\Xi_i)$ with
+$\Xi_i=\Xi(o_{i-1},o_i]$. Taking $-\log$ of the product and dropping the
+$\theta$-free constant $\sum_i\log\sfont C_i!$ gives
+\begin{equation}
+\mathcal L_{\mathrm{IC}}(\theta)=\sum_{i=1}^m\Xi_i(\theta)-\sum_{i=1}^m\sfont C_i\log\Xi_i(\theta).
+\label{eq:ch6-icll}
+\end{equation}
+
+\begin{intuitionbox}
+It compares a \emph{count} $\sfont C_i$ to an \emph{expected count} $\Xi_i$ ---
+both extensive quantities --- as it should. Minimising it pushes the model's
+predicted bucket means toward the observed bucket counts.
+\end{intuitionbox}
+
+\section{Why KL and not least squares}
+
+\eqref{eq:ch6-icll} equals (up to a constant) the generalised KL divergence
+$\KL(\sfont C,\Xi)=\sum_i\sfont C_i\log\frac{\sfont C_i}{\Xi_i}-(\sfont C_i-\Xi_i)$.
+Swapping the convex generator $x\log x$ for $\tfrac12 x^2$ gives instead the
+sum-of-squares loss $\sum_i(\sfont C_i-\Xi_i)^2$. The choice of divergence is the
+choice of noise model (the Bregman$\leftrightarrow$exponential-family
+correspondence, Appendix~\ref{app:estimation}): $x\log x\Rightarrow$ Poisson
+$\Rightarrow$ KL; $\tfrac12x^2\Rightarrow$ Gaussian $\Rightarrow$ least squares.
+
+\begin{whybox}[: KL is correctly heteroscedastic]
+A Poisson bucket has variance equal to its mean, so the statistically correct loss
+must weight bucket $i$ by $1/\Xi_i$ --- which KL does and least squares does not.
+When counts span orders of magnitude (bursts, near criticality), least squares is
+dominated by the loud buckets and destabilises; KL stays well behaved. Experiment
+\code{exp6} shows least squares running to the boundary near criticality while
+IC-LL recovers cleanly. (Historically, the HIP method is least squares against the
+\emph{intensity} rather than the compensator; the MBPP framework derives and
+corrects it --- Appendix~\ref{app:estimation}.)
+\end{whybox}
+
+\section{In code}
+
+\begin{lstlisting}[caption={Fitting the branching ratio and decay from counts.}]
+from hawkes_calibration import (Constant, simulate_separable_hawkes,
+    interval_censor, uniform_obs_times, fit_mbpp_ic, MultiImpulse)
+
+imm, off = simulate_separable_hawkes(Constant(5.0, 30.0), kappa=0.6, theta=0.8, T=30.0)
+obs    = uniform_obs_times(30.0, 30)            # daily buckets
+counts = interval_censor(off, obs)              # the only data we "see"
+res = fit_mbpp_ic(obs, counts, MultiImpulse(imm), loss="ic-ll", endogenous=True)
+print(res.kappa, res.theta)                     # ~0.6, ~0.8
+\end{lstlisting}
+
+\begin{examplebox}[: recovery across scenarios]
+\code{exp6\_ic\_scenarios.py} fits $(\kappa,\theta)$ from counts across the six
+observation regimes and two parameter sets. The branching ratio is recovered
+tightly ($\hat\kappa\approx0.60\pm0.03$ sub-critical, $\approx0.95$
+near-critical); the decay $\theta$ is noisier --- the subject of the next chapter.
+\end{examplebox}
+
+\begin{recap}
+The IC-LL \eqref{eq:ch6-icll} is the negative log-likelihood of the MBPP's
+independent Poisson buckets, and equals a KL divergence between counts and
+compensators. KL (not least squares) is correct because Poisson variance equals
+mean. Fitting recovers the kernel parameters --- but, as we see next, not all of
+them equally well.
+\end{recap}
+
+\exercise{Show \eqref{eq:ch6-icll} is minimised at $\Xi_i=\sfont C_i$ when the
+$\Xi_i$ are unconstrained (the saturated model), and explain why the constrained
+minimiser differs.}
+\exercise{Generate counts from an MBPP and confirm IC-LL recovers $\kappa$; then
+corrupt a few buckets with large outliers and compare IC-LL vs least-squares
+sensitivity.}

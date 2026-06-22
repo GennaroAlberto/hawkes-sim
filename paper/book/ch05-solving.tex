@@ -1,0 +1,94 @@
+\chapter{Solving the MBPP equation}
+\label{ch:solving}
+
+\begin{motivation}
+To fit the MBPP we must evaluate its intensity $\xi$ and compensator $\Xi$. The
+governing equation is a Volterra integral equation of the second kind. This chapter
+solves it three ways --- a closed form (exponential kernel), an exact ODE, and a
+numerical scheme --- and explains when each is appropriate. Appendix~\ref{app:volterra}
+is the from-scratch primer on Volterra equations if these are new to you.
+\end{motivation}
+
+\section{A feedback loop in continuous time}
+
+Write the Volterra operator $(\mathcal V\xi)(t)=\int_0^t\phi(t-u)\xi(u)\dd u$, so
+the MBPP equation~\eqref{eq:ch4-mbpp} is $(\mathcal I-\mathcal V)\xi=s$: an input
+$s$ fed through a feedback loop with gain $\phi$.
+
+\begin{intuitionbox}
+Inverting $\mathcal I-\mathcal V$ is summing a geometric series of echoes:
+$\xi=s+\mathcal V s+\mathcal V^2 s+\cdots$. The $n$-th term is the input convolved
+with $\phi^{*n}$ --- the $n$-th generation of offspring. On a finite horizon this
+always converges (Appendix~\ref{app:volterra}); globally it converges iff
+$\int\phi=\kappa<1$ (subcriticality), and the total echo mass is $\kappa/(1-\kappa)$
+--- exactly the mean offspring per event from Ch.~\ref{ch:hawkes}.
+\end{intuitionbox}
+
+\section{The impulse response, and the exponential miracle}
+
+Because the loop is linear and time-invariant, it is characterised by its impulse
+response $E=\delta+h$ with resolvent kernel $h=\sum_{n\ge1}\phi^{*n}$; then
+$\xi=E*s=s+h*s$ for \emph{any} input.
+
+\begin{theorem}[exponential resolvent]\label{thm:ch5-h}
+For $\phi(t)=\kappa\theta e^{-\theta t}$, the self-convolutions telescope and
+\begin{equation}
+h(t)=\sum_{n\ge1}\phi^{*n}(t)=\kappa\theta\,e^{(\kappa-1)\theta t},\qquad t>0 .
+\end{equation}
+\end{theorem}
+
+\begin{whybox}[: one timescale, one exponential]
+A single exponential kernel has one memory timescale, so its resolvent is again a
+single exponential and the response is first order. This is why the exponential
+kernel makes \emph{everything} closed-form (and, in Ch.~\ref{ch:solvers}, a
+first-order ODE). It is the reason we default to it.
+\end{whybox}
+
+The compensator obeys the \emph{same} equation with $s$ replaced by its integral
+$\sfont S=\int_0^t s$, so $\Xi=\sfont S+h*\sfont S$, and over a bucket
+$\Xi(x,y]=\Xi(y)-\Xi(x)$.
+
+\begin{examplebox}[: a single immigrant]
+For $s=\delta(\cdot-a)$, with $c=(\kappa-1)\theta<0$,
+\[
+\xi(t)=\delta(t-a)+\kappa\theta e^{c(t-a)}\one[t>a],\qquad
+\Xi^{\mathrm{endo}}(t)=\tfrac{\kappa}{1-\kappa}\big(1-e^{c(t-a)}\big)\one[t>a],
+\]
+and $\Xi^{\mathrm{endo}}\to\kappa/(1-\kappa)$ as $t\to\infty$: one immigrant leaves
+a decaying wake whose total offspring mass is the branching sum. Every other
+exogenous shape (rectangle, piecewise-constant, sine, Dassios) is a superposition
+of such responses; the package derives each in closed form.
+\end{examplebox}
+
+\section{When there is no closed form}
+
+For a non-exponential kernel (power-law), the series $h=\sum\phi^{*n}$ has no
+closed form. The package then approximates $h$ by a finite sum of numerical
+convolutions and forms $\xi=s+h*s$ on a grid:
+
+\begin{lstlisting}[caption={Exact vs numerical MBPP (from \code{mbpp/core.py}).}]
+MBPP(ExponentialKernel(0.6, 0.8), exo, method="closed")   # exact, Theorem 5.x
+MBPP(PowerLawKernel(0.5, 1.0),    exo, method="numeric")  # finite-convolution, O(dt)
+\end{lstlisting}
+
+\begin{pitfall}
+The numerical solver converges only at first order, $O(\Delta t)$ (the intensity
+has a corner at $t=0$). It is a genuine approximation --- the paper's ``approximate
+MBPP'' --- and is deliberately less accurate than the closed form. Prefer
+\code{method="closed"} whenever the kernel allows it.
+\end{pitfall}
+
+\begin{recap}
+The MBPP equation is a convolution Volterra equation; its solution is
+$\xi=s+h*s$ with resolvent $h=\sum\phi^{*n}$. For the exponential kernel
+$h=\kappa\theta e^{(\kappa-1)\theta t}$ (closed form, and a first-order ODE in
+Ch.~\ref{ch:solvers}); otherwise a first-order numerical scheme. The compensator
+solves the same equation with $\sfont S=\int s$. Next: turning $\Xi$ into a
+likelihood and fitting.
+\end{recap}
+
+\exercise{Derive $\Xi^{\mathrm{endo}}$ for the single impulse by integrating
+$\xi^{\mathrm{endo}}$, and check the $t\to\infty$ limit equals $\kappa/(1-\kappa)$.}
+\exercise{Why does subcriticality $\kappa<1$ appear only when we want the
+\emph{global} resolvent, not for existence on a finite horizon? (See
+Appendix~\ref{app:volterra}.)}

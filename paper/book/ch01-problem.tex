@@ -1,0 +1,101 @@
+\chapter{Events you cannot see one by one}
+\label{ch:problem}
+
+\begin{motivation}
+You manage a hospital and want to know whether infections are
+\emph{self-propagating} (one case making the next more likely) or merely tracking
+an external driver. You have a clean record of \emph{admissions per day} --- but
+not who infected whom, nor the exact infection times. The model you want (a Hawkes
+process) is written in terms of event \emph{times}; your data are \emph{counts}.
+This chapter is about that mismatch and how we will dissolve it.
+\end{motivation}
+
+\section{Three problems, one shape}
+
+Consider:
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{Epidemics.} Daily new cases or hospital admissions; individual
+infection times are unknown (privacy, or simply unrecorded).
+\item \textbf{Online popularity.} Daily views of a video, driven exogenously by
+shares/tweets and endogenously by word-of-mouth; platforms report daily volumes,
+not per-view timestamps.
+\item \textbf{Markets / operations.} Trades or tickets aggregated per minute or
+hour for storage or reporting.
+\end{itemize}
+In each case the data are \emph{interval-censored}: time is partitioned into
+buckets $(o_{i-1},o_i]$ and we observe only the count
+$\sfont{C}(o_{i-1},o_i]$ in each. We would like to fit a self-exciting model and
+ask the same questions we could ask from timestamps: how much of the activity is
+self-generated, how fast does the excitation decay, how do covariates modulate it?
+
+\section{The model we want, and why it resists}
+
+The Hawkes process has conditional intensity (rate of events given the past)
+\begin{equation}
+\lambda(t)=\underbrace{s(t)}_{\text{exogenous}}+\underbrace{\sum_{t_i<t}\phi(t-t_i)}_{\text{endogenous}},
+\label{eq:ch1-hawkes}
+\end{equation}
+where $s\ge0$ injects \emph{immigrant} events and the kernel $\phi\ge0$ says each
+past event lifts the future rate, creating \emph{offspring}. Two obstructions stop
+us fitting \eqref{eq:ch1-hawkes} to counts.
+
+\begin{whybox}[: timestamps]
+The maximum-likelihood objective for a point process,
+$\ell(\theta)=\sum_{t_i\le T}\log\lambda(t_i)-\int_0^T\lambda$, evaluates the
+intensity \emph{at the event times} $t_i$. No times, no likelihood.
+\end{whybox}
+
+\begin{whybox}[: dependent increments]
+Even if we tried to model just the counts, the Hawkes process has \emph{no
+independent-increments property}: the number of events in a bucket depends on the
+counts in earlier buckets (past events are still exciting the present). So we
+cannot treat the buckets as independent Poisson variables either --- the trick that
+makes ordinary count models easy is unavailable.
+\end{whybox}
+
+\section{The plan: fit a well-behaved twin}
+
+We will not fit the Hawkes process directly. Instead we build a \emph{companion}
+process --- the Mean Behavior Poisson process --- whose intensity is the
+\emph{expected} Hawkes intensity,
+\begin{equation}
+\xi(t)=\E[\lambda(t)],
+\label{eq:ch1-mbpp}
+\end{equation}
+and which, being an (inhomogeneous) Poisson process, \emph{does} have independent
+increments and therefore a tractable count likelihood. Because $\xi$ is built from
+the same $s$ and $\phi$ as the Hawkes process, fitting the companion to counts
+recovers (approximations of) the Hawkes parameters.
+
+\begin{intuitionbox}
+Stop trying to track each random realisation and track its \emph{average} instead.
+The average intensity is deterministic; a process with a deterministic rate is
+Poisson; and Poisson counts are independent and easy. We trade a little fidelity
+(the average is not the process) for a likelihood we can actually write down.
+\end{intuitionbox}
+
+\section{What this book builds}
+
+By the end you will be able to: simulate self-exciting data with or without
+covariates (Ch.~\ref{ch:hawkes}, \ref{ch:excitation}); compute the MBPP intensity
+and compensator in closed form, by ODE, or by quadrature (Ch.~\ref{ch:solving},
+\ref{ch:solvers}); fit the model from counts and quantify uncertainty
+(Ch.~\ref{ch:fitting}, \ref{ch:identif}); let covariates drive the baseline and
+even the excitation (Ch.~\ref{ch:baseline}, \ref{ch:excitation}); and replace the
+solver with a learned neural operator when no closed form exists
+(Ch.~\ref{ch:neural}). Crucially, you will know \emph{when each tool is the right
+one} and \emph{what each one cannot tell you}.
+
+\begin{recap}
+Interval-censored counts break the Hawkes likelihood (no timestamps) and the
+Poisson shortcut (no independent increments). The fix is to fit a deterministic-mean
+companion process that restores both --- the subject of Part II. The two ingredients
+we need first are the Poisson process (Ch.~\ref{ch:poisson}) and the Hawkes process
+(Ch.~\ref{ch:hawkes}).
+\end{recap}
+
+\exercise{Name a dataset from your own field that is interval-censored. What would
+the ``immigrants'' and ``offspring'' be, and why might the timestamps be
+unavailable?}
+\exercise{Explain in one sentence each, to a colleague, the two reasons the Hawkes
+likelihood cannot be used on counts.}

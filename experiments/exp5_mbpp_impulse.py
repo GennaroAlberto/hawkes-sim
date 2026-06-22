@@ -23,8 +23,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from hawkes_calibration.mbpp import MBPP, ExponentialKernel
-from hawkes_calibration.exogenous import MultiImpulse, Rectangle, Dassios, Sine
-from hawkes_calibration.ic_simulate import simulate_separable_hawkes
+from hawkes_calibration.mbpp.exogenous import MultiImpulse, Rectangle, Dassios, Sine
+from hawkes_calibration.mbpp.ic_simulate import simulate_separable_hawkes
 
 
 def _hawkes_mean_intensity(exo, kappa, theta, T, grid, n_real, seed,

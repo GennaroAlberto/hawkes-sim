@@ -32,10 +32,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from hawkes_calibration.mbpp import MBPP, ExponentialKernel
-from hawkes_calibration.exogenous import PiecewiseConstant, Sine, Constant
+from hawkes_calibration.mbpp.exogenous import PiecewiseConstant, Sine, Constant
 from hawkes_calibration.operators import FunctionalMBPP, SpectralOperator, kernel_exponentials
-from hawkes_calibration.operators_nn import DeepONetOperator, AmortizedInference
-from hawkes_calibration.ic_simulate import simulate_separable_hawkes, interval_censor, uniform_obs_times
+from hawkes_calibration.operators.nn import DeepONetOperator, AmortizedInference
+from hawkes_calibration.mbpp.ic_simulate import simulate_separable_hawkes, interval_censor, uniform_obs_times
 
 
 def run(seed=0, out_dir="results"):

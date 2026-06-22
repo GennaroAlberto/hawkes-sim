@@ -1,0 +1,122 @@
+\chapter{Learning the solver: neural operators, PINNs, PINOs}
+\label{ch:neural}
+
+\begin{motivation}
+For a non-closed-form model (power-law $+$ excitation covariates), fitting calls a
+slow Python solve thousands of times, and finite-difference gradients multiply the
+cost by $2\,n_{\text{params}}$. The fix is to \emph{learn} the forward map with a
+neural network: one fast, autodifferentiable forward pass replaces the loop, and
+autodiff replaces the finite differences. This chapter explains the ladder of such
+methods and the trade-offs.
+\end{motivation}
+
+\section{The cost we are attacking}
+
+\begin{equation*}
+\text{cost}\approx(\text{restarts})\times(\text{iters})\times(1+2\,n_{\text{params}})\times(\text{one Python solve}).
+\end{equation*}
+Two multiplicative culprits: the Python time-stepping loop, and the
+$2\,n_{\text{params}}$ finite-difference gradient. Compiling the loop (Numba/JAX)
+kills the first; automatic differentiation (and the adjoint method) kills the
+second. A learned solver does both at once.
+
+\section{Data-driven neural operators}
+
+A \emph{neural operator} learns a map between function spaces, $G:s\mapsto\xi$,
+from $(\text{input},\text{output})$ pairs produced by the exact solver. The package
+provides three (numpy, and TensorFlow at scale):
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{DeepONet} --- branch encodes the forcing at sensor points, trunk
+encodes the query time; output $\xi(t)=\sum_k b_k(s)\,\tau_k(t)$. Drops the
+linearity assumption, so it extends to no-closed-form regimes.
+\item \textbf{Fourier Neural Operator (FNO)} --- spectral convolution layers; the
+natural architecture because the linear MBPP operator is \emph{diagonal} in Fourier
+(Ch.~\ref{ch:solvers}); a single linear layer is exact.
+\item \textbf{Amortised inference} --- learns the \emph{inverse} map
+$\text{counts}\mapsto(\kappa,\theta)$, so fitting a new series is one forward pass.
+\end{itemize}
+
+\begin{examplebox}[: what the operators recover]
+In \code{exp9}, the learned spectral operator generalises to new forcings at
+$\sim$5\% L2 and recovers the branching ratio ($0.64$ vs.\ $0.6$); the DeepONet
+reaches $\sim$12\% (a general learner, no structure exploited); the amortised net
+predicts $\kappa$ at correlation $0.93$ in one pass but only $\sim$0.1 for the
+weakly-identified $\theta$ --- the identifiability of Ch.~\ref{ch:identif} showing
+through.
+\end{examplebox}
+
+\section{Physics-informed solvers: PINN and PINO}
+
+A \emph{physics-informed} network needs no ground-truth solver: it is trained to
+make the MBPP residual vanish.
+
+\begin{whybox}[: train on the residual, not on data]
+For a network $N(t,p)\approx\xi(t;p)$, the loss is the collocation residual
+$R(t)=N(t)-s(t)-\int_0^t K(t,u)N(u)\dd u$ (quadrature) plus the initial condition.
+Because this residual is \emph{linear in $\xi$}, its global minimum is provably the
+exact solution (verified in numpy: \code{solve\_mbpp\_residual\_linear} matches the
+time-stepping solve to $10^{-9}$). So ``minimise the residual'' is exactly ``solve
+the equation,'' and no exact solver is needed.
+\end{whybox}
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{Parametric PINN} (\code{mode="pinn"}) --- $N(t,p)$ generalises over the
+scalar parameters $p=(\kappa,\theta,\mu,\delta)$ for a \emph{fixed} functional
+setting. Change the covariate path and you retrain.
+\item \textbf{Physics-Informed Neural Operator, PINO} (\code{mode="pino"}) --- a
+DeepONet whose branch ingests the \emph{covariate path itself}, trained on the
+residual over a \emph{distribution} of covariate paths \emph{and} parameters. One
+operator then solves any instance in the family in a single forward pass.
+\end{itemize}
+
+\begin{intuitionbox}
+PINN generalises over a parameter slice; PINO generalises over the whole family of
+\emph{functions}. The PINO is ``a PINN trained on the family'' --- the right object
+when the covariate path, not just the parameters, varies.
+\end{intuitionbox}
+
+\begin{lstlisting}[caption={JAX/TensorFlow PINN or PINO behind one interface (from \code{neural\_solver.py}).}]
+from hawkes_calibration.operators.neural_solver import make_neural_solver
+op = make_neural_solver(backend="jax", mode="pino", coll_grid=t, T=60.0)
+op.train(n_steps=30000, batch=32)            # one-off; no ground-truth solver needed
+xi = op.solve(dict(kappa=0.4, theta=1.0, mu=2.0, delta=[1.2]), t, Z_on_grid=Z_new)
+\end{lstlisting}
+
+\section{Training the hard regime}
+
+A PINO over a wide family is hardest near criticality ($\kappa\to1$, stiff $\xi$).
+Three stabilisers (all in the trainers):
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{hybrid loss} --- add a few \emph{exact} anchors
+($\code{make\_anchor\_data}$) as a supervised term weighted by \code{data\_weight};
+\item \textbf{curriculum} --- sample $\kappa$ from an easy range first, widen toward
+criticality;
+\item \textbf{residual re-weighting} --- normalise by the solution scale so stiff
+cases don't dominate.
+\end{itemize}
+The diagnostic \code{solver\_accuracy\_report} compares the trained solver to the
+exact MBPP across a parameter grid and bins error by $\kappa$, showing exactly where
+it breaks.
+
+\begin{pitfall}
+A learned solver is only as good as its training range: it will extrapolate poorly
+outside the sampled $(\kappa,\theta,\delta,Z)$ box, and worst near criticality.
+Always run the accuracy report before trusting it inside a fit, and prefer the exact
+solvers whenever the model admits one.
+\end{pitfall}
+
+\begin{recap}
+Learned solvers attack both fitting bottlenecks: a fast forward pass and autodiff
+gradients. Data-driven operators (DeepONet, FNO, amortised) learn from solver
+output; physics-informed solvers (PINN, PINO) learn from the residual itself, with
+the PINO generalising over the whole functional family. Hybrid anchors, a
+curriculum, and re-weighting tame the stiff regime; the accuracy report tells you
+where to trust the result.
+\end{recap}
+
+\exercise{Why is a single linear FNO layer \emph{exact} for the convolution MBPP but
+only approximate for the excitation-covariate model?}
+\exercise{Explain how the hybrid (residual $+$ anchor) loss helps precisely where
+the residual alone is weak.}

@@ -4,3 +4,12 @@ __pycache__/
 .ipynb_checkpoints/
 results/
 .DS_Store
+
+# LaTeX build artifacts (keep textbook.tex + textbook.pdf)
+*.aux
+*.fdb_latexmk
+*.fls
+*.out
+*.toc
+*.log
+*.tmp

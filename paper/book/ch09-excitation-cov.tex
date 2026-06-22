@@ -1,0 +1,127 @@
+\chapter{Covariates in the excitation: a Volterra system}
+\label{ch:excitation}
+
+\begin{motivation}
+Sometimes the \emph{contagiousness} itself varies --- a disease spreads faster in
+winter, a post is more re-shareable during a trend. Then covariates must modulate
+the \emph{kernel}, not just the baseline. This is the genuinely hard case, and the
+reason the whole Volterra viewpoint was worth developing: the governing equation
+stops being a convolution. We show it is still solvable, exactly how, and at what
+cost.
+\end{motivation}
+
+\section{The model}
+
+\begin{model}[covariate-modulated excitation]\label{mod:ch9}
+Let covariates $Z(t)\in\R^q$ scale the triggering strength,
+\begin{equation}
+\alpha_{}(t)=\kappa\theta\,\exp\!\big(\delta^\top Z(t)\big),\qquad
+\phi(t,u)=\alpha(t)\,e^{-\theta(t-u)},
+\end{equation}
+so the time-varying branching ratio is $\kappa(t)=\kappa\,e^{\delta^\top Z(t)}$.
+\end{model}
+
+\section{The equation is no longer a convolution}
+
+Averaging as before gives
+\begin{equation}
+\xi(t)=s(t)+\int_0^t K(t,u)\,\xi(u)\dd u,\qquad
+K(t,u)=\kappa\theta\,e^{\delta^\top Z(t)}\,e^{-\theta(t-u)},
+\label{eq:ch9-volterra}
+\end{equation}
+a \emph{general} (non-convolution) Volterra equation: $K(t,u)$ depends on $t$ and
+$u$ \emph{separately}, not only on $t-u$.
+
+\begin{whybox}[: what we lose, and why]
+A convolution kernel means the system reacts to a stimulus the same way whenever it
+arrives (time-invariance), which is exactly what let Laplace/Fourier diagonalise
+it and gave a single transfer function (Ch.~\ref{ch:solving}, Ch.~\ref{ch:solvers}).
+Once the gain rides on $Z(t)$, \emph{when} matters: no convolution theorem, no
+constant transfer function, and the spectral/operator shortcuts no longer apply.
+\end{whybox}
+
+\begin{intuitionbox}
+The same past event echoes more loudly in a high-$Z$ period than a low-$Z$ one. The
+``filter'' is the same shape, but its volume knob is being turned over time.
+\end{intuitionbox}
+
+\section{What survives: existence, and a time-varying ODE}
+
+\paragraph{Well-posedness survives.} \eqref{eq:ch9-volterra} is a standard linear
+Volterra equation; by the general theory (Appendix~\ref{app:volterra}, which never
+used convolution) it has a unique solution on every finite horizon. Existence does
+not need time-invariance.
+
+\paragraph{Exponential shape $\Rightarrow$ a finite LTV ODE.} The kernel is
+\emph{separable}: $K(t,u)=\underbrace{\kappa\theta e^{\delta^\top Z(t)}e^{-\theta t}}_{a(t)}\,\underbrace{e^{\theta u}}_{u\text{ only}}$.
+A separable Volterra kernel collapses to finitely many ODEs
+(Appendix~\ref{app:volterra}). With the filtered history
+$y(t)=\int_0^t e^{-\theta(t-u)}\xi(u)\dd u$,
+\begin{equation}
+y'(t)=\xi(t)-\theta\,y(t),\qquad
+\xi(t)=s(t)+\kappa\theta\,e^{\delta^\top Z(t)}\,y(t),
+\label{eq:ch9-ltv}
+\end{equation}
+a \emph{linear time-varying} (LTV) ODE: the same state as the convolution case, but
+with a gain that breathes with the covariate.
+
+\begin{intuitionbox}
+``Same state, time-varying gain.'' We keep a finite-dimensional, integrable system;
+we merely lose the constant-coefficient (hence transform-solvable) structure.
+\end{intuitionbox}
+
+\section{In code, and a fast exact path}
+
+The general solver is the LTV integrator \code{solve\_mbpp\_ltv}; for a
+piecewise-constant covariate the package uses an \emph{exact per-regime}
+propagation (the gain is constant on each regime, so the 1-D linear ODE is solved
+in closed form) --- fast and more accurate than a grid.
+
+\begin{lstlisting}[caption={Forward solve and fitting with excitation covariates.}]
+from hawkes_calibration import solve_mbpp_ltv, fit_mbpp_ic_excitation
+# forward: xi for covariate-modulated excitation
+xi = solve_mbpp_ltv(forcing, A0=[[kappa*theta]], B=[[theta]], t_grid,
+                    modulation=lambda t: [[np.exp(delta @ Z(t))]])
+# fit delta (the excitation-covariate effect) from interval counts:
+res = fit_mbpp_ic_excitation(obs_times, counts, Z)   # recovers kappa, theta, mu, delta
+\end{lstlisting}
+
+\begin{examplebox}[: recovering $\delta$]
+With $Z\equiv0$ the LTV solver reproduces the constant-kernel solver to $10^{-16}$;
+a covariate that doubles excitation over a window elevates the intensity then
+relaxes back. On MBPP-Poisson data the fitter recovers $\delta=1.2$ as $\approx1.14$
+in $\sim$0.5\,s (the exact per-regime path); on genuine over-dispersed Hawkes data
+(\code{exp10}) it is recovered on average ($1.49\pm0.9$ over groups).
+\end{examplebox}
+
+\begin{pitfall}
+Excitation covariates make the IC-LL \emph{non-convex} (the $\delta$ enter through
+$e^{\delta^\top Z}$ inside the intensity), and $\delta$ is weakly identified from
+little data. Use many sequences and restarts; identification needs the covariate to
+vary \emph{while events occur}. Multivariate excitation covariates add up to
+$pM^2$ parameters and are harder still --- the supported fitter is univariate.
+\end{pitfall}
+
+\section{The general shape: Volterra quadrature}
+
+If the triggering shape is not a finite sum of exponentials (e.g.\ power-law), the
+kernel is not separable and no finite ODE exists. The package then solves
+\eqref{eq:ch9-volterra} directly by trapezoid-Nyström quadrature
+(\code{solve\_mbpp\_volterra}, Appendix~\ref{app:volterra}) --- $O(N^2)$ and
+first-order, but fully general.
+
+\begin{recap}
+Excitation covariates turn the MBPP equation into a general Volterra equation:
+well-posed, but no longer time-invariant, so the transform shortcuts vanish. For an
+exponential shape it reduces to a finite LTV ODE (\code{solve\_mbpp\_ltv}, fast
+exact per-regime path); for a general shape, to Volterra quadrature. Fitting
+recovers $\delta$ but is non-convex and data-hungry. This is the precise content of
+``excitation covariates are harder.''
+\end{recap}
+
+\exercise{Show that placing the modulation at the \emph{parent} time, $K(t,u)=
+\kappa\theta e^{\delta^\top Z(u)}e^{-\theta(t-u)}$, is also separable, and write the
+corresponding LTV ODE.}
+\exercise{Why does the spectral (Fourier) operator of Ch.~\ref{ch:solvers} fail to
+represent \eqref{eq:ch9-volterra} exactly, whereas it was exact for the
+convolution case?}

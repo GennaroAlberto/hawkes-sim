@@ -27,9 +27,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from hawkes_calibration.exogenous import PiecewiseConstant, LHPP
-from hawkes_calibration.ic_simulate import simulate_separable_hawkes, interval_censor, uniform_obs_times
-from hawkes_calibration.interval_censored import fit_mbpp_ic, forecast_counts
+from hawkes_calibration.mbpp.exogenous import PiecewiseConstant, LHPP
+from hawkes_calibration.mbpp.ic_simulate import simulate_separable_hawkes, interval_censor, uniform_obs_times
+from hawkes_calibration.mbpp.interval_censored import fit_mbpp_ic, forecast_counts
 
 
 def _tweet_schedule(kind, days, rng):

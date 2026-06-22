@@ -1,0 +1,147 @@
+\documentclass[11pt,openany]{book}
+
+% ---------------------------------------------------------------------------
+% Packages
+% ---------------------------------------------------------------------------
+\usepackage[margin=1.1in]{geometry}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage[most]{tcolorbox}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage[expansion=false]{microtype}
+\usepackage[colorlinks=true,linkcolor=blue!55!black,citecolor=blue!50!black,urlcolor=blue!55!black]{hyperref}
+
+% ---------------------------------------------------------------------------
+% Theorem environments
+% ---------------------------------------------------------------------------
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{model}[theorem]{Model}
+\theoremstyle{remark}
+\newtheorem*{remarknote}{Remark}
+
+% ---------------------------------------------------------------------------
+% Pedagogical callout boxes (tcolorbox)
+% ---------------------------------------------------------------------------
+\tcbset{
+  pedabox/.style={breakable, enhanced, sharp corners=north, boxrule=0.4pt,
+    left=6pt, right=6pt, top=4pt, bottom=4pt, fonttitle=\bfseries}
+}
+\newtcolorbox{motivation}[1][]{pedabox, colback=blue!4, colframe=blue!45!black,
+  title={Why we care#1}}
+\newtcolorbox{intuitionbox}[1][]{pedabox, colback=green!4, colframe=green!40!black,
+  title={Intuition#1}}
+\newtcolorbox{whybox}[1][]{pedabox, colback=orange!6, colframe=orange!55!black,
+  title={Why this choice#1}}
+\newtcolorbox{examplebox}[1][]{pedabox, colback=gray!6, colframe=gray!55!black,
+  title={Worked example#1}}
+\newtcolorbox{pitfall}[1][]{pedabox, colback=red!5, colframe=red!55!black,
+  title={Pitfall#1}}
+\newtcolorbox{recap}[1][]{pedabox, colback=violet!5, colframe=violet!50!black,
+  title={Chapter recap#1}}
+
+% Exercises
+\newcounter{exc}[chapter]
+\renewcommand{\theexc}{\thechapter.\arabic{exc}}
+\newcommand{\exercise}[1]{\par\smallskip\refstepcounter{exc}\noindent\textbf{Exercise \theexc.}\ #1\par}
+
+% ---------------------------------------------------------------------------
+% Code listings (Python) -- "In code" box wraps a listing
+% ---------------------------------------------------------------------------
+\definecolor{codebg}{rgb}{0.97,0.97,0.95}
+\definecolor{codekw}{rgb}{0.55,0.0,0.45}
+\definecolor{codecm}{rgb}{0.35,0.45,0.35}
+\definecolor{codestr}{rgb}{0.1,0.4,0.6}
+\lstdefinestyle{py}{
+  language=Python, basicstyle=\ttfamily\footnotesize, backgroundcolor=\color{codebg},
+  keywordstyle=\color{codekw}\bfseries, commentstyle=\color{codecm}\itshape,
+  stringstyle=\color{codestr}, showstringspaces=false, breaklines=true,
+  columns=fullflexible, frame=single, framerule=0.3pt, rulecolor=\color{gray!40},
+  numbers=left, numberstyle=\tiny\color{gray}, xleftmargin=2.2em, aboveskip=6pt, belowskip=4pt
+}
+\lstset{style=py}
+
+% ---------------------------------------------------------------------------
+% Math macros
+% ---------------------------------------------------------------------------
+\newcommand{\R}{\mathbb{R}}\newcommand{\N}{\mathbb{N}}\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}\newcommand{\one}{\mathbb{1}}\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\Hist}{\mathcal{H}}\newcommand{\Lap}{\mathcal{L}}\newcommand{\conv}{\ast}
+\newcommand{\sfont}[1]{\mathsf{#1}}\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator*{\argmin}{arg\,min}\DeclareMathOperator{\KL}{KL}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\pagestyle{fancy}\fancyhf{}\fancyhead[LE]{\leftmark}\fancyhead[RO]{\rightmark}
+\fancyfoot[C]{\thepage}\renewcommand{\headrulewidth}{0.3pt}
+
+\title{\Huge\bfseries Calibrating Self-Exciting Processes\\ from Counts\\[10pt]
+\Large The Mean Behavior Poisson Process:\\ theory, computation, and code}
+\author{\large A textbook companion to the \code{hawkes\_calibration} package}
+\date{}
+
+\begin{document}
+\frontmatter
+\maketitle
+\tableofcontents
+\input{book/preface}
+
+\mainmatter
+\part{Foundations}
+\input{book/ch01-problem}
+\input{book/ch02-poisson}
+\input{book/ch03-hawkes}
+
+\part{The Mean Behavior Poisson Process}
+\input{book/ch04-mbpp}
+\input{book/ch05-solving}
+\input{book/ch06-fitting}
+\input{book/ch07-identifiability}
+\input{book/ch07b-bayes}
+
+\part{Bringing in covariates}
+\input{book/ch08-baseline-cov}
+\input{book/ch09-excitation-cov}
+\input{book/ch10-multitimescale}
+
+\part{Computation and learning}
+\input{book/ch11-solvers}
+\input{book/ch12-neural}
+
+\part{Practice}
+\input{book/ch13-package}
+
+\appendix
+\part{Appendices}
+\input{book/app-volterra}
+\input{book/app-transforms-ode}
+\input{book/app-estimation}
+\input{book/app-api}
+
+\backmatter
+\begin{thebibliography}{9}
+\small
+\bibitem{Hawkes1971} A.~G.~Hawkes (1971). Spectra of self-exciting and mutually exciting point processes. \emph{Biometrika} 58(1).
+\bibitem{HawkesOakes1974} A.~G.~Hawkes, D.~Oakes (1974). A cluster process representation of a self-exciting process. \emph{J.~Appl.~Probab.} 11(3).
+\bibitem{DassiosZhao2013} A.~Dassios, H.~Zhao (2013). Exact simulation of Hawkes process with exponentially decaying intensity. \emph{Electron.~Commun.~Probab.} 18.
+\bibitem{Rizoiu2017} M.-A.~Rizoiu et al. (2017). Expecting to be HIP: Hawkes intensity processes for social media popularity. \emph{WWW}.
+\bibitem{Banerjee2005} A.~Banerjee, S.~Merugu, I.~Dhillon, J.~Ghosh (2005). Clustering with Bregman divergences. \emph{JMLR} 6.
+\bibitem{Ogata1978} Y.~Ogata (1978). Asymptotic behaviour of MLEs for stationary point processes. \emph{Ann.~Inst.~Statist.~Math.} 30.
+\bibitem{ICHawkes2022} M.-A.~Rizoiu, A.~Soen, S.~Li, P.~Calderon, L.~J.~Dong, A.~K.~Menon, L.~Xie (2022). Interval-censored Hawkes processes. \emph{JMLR} 23(1):1--84.
+\bibitem{GLS1990} G.~Gripenberg, S.-O.~Londen, O.~Staffans (1990). \emph{Volterra Integral and Functional Equations}. Cambridge.
+\bibitem{ChenChen1995} T.~Chen, H.~Chen (1995). Universal approximation to nonlinear operators by neural networks. \emph{IEEE TNN} 6(4).
+\bibitem{LiPINO2021} Z.~Li et al. (2021). Physics-Informed Neural Operator for learning PDEs. \emph{arXiv:2111.03794}.
+\bibitem{Haario2001} H.~Haario, E.~Saksman, J.~Tamminen (2001). An adaptive Metropolis algorithm. \emph{Bernoulli} 7(2).
+\bibitem{GelmanBDA} A.~Gelman, J.~Carlin, H.~Stern, D.~Dunson, A.~Vehtari, D.~Rubin (2013). \emph{Bayesian Data Analysis}, 3rd ed. CRC Press.
+\bibitem{VaartAS} A.~W.~van der Vaart (1998). \emph{Asymptotic Statistics}. Cambridge. (Bernstein--von Mises, Ch.~10.)
+\end{thebibliography}
+\end{document}
