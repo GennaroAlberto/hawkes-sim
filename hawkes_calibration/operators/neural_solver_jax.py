@@ -55,12 +55,20 @@ class JAXNeuralMBPP:
     def __init__(self, mode="pinn", coll_grid=None, Z_on_grid=None, T=30.0,
                  width=64, depth=3, n_delta=1, seed=0,
                  kappa_range=(0.05, 0.9), theta_range=(0.2, 3.0),
-                 mu_range=(0.5, 5.0), delta_range=(-2.0, 2.0), ic_weight=10.0):
+                 mu_range=(0.5, 5.0), delta_range=(-2.0, 2.0), ic_weight=10.0,
+                 stability_cap=0.95):
         self.mode = mode
         self.T = float(T)
         self.n_delta = int(n_delta)
         self.ranges = dict(kappa=kappa_range, theta=theta_range, mu=mu_range, delta=delta_range)
         self.ic_weight = float(ic_weight)
+        # Excitation is modulated multiplicatively by exp(delta . Z), so the
+        # *effective* branching ratio is kappa * exp(delta . Z).  If this reaches 1
+        # the MBPP has no bounded solution (the target intensity diverges), which
+        # poisons both the residual loss and any supervised anchor.  We clip the
+        # sampled kappa so kappa * exp(max_t delta . Z(t)) <= stability_cap < 1.
+        # Set stability_cap=None to disable (legacy behaviour).
+        self.stability_cap = stability_cap
 
         if coll_grid is None:
             coll_grid = np.linspace(0.0, T, 128)
@@ -130,6 +138,11 @@ class JAXNeuralMBPP:
         key, k = jax.random.split(key)
         dl = jax.random.uniform(k, (batch, self.n_delta),
                                 minval=self.ranges["delta"][0], maxval=self.ranges["delta"][1])
+        if self.stability_cap is not None:
+            # max_t (delta . Z(t)) <= sum_q |delta_q| * max_t |Z_q(t)|  (conservative)
+            zmax = jnp.max(jnp.abs(self.Z), axis=0)                      # (n_delta,)
+            expo = jnp.sum(jnp.abs(dl) * zmax[None, :], axis=1)          # (batch,)
+            ks = jnp.minimum(ks, self.stability_cap / jnp.exp(expo))
         return jnp.concatenate([ks[:, None], th[:, None], mu[:, None], dl], axis=1)
 
     def train(self, n_steps=20000, batch=64, lr=1e-3, seed=0,
@@ -244,8 +257,9 @@ class JAXDeepONetPINO:
 
     def __init__(self, coll_grid=None, T=30.0, p_latent=64, width=96, depth=3, seed=0,
                  kappa_range=(0.05, 0.9), theta_range=(0.2, 3.0), mu_range=(0.5, 5.0),
-                 delta_range=(-2.0, 2.0), z_steps=5, ic_weight=10.0):
+                 delta_range=(-2.0, 2.0), z_steps=5, ic_weight=10.0, stability_cap=0.95):
         self.T = float(T)
+        self.stability_cap = stability_cap   # clip kappa to keep kappa*exp(delta.Z) < 1
         if coll_grid is None:
             coll_grid = np.linspace(0.0, T, 96)
         self.t = jnp.asarray(coll_grid, float)
@@ -286,12 +300,16 @@ class JAXDeepONetPINO:
         th = jax.random.uniform(keys[1], (batch,), minval=self.ranges["theta"][0], maxval=self.ranges["theta"][1])
         mu = jax.random.uniform(keys[2], (batch,), minval=self.ranges["mu"][0], maxval=self.ranges["mu"][1])
         dl = jax.random.uniform(keys[3], (batch,), minval=self.ranges["delta"][0], maxval=self.ranges["delta"][1])
-        P = jnp.stack([ka, th, mu, dl], axis=1)
         # random piecewise-constant covariate paths (via numpy; static per step)
         Zb = jnp.asarray(np.stack([
             _random_step_path(np.asarray(self.t), self.z_steps, int(s))
-            for s in np.asarray(jax.random.randint(keys[4], (batch,), 0, 2 ** 31))
+            for s in np.asarray(jax.random.randint(keys[4], (batch,), 0, 2 ** 31 - 1))
         ]))
+        if self.stability_cap is not None:
+            # clip kappa per sample so kappa * exp(delta * max_t|Z(t)|) <= cap < 1
+            zmax = jnp.max(jnp.abs(Zb), axis=1)                          # (batch,)
+            ka = jnp.minimum(ka, self.stability_cap / jnp.exp(jnp.abs(dl) * zmax))
+        P = jnp.stack([ka, th, mu, dl], axis=1)
         return Zb, P
 
     def train(self, n_steps=20000, batch=32, lr=1e-3, seed=0,

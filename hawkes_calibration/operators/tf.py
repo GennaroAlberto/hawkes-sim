@@ -85,10 +85,10 @@ class SpectralConv1D(layers.Layer):
         scale = 1.0 / (in_ch * self.out_channels)
         init = tf.random_normal_initializer(stddev=scale)
         self.w_real = self.add_weight(
-            "w_real", shape=(in_ch, self.out_channels, self.modes),
+            name="w_real", shape=(in_ch, self.out_channels, self.modes),
             initializer=init, trainable=True)
         self.w_imag = self.add_weight(
-            "w_imag", shape=(in_ch, self.out_channels, self.modes),
+            name="w_imag", shape=(in_ch, self.out_channels, self.modes),
             initializer=init, trainable=True)
 
     def call(self, x):
@@ -159,7 +159,7 @@ class MBPPDeepONet(tf.keras.Model):
             layers.Dense(width, activation="gelu"),
             layers.Dense(self.p, activation="gelu"),
         ])
-        self.b0 = self.add_weight("b0", shape=(self.M,), initializer="zeros")
+        self.b0 = self.add_weight(name="b0", shape=(self.M,), initializer="zeros")
 
     def call(self, inputs, training=False):
         forcing, t_query = inputs
@@ -195,12 +195,12 @@ class MBPPCell(layers.Layer):
 
     def build(self, input_shape):
         H, M = self.state_dim, self.M
-        self.W_in = self.add_weight("W_in", (M, H), initializer="glorot_uniform")
-        self.W_rec = self.add_weight("W_rec", (H, H), initializer="orthogonal")
-        self.b = self.add_weight("b", (H,), initializer="zeros")
-        self.raw_decay = self.add_weight("raw_decay", (H,), initializer=tf.constant_initializer(0.5))
-        self.C = self.add_weight("C", (H, M), initializer="glorot_uniform")
-        self.D = self.add_weight("D", (M, M), initializer="zeros")
+        self.W_in = self.add_weight(name="W_in", shape=(M, H), initializer="glorot_uniform")
+        self.W_rec = self.add_weight(name="W_rec", shape=(H, H), initializer="orthogonal")
+        self.b = self.add_weight(name="b", shape=(H,), initializer="zeros")
+        self.raw_decay = self.add_weight(name="raw_decay", shape=(H,), initializer=tf.constant_initializer(0.5))
+        self.C = self.add_weight(name="C", shape=(H, M), initializer="glorot_uniform")
+        self.D = self.add_weight(name="D", shape=(M, M), initializer="zeros")
 
     def call(self, inputs, states):
         s_t = inputs                                    # (B, M)

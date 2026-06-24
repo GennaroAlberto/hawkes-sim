@@ -143,6 +143,8 @@ class ICFitResult:
     baseline: float | None = None          # fitted constant baseline (excitation model)
     kappas: np.ndarray | None = None       # sum-of-exponentials branching weights
     thetas: np.ndarray | None = None       # sum-of-exponentials decay bank
+    baseline_vec: np.ndarray | None = None  # M-vector baseline (multivariate fit)
+    kappa_matrix: np.ndarray | None = None  # MxM branching matrix (multivariate fit)
 
     @property
     def alpha_beta(self):
@@ -757,6 +759,136 @@ def fit_mbpp_ic_excitation(
         success=bool(best.success), n_intervals=int(counts_list[0].size),
         n_events=total_events, baseline=float(mu), delta=delta,
     )
+
+
+def fit_mbpp_ic_excitation_multi(
+    obs_times,
+    counts,
+    Z,
+    *,
+    loss="ic-ll",
+    theta0=1.0,
+    kappa0=0.15,
+    mu0=None,
+    kappa_max=0.95,
+    n_sub=5,
+    n_restarts=3,
+    seed=0,
+):
+    r"""
+    Fit a **multivariate** MBPP whose excitation is modulated by covariates.
+
+    Model (M components / sectors), with a shared decay ``theta`` and a shared
+    covariate effect ``delta`` acting on every triggering entry:
+
+        alpha_{m,j}(t) = kappa_{m,j} * theta * exp(delta^T Z(t)),
+
+    so the time-varying branching matrix is ``kappa(t) = kappa * exp(delta^T Z(t))``.
+    The mean intensity ``xi(t) in R^M`` solves the multivariate linear time-varying
+    Volterra equation, integrated exactly (up to grid error) by
+    :func:`hawkes_calibration.solve_mbpp_ltv`.  With ``delta = 0`` this reduces to
+    the constant-excitation multivariate MBPP of
+    :func:`hawkes_calibration.solve_mbpp_ode_multivariate`.
+
+    Parameters
+    ----------
+    obs_times : (n_int+1,) observation endpoints.
+    counts : (n_int, M) array, OR a list of such arrays (i.i.d. histories that
+        share ``obs_times`` and the covariate path ``Z``; their losses are summed).
+    Z : callable t -> covariate vector (e.g. a ``PiecewiseConstantCovariate``).
+    theta0, kappa0, mu0 : initial decay, branching, and baseline.
+    kappa_max : cap on each branching entry (keeps the branching matrix subcritical).
+    n_sub : ODE sub-steps per observation interval.
+    n_restarts : random restarts (the loss is non-convex).
+
+    Returns
+    -------
+    ICFitResult with ``kappa_matrix`` (MxM), ``theta``, ``baseline_vec`` (M,),
+    ``delta`` (p,) populated; the scalar ``kappa`` holds the spectral radius of the
+    fitted branching matrix (a convenient summary).
+    """
+    obs_times = np.asarray(obs_times, dtype=float)
+    counts_list = counts if isinstance(counts, (list, tuple)) else [counts]
+    counts_list = [np.atleast_2d(np.asarray(c, dtype=float)) for c in counts_list]
+    M = counts_list[0].shape[1]
+    loss_fn = _LOSSES[loss]
+    p = np.atleast_1d(np.asarray(Z(obs_times[0]), dtype=float)).reshape(-1).size
+    T = float(obs_times[-1])
+
+    fine = np.unique(np.concatenate(
+        [np.linspace(obs_times[i], obs_times[i + 1], n_sub + 1) for i in range(obs_times.size - 1)]))
+    if mu0 is None:
+        per_comp = np.mean([c.sum(axis=0) for c in counts_list], axis=0) / max(T, 1.0)
+        mu0 = np.maximum(per_comp * 0.5, 1e-2)
+    else:
+        mu0 = np.broadcast_to(np.asarray(mu0, float), (M,)).copy()
+
+    n_k = M * M
+
+    def build(vec):
+        mu = np.exp(np.clip(vec[:M], -20, 20))
+        kappa = kappa_max * _sigmoid(vec[M:M + n_k]).reshape(M, M)
+        theta = float(np.clip(np.exp(np.clip(vec[M + n_k], -20, 20)), 1e-4, 1e4))
+        delta = np.asarray(vec[M + n_k + 1:M + n_k + 1 + p], dtype=float)
+        return mu, kappa, theta, delta
+
+    def interval_compensators(mu, kappa, theta, delta):
+        A0 = kappa * theta
+        B = theta * np.ones((M, M))
+        mod = _multi_modulation(Z, delta, M)
+        with np.errstate(over="ignore", invalid="ignore"):
+            _, Xi = solve_mbpp_ltv(lambda t: mu, A0, B, fine, modulation=mod,
+                                   return_compensator=True)
+        Xi_obs = np.column_stack([np.interp(obs_times, fine, Xi[:, m]) for m in range(M)])
+        return np.diff(Xi_obs, axis=0)                  # (n_int, M)
+
+    def objective(vec):
+        mu, kappa, theta, delta = build(vec)
+        dXi = interval_compensators(mu, kappa, theta, delta)
+        if not np.all(np.isfinite(dXi)) or np.any(dXi <= 0):
+            return 1e12
+        return sum(sum(loss_fn(c[:, m], dXi[:, m]) for m in range(M)) for c in counts_list)
+
+    def vlogit(q):
+        q = np.clip(np.asarray(q, float), 1e-6, 1 - 1e-6)
+        return np.log(q / (1.0 - q))
+
+    rng = np.random.default_rng(seed)
+    best = None
+    for r in range(max(1, n_restarts)):
+        if r == 0:
+            v0 = np.concatenate([np.log(mu0), vlogit(np.full(n_k, kappa0 / kappa_max)),
+                                 [np.log(theta0)], np.zeros(p)])
+        else:
+            v0 = np.concatenate([np.log(mu0 * rng.uniform(0.6, 1.4, size=M)),
+                                 vlogit(rng.uniform(0.03, 0.4, size=n_k) / kappa_max),
+                                 [np.log(theta0 * rng.uniform(0.6, 1.6))],
+                                 rng.normal(0, 0.4, size=p)])
+        res = minimize_bfgs(objective, v0, max_iter=250, ftol=1e-9, gtol=1e-6)
+        if best is None or res.fun < best.fun:
+            best = res
+
+    mu, kappa, theta, delta = build(best.x)
+    spectral_radius = float(np.max(np.abs(np.linalg.eigvals(kappa))))
+    total_events = int(sum(int(c.sum()) for c in counts_list))
+    return ICFitResult(
+        kappa=spectral_radius, theta=float(theta), loss=float(best.fun), loss_name=loss,
+        success=bool(best.success), n_intervals=int(counts_list[0].shape[0]),
+        n_events=total_events, baseline_vec=mu, kappa_matrix=kappa, delta=delta,
+        baseline=float(mu.mean()),
+    )
+
+
+def _multi_modulation(Z, delta, M):
+    """Return t -> (M,M) modulation exp(delta^T Z(t)) shared across all entries."""
+    delta = np.atleast_1d(np.asarray(delta, dtype=float))
+    ones = np.ones((M, M))
+
+    def mod(t):
+        z = np.atleast_1d(np.asarray(Z(t), dtype=float)).reshape(-1)
+        return np.exp(np.clip(float(delta @ z), -30.0, 30.0)) * ones
+
+    return mod
 
 
 # ---------------------------------------------------------------------------

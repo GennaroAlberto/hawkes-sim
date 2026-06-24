@@ -8,9 +8,10 @@ frequentist point estimate plus a single standard error hides this; the Bayesian
 posterior handles it correctly and usefully:
 
 * it stays **wide along the weakly-identified direction** and tight along the
-  informative one -- honest uncertainty, by construction;
+  informative one, respecting uncertainty, by construction;
 * it lets you **inject prior knowledge on theta** (the weak direction) to tighten
-  it legitimately;
+  it legitimately, advice is to run a covaraite free regression on the two moments 
+  of the process and use the estimated theta to set up a sensible prior;
 * it exposes the kappa--theta **ridge as a posterior correlation** rather than a
   scalar SE;
 * with **hierarchical pooling** across many series it borrows strength and

@@ -37,6 +37,12 @@ from .nn import (
     DeepONetOperator,
     AmortizedInference,
 )
+from .pino import (
+    MultivariateMBPPOperator,
+    sample_instances,
+    exact_solution,
+    conv_matrix,
+)
 
 __all__ = [
     "FunctionalMBPP",
@@ -50,4 +56,8 @@ __all__ = [
     "MLP",
     "DeepONetOperator",
     "AmortizedInference",
+    "MultivariateMBPPOperator",
+    "sample_instances",
+    "exact_solution",
+    "conv_matrix",
 ]
