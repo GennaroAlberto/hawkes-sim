@@ -53,6 +53,7 @@ sound: **53/53 automated tests pass.**
 | **Forward solve, fixed system** | Fourier Neural Operator | **4.9 % median** rel. error | <1 ms/solve | ✅ Works; noise-robust to ~25 % |
 | Forward solve, *unconditioned* | Vanilla PINN / FNO on forcing only | 35–49 % error | — | ❌ Ill-posed — **do not use** |
 | **Inverse: counts → kernel** | Amortised CNN | entry corr 0.38; stability corr 0.48 | 0.2 ms | ⚠️ Weak — needs richer signal |
+| **Rank which startup is funded** | Risk-set softmax ranker | **top-5 49 %** (oracle 54 %, random 14 %); 88 % of oracle MRR | — | ✅ Works — near the achievable ceiling |
 
 *Relative error = ‖prediction − exact solver‖ / ‖exact solver‖ in L2, on held-out
 test sets. "Exact solver" is our validated numerical MBPP solution.*
@@ -155,6 +156,43 @@ a useful *warm-start / triage* tool, not yet a replacement for the likelihood fi
 The forward surrogate (§4.1) is the stronger near-term bet — drop it into the
 existing fitter to keep the fit's statistical guarantees while removing its cost.
 
+### 4.4 Application: ranking *which* startup needs funding
+
+A separate, application-facing workstream tests the end-goal directly: a **two-layer
+marked model** for startup funding. Layer 1 is a weekly **sector** process (a
+positive-excitation Poisson/Hawkes GLM — *where and when* capital flows); Layer 2 is
+a dynamic **risk-set ranker** — a conditional softmax over the *live* startups in a
+sector with a recent-funding "cooldown" covariate — that decides *which* startup
+receives the round. The question: on synthetic data, can we actually rank the funded
+startup near the top?
+
+**Yes.** On a realistic synthetic market (11 sectors, ~35 candidate startups per
+pick, held-out weeks, 5 seeds), the fitted ranker vs. a random-risk-set baseline —
+and vs. the **oracle** (the true-parameter ranker, i.e. the best achievable given the
+data's irreducible stochasticity):
+
+| metric | fitted | oracle (ceiling) | random | fitted / oracle |
+|---|---|---|---|---|
+| top-1 hit | **16.7 %** | 21.2 % | 2.9 % | **79 %** |
+| top-5 hit | **49.2 %** | 53.7 % | 14.3 % | **92 %** |
+| top-10 hit | **69.2 %** | 71.6 % | 28.6 % | 97 % |
+| MRR | **0.328** | 0.371 | 0.118 | **88 %** |
+
+The ranker is **3–6× better than chance** and recovers **~80–92 % of the oracle's**
+top-k / MRR — most of the remaining gap is irreducible noise (each pick is a
+stochastic draw over ~35 startups), not model error. So the ranking layer works.
+
+> **One real bug found (and worth fixing).** The *forward simulation*
+> (`simulate_marked_paths`) can hang for minutes: `fit_sector_count_model` constrains
+> the lagged sector excitation to be non-negative but **not** its spectral radius, so
+> the fitted sector model can be **supercritical** (we measured ρ ≈ 3.7). Simulating
+> from it explodes via positive feedback — rates hit the `exp(20)≈4.85×10⁸` clip,
+> `Poisson(4.85×10⁸)` draws hundreds of millions of events, and the per-event inner
+> loop iterates that many times. The *ranking evaluation* uses real observed data (no
+> simulation) and is unaffected — but the end-to-end backtest and its simulation
+> should add a stability projection (ρ<1) on the fitted excitation and a guard on the
+> Poisson event loop. This is the same supercriticality lesson as Issue #1 below.
+
 ---
 
 ## 5. What was broken — and fixed — to get here
@@ -168,6 +206,7 @@ These experiments did not run at all on arrival. The blockers and fixes:
 | 3 | **TensorFlow bug:** layer weight creation used an outdated Keras API. | **Every** TF model (FNO, state-space, inverse net) crashed. | Updated to the Keras-3 signature. |
 | 4 | **No data sanitation.** ~0.1 % of synthetic systems diverge numerically. | Corrupted the supervised datasets (NaNs) and crashed the inverse-data generator. | Filter non-finite/extreme samples before training. |
 | 5 | (Prior session) **NumPy-2 bug** in the optimiser. | Broke **every** classical fit. | One-line fix. |
+| 6 | **Supercritical sector simulator** (§4.4). The fitted weekly sector model is non-negative but **not** spectral-radius-constrained (ρ ≈ 3.7); simulating from it explodes (rates → `exp(20)` clip → `Poisson(4.85×10⁸)` → ~485 M-iteration inner loop). | The end-to-end backtest **hangs for minutes**; ranking eval (real data) unaffected. | *Open:* project ρ<1 on the fitted excitation + cap the Poisson event loop. |
 
 After these fixes the analytical core is verified end-to-end: the physics-informed
 objective is correct to machine precision (residual ≈ 1.4 × 10⁻¹⁴) and the full

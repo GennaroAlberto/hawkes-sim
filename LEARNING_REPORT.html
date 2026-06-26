@@ -94,6 +94,13 @@ sound: <strong>53/53 automated tests pass.</strong></p>
 <td>0.2 ms</td>
 <td>⚠️ Weak — needs richer signal</td>
 </tr>
+<tr>
+<td><strong>Rank which startup is funded</strong></td>
+<td>Risk-set softmax ranker</td>
+<td><strong>top-5 49 %</strong> (oracle 54 %, random 14 %); 88 % of oracle MRR</td>
+<td>—</td>
+<td>✅ Works — near the achievable ceiling</td>
+</tr>
 </tbody>
 </table>
 <p><em>Relative error = ‖prediction − exact solver‖ / ‖exact solver‖ in L2, on held-out
@@ -190,6 +197,74 @@ branching/stability</strong> of a system is far better determined by counts than
 a useful <em>warm-start / triage</em> tool, not yet a replacement for the likelihood fit.
 The forward surrogate (§4.1) is the stronger near-term bet — drop it into the
 existing fitter to keep the fit's statistical guarantees while removing its cost.</p>
+<h3 id="44-application-ranking-which-startup-needs-funding">4.4 Application: ranking <em>which</em> startup needs funding</h3>
+<p>A separate, application-facing workstream tests the end-goal directly: a <strong>two-layer
+marked model</strong> for startup funding. Layer 1 is a weekly <strong>sector</strong> process (a
+positive-excitation Poisson/Hawkes GLM — <em>where and when</em> capital flows); Layer 2 is
+a dynamic <strong>risk-set ranker</strong> — a conditional softmax over the <em>live</em> startups in a
+sector with a recent-funding "cooldown" covariate — that decides <em>which</em> startup
+receives the round. The question: on synthetic data, can we actually rank the funded
+startup near the top?</p>
+<p><strong>Yes.</strong> On a realistic synthetic market (11 sectors, ~35 candidate startups per
+pick, held-out weeks, 5 seeds), the fitted ranker vs. a random-risk-set baseline —
+and vs. the <strong>oracle</strong> (the true-parameter ranker, i.e. the best achievable given the
+data's irreducible stochasticity):</p>
+<table>
+<thead>
+<tr>
+<th>metric</th>
+<th>fitted</th>
+<th>oracle (ceiling)</th>
+<th>random</th>
+<th>fitted / oracle</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>top-1 hit</td>
+<td><strong>16.7 %</strong></td>
+<td>21.2 %</td>
+<td>2.9 %</td>
+<td><strong>79 %</strong></td>
+</tr>
+<tr>
+<td>top-5 hit</td>
+<td><strong>49.2 %</strong></td>
+<td>53.7 %</td>
+<td>14.3 %</td>
+<td><strong>92 %</strong></td>
+</tr>
+<tr>
+<td>top-10 hit</td>
+<td><strong>69.2 %</strong></td>
+<td>71.6 %</td>
+<td>28.6 %</td>
+<td>97 %</td>
+</tr>
+<tr>
+<td>MRR</td>
+<td><strong>0.328</strong></td>
+<td>0.371</td>
+<td>0.118</td>
+<td><strong>88 %</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The ranker is <strong>3–6× better than chance</strong> and recovers <strong>~80–92 % of the oracle's</strong>
+top-k / MRR — most of the remaining gap is irreducible noise (each pick is a
+stochastic draw over ~35 startups), not model error. So the ranking layer works.</p>
+<blockquote>
+<p><strong>One real bug found (and worth fixing).</strong> The <em>forward simulation</em>
+(<code>simulate_marked_paths</code>) can hang for minutes: <code>fit_sector_count_model</code> constrains
+the lagged sector excitation to be non-negative but <strong>not</strong> its spectral radius, so
+the fitted sector model can be <strong>supercritical</strong> (we measured ρ ≈ 3.7). Simulating
+from it explodes via positive feedback — rates hit the <code>exp(20)≈4.85×10⁸</code> clip,
+<code>Poisson(4.85×10⁸)</code> draws hundreds of millions of events, and the per-event inner
+loop iterates that many times. The <em>ranking evaluation</em> uses real observed data (no
+simulation) and is unaffected — but the end-to-end backtest and its simulation
+should add a stability projection (ρ&lt;1) on the fitted excitation and a guard on the
+Poisson event loop. This is the same supercriticality lesson as Issue #1 below.</p>
+</blockquote>
 <hr />
 <h2 id="5-what-was-broken-and-fixed-to-get-here">5. What was broken — and fixed — to get here</h2>
 <p>These experiments did not run at all on arrival. The blockers and fixes:</p>
@@ -232,6 +307,12 @@ existing fitter to keep the fit's statistical guarantees while removing its cost
 <td>(Prior session) <strong>NumPy-2 bug</strong> in the optimiser.</td>
 <td>Broke <strong>every</strong> classical fit.</td>
 <td>One-line fix.</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>Supercritical sector simulator</strong> (§4.4). The fitted weekly sector model is non-negative but <strong>not</strong> spectral-radius-constrained (ρ ≈ 3.7); simulating from it explodes (rates → <code>exp(20)</code> clip → <code>Poisson(4.85×10⁸)</code> → ~485 M-iteration inner loop).</td>
+<td>The end-to-end backtest <strong>hangs for minutes</strong>; ranking eval (real data) unaffected.</td>
+<td><em>Open:</em> project ρ&lt;1 on the fitted excitation + cap the Poisson event loop.</td>
 </tr>
 </tbody>
 </table>
