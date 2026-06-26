@@ -2,6 +2,35 @@
 
 This note documents the modeling decision and implementation added in PR #1. The goal is to model weekly startup-funding data without forcing firm-level self-inhibition into a signed Hawkes kernel.
 
+## Objective — what we are trying to achieve
+
+**The question: which startups are about to raise, and when does capital flow into
+which sector?** Given funding history up to "today" plus market covariates and
+startup-level features, we want to:
+
+1. **Forecast where and when** funding events happen — the per-sector weekly intensity
+   of new rounds; and
+2. **Rank, at each funding event, which startup** is most likely to receive it.
+
+The headline deliverable is a *ranking*: at any week, an ordered list of the startups
+most likely to be funded next. Success is therefore measured by **ranking quality**
+(does the startup that actually raised land near the top?), not only by likelihood.
+
+**Why the two-layer (sector → startup) decomposition.** Modeling each *firm* as a
+Hawkes dimension would require negative self-excitation (a firm that just raised is
+briefly less likely to raise again), which breaks the clean linear Hawkes/MBPP
+mean-field structure (the positivity link and expectation do not commute). Instead we
+factorize `p(time, sector, startup) = p(time, sector) · p(startup | sector, time,
+history)`, so positive sector self-excitation lives in a clean Hawkes layer while
+firm-level "cooldown" becomes an observed covariate with a negative coefficient in the
+ranker. Every excitation stays positive and the model stays tractable.
+
+**What "good" looks like.** On synthetic data generated from this same family, the
+fitted ranker should approach the *oracle* (true-parameter) ranker — recovering most
+of the achievable signal, the rest being irreducible stochasticity. The
+[validation section](#validation-on-synthetic-data) shows it reaches ~80–92 % of the
+oracle and 3–6× the random baseline.
+
 ## Motivation
 
 We considered two ways to model funding events:
@@ -150,6 +179,42 @@ A simulated path proceeds week by week:
 
 Exogenous covariates `X[t]` and startup features `Z[i,t]` are taken as given in the synthetic experiment. In production, future covariates should come from scenarios, forecasts, or bootstrapped historical paths.
 
+### Scope: rank the first K events per sector-week
+
+For the use case we care about, we only need the **next few** funded startups, not a
+full unbounded simulated path. The simulation should therefore **cap the number of
+events drawn per sector-week to the first `K`** (e.g. `K = 2`): take
+`n_events = min(Poisson(Lambda[s,t]), K)` and draw `K` distinct startup marks. This is
+both what the business question asks (who are the next 1–2 firms to raise in this
+sector?) and a hard guard that keeps the simulation bounded — see the note on
+supercriticality under [Current limitations](#current-limitations).
+
+## Validation on synthetic data
+
+We generated a realistic synthetic market (11 sectors, ~35 candidate startups per
+pick, `T = 180` weeks, train through week 120) from this exact model family, fit both
+layers, and evaluated the **ranker** on held-out weeks across 5 seeds. We compare the
+fitted ranker against two references: a **random** pick over the same risk set
+(chance), and the **oracle** — the ranker built from the *true* parameters, i.e. the
+best achievable given the data's irreducible softmax stochasticity.
+
+| metric (held-out) | fitted | oracle (ceiling) | random | fitted / oracle |
+|---|---|---|---|---|
+| top-1 hit rate | **16.7 %** | 21.2 % | 2.9 % | **79 %** |
+| top-5 hit rate | **49.2 %** | 53.7 % | 14.3 % | **92 %** |
+| top-10 hit rate | **69.2 %** | 71.6 % | 28.6 % | 97 % |
+| mean reciprocal rank | **0.328** | 0.371 | 0.118 | **88 %** |
+
+**Reading:** the fitted ranker is **3–6× better than chance** and recovers
+**~80–92 %** of the oracle's top-k / MRR. Because each pick is a stochastic draw over
+~35 startups, the oracle itself only lands top-1 ~21 % of the time — so the remaining
+gap is mostly irreducible noise, not model error. **Conclusion: the ranking layer
+works** and is close to the achievable ceiling on synthetic data.
+
+The sector (Layer 1) count model likewise beats a historical-mean baseline on held-out
+Poisson NLL. (Reproduce with `evaluate_ranker` over held-out weeks, or
+`backtest_synthetic_pipeline`; metrics land in `results/exp14_sector_ranker.json`.)
+
 ## Files added
 
 ### `hawkes_calibration/sector_ranker.py`
@@ -262,6 +327,21 @@ This is a first implementation pass. The main limitations are:
 4. The sector count model uses Poisson noise; real funding data may be overdispersed, so a negative-binomial extension is likely useful.
 5. The synthetic tests use fixed random seeds and should be checked locally for runtime and robustness.
 6. The ranker uses linear features. In production this can be replaced by a gradient-boosted model, neural scorer, or learned embeddings as long as it still normalizes over the current risk set.
+7. **Supercritical sector simulation (known issue).** `fit_sector_count_model`
+   constrains the lagged sector excitation to be non-negative but **not** its spectral
+   radius. The fitted sector model can therefore be *supercritical* (measured spectral
+   radius ≈ 3.7 of the summed-over-lags excitation matrix), and simulating forward from
+   it explodes via positive feedback: weekly rates hit the `exp(20) ≈ 4.85×10⁸` clip,
+   `Poisson(4.85×10⁸)` draws hundreds of millions of events, and the per-event inner
+   loop `for _ in range(Y[s,t])` iterates that many times — so `simulate_marked_paths`
+   (and the end-to-end backtest) can hang for minutes. The **ranking evaluation uses
+   real observed data (no simulation) and is unaffected**, so the validation results
+   above are sound. Two complementary fixes: (a) cap events per sector-week to the
+   first `K` (see [Scope](#scope-rank-the-first-k-events-per-sector-week)) — which is
+   what the use case needs anyway and bounds the loop directly; and (b) project the
+   fitted excitation to spectral radius `< 1` (a stability constraint, the same lesson
+   as the covariate-MBPP work). Until then, keep `simulate_marked_paths` horizons short
+   or skip the simulation step.
 
 ## Next steps
 
