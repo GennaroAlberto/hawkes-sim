@@ -19,6 +19,13 @@ Two data regimes are supported, organised into subpackages:
   Hawkes/count model plus a dynamic startup risk-set ranker for marked-event
   simulation and synthetic backtests.
 
+* ``sector_survival`` -- **startup survival stage**: Cox/McFadden partial likelihood
+  over live sector risk sets, with an outside option for firms not tracked in the
+  dataset/watch-list.
+
+* ``sector_hazard`` -- **discrete-time hazard baseline**: supervised firm-week hazard
+  model with negative sampling for weekly PitchBook-style data.
+
 * ``optim``      -- a shared numpy BFGS used by the estimators.
 
 The whole public API is re-exported here, so ``from hawkes_calibration import X``
@@ -32,6 +39,7 @@ from .operators import *  # noqa: F401,F403
 from .sector_ranker import *  # noqa: F401,F403
 from .sector_backtest import *  # noqa: F401,F403  # overrides clean backtest wrapper
 from .sector_survival import *  # noqa: F401,F403
+from .sector_hazard import *  # noqa: F401,F403
 
 from .eventtime import __all__ as _eventtime_all
 from .mbpp import __all__ as _mbpp_all
@@ -39,6 +47,7 @@ from .operators import __all__ as _operators_all
 from .sector_ranker import __all__ as _sector_ranker_all
 from .sector_backtest import __all__ as _sector_backtest_all
 from .sector_survival import __all__ as _sector_survival_all
+from .sector_hazard import __all__ as _sector_hazard_all
 
 __all__ = [
     *_eventtime_all,
@@ -47,4 +56,5 @@ __all__ = [
     *_sector_ranker_all,
     *_sector_backtest_all,
     *_sector_survival_all,
+    *_sector_hazard_all,
 ]
