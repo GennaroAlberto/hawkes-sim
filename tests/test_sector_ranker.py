@@ -1,11 +1,16 @@
-"""Tests for the sector-level count model + dynamic startup ranker."""
+"""Tests for the sector-level count model + dynamic startup second stages."""
 
 import numpy as np
 
 from hawkes_calibration import (
     backtest_synthetic_pipeline,
     candidate_set,
+    cox_survival_predict_proba,
+    discrete_hazard_predict_proba,
     evaluate_ranker,
+    evaluate_survival_stage,
+    fit_cox_survival_stage,
+    fit_discrete_hazard_stage,
     fit_sector_count_model,
     fit_startup_ranker,
     ranker_predict_proba,
@@ -99,6 +104,94 @@ def test_sector_model_and_ranker_fit_on_synthetic_data():
     assert metrics["nll"] < metrics["random_nll"]
 
 
+def test_survival_second_stage_alternatives_fit_and_score():
+    data = simulate_synthetic_startup_market(
+        T=90,
+        n_sectors=4,
+        startups_per_sector=12,
+        n_lags=2,
+        cooldown_weeks=8,
+        seed=3,
+    )
+    train_end = 60
+    test_event = data.events[data.events[:, 0] >= train_end][0]
+
+    cox_fit = fit_cox_survival_stage(
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        train_end=train_end,
+        cooldown_weeks=8,
+        max_iter=150,
+    )
+    assert cox_fit.success or np.isfinite(cox_fit.loss)
+    assert np.all(cox_fit.cooldown_coef <= 1e-12)
+    cand, prob = cox_survival_predict_proba(
+        cox_fit,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        week=int(test_event[0]),
+        sector=int(test_event[1]),
+    )
+    assert cand.size == prob.size
+    assert np.isclose(prob.sum(), 1.0)
+
+    hazard_fit = fit_discrete_hazard_stage(
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        train_end=train_end,
+        cooldown_weeks=8,
+        negative_sampling_ratio=10,
+        seed=11,
+        max_iter=150,
+    )
+    assert hazard_fit.success or np.isfinite(hazard_fit.loss)
+    assert np.all(hazard_fit.cooldown_coef <= 1e-12)
+    cand, prob = discrete_hazard_predict_proba(
+        hazard_fit,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        week=int(test_event[0]),
+        sector=int(test_event[1]),
+    )
+    assert cand.size == prob.size
+    assert np.isclose(prob.sum(), 1.0)
+
+    cox_metrics = evaluate_survival_stage(
+        cox_fit,
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        start_week=train_end,
+        end_week=90,
+    )
+    hazard_metrics = evaluate_survival_stage(
+        hazard_fit,
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        start_week=train_end,
+        end_week=90,
+    )
+    assert cox_metrics["n_events"] > 0
+    assert hazard_metrics["n_events"] > 0
+    assert np.isfinite(cox_metrics["nll"])
+    assert np.isfinite(hazard_metrics["nll"])
+
+
 def test_end_to_end_backtest_runs_and_beats_simple_baselines():
     out = backtest_synthetic_pipeline(
         seed=4,
@@ -117,3 +210,5 @@ def test_end_to_end_backtest_runs_and_beats_simple_baselines():
     # Synthetic data are generated from this family, so these should beat naive baselines.
     assert m["sector_model_nll_per_cell"] < m["sector_baseline_nll_per_cell"]
     assert m["ranker"]["nll"] < m["ranker"]["random_nll"]
+    assert m["cox_survival"]["n_events"] > 0
+    assert m["discrete_hazard"]["n_events"] > 0
