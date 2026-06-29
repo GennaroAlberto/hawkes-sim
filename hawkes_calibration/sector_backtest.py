@@ -13,6 +13,11 @@ from .sector_ranker import (
     simulate_marked_paths,
     simulate_synthetic_startup_market,
 )
+from .survival_second_stage import (
+    evaluate_survival_stage,
+    fit_cox_survival_stage,
+    fit_discrete_hazard_stage,
+)
 
 
 def backtest_synthetic_pipeline(
@@ -29,7 +34,7 @@ def backtest_synthetic_pipeline(
     """Run an end-to-end synthetic backtest for the two-layer architecture.
 
     This wrapper deliberately zeros all post-``train_end`` event histories before
-    simulation.  The sector and ranker one-step evaluations may condition on
+    simulation.  The sector and second-stage one-step evaluations may condition on
     observed lagged history, but simulated paths must not see future startup events
     when building cooldown covariates.
     """
@@ -59,6 +64,30 @@ def backtest_synthetic_pipeline(
         l2_global=1e-3,
         l2_sector=5e-2,
     )
+    cox_fit = fit_cox_survival_stage(
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        train_end=train_end,
+        cooldown_weeks=cooldown_weeks,
+        l2_global=1e-3,
+        l2_sector=5e-2,
+    )
+    discrete_hazard_fit = fit_discrete_hazard_stage(
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        train_end=train_end,
+        cooldown_weeks=cooldown_weeks,
+        negative_sampling_ratio=20,
+        seed=seed + 17,
+        l2_global=1e-3,
+        l2_sector=5e-2,
+    )
 
     # Sector held-out one-step scores, using actual lag history.
     rates_all = sector_fit.rates(data.sector_counts, data.covariates)
@@ -70,6 +99,28 @@ def backtest_synthetic_pipeline(
 
     rank_metrics = evaluate_ranker(
         ranker_fit,
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        start_week=train_end,
+        end_week=T,
+        topk=(1, 5, 10),
+    )
+    cox_metrics = evaluate_survival_stage(
+        cox_fit,
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        start_week=train_end,
+        end_week=T,
+        topk=(1, 5, 10),
+    )
+    discrete_hazard_metrics = evaluate_survival_stage(
+        discrete_hazard_fit,
         data.events,
         data.startup_features,
         data.startup_sector,
@@ -106,6 +157,8 @@ def backtest_synthetic_pipeline(
         "data": data,
         "sector_fit": sector_fit,
         "ranker_fit": ranker_fit,
+        "cox_survival_fit": cox_fit,
+        "discrete_hazard_fit": discrete_hazard_fit,
         "metrics": {
             "n_events_total": int(data.events.shape[0]),
             "n_events_train": int(np.sum(data.events[:, 0] < train_end)),
@@ -116,6 +169,8 @@ def backtest_synthetic_pipeline(
             "sim_sector_mae": sim_sector_mae,
             "baseline_sector_mae": base_sector_mae,
             "ranker": rank_metrics,
+            "cox_survival": cox_metrics,
+            "discrete_hazard": discrete_hazard_metrics,
         },
     }
 
