@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hawkes_calibration"
+version = "0.1.0"
+description = "Calibration and learning of self-exciting (Hawkes) processes from interval-censored counts, with a physics-informed neural operator and an investment-market ranking prototype."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Alberto Gennaro" }]
+keywords = ["hawkes process", "point process", "interval-censored", "neural operator", "survival analysis", "ranking"]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Operating System :: OS Independent",
+]
+
+# The core is numpy-only. Everything heavier is an optional extra so that
+# `import hawkes_calibration` and the core estimators have no hard dependency on
+# SciPy / JAX / TensorFlow / matplotlib.
+dependencies = ["numpy>=1.23"]
+
+[project.optional-dependencies]
+viz = ["matplotlib>=3.5"]
+stats = ["scipy>=1.9"]                       # faster/exact optimiser for sector_ranker
+jax = ["jax>=0.4", "jaxlib>=0.4", "optax>=0.1"]
+tf = ["tensorflow>=2.12"]
+dev = ["pytest>=7", "ruff>=0.1", "matplotlib>=3.5", "scipy>=1.9"]
+all = ["matplotlib>=3.5", "scipy>=1.9", "jax>=0.4", "jaxlib>=0.4", "optax>=0.1", "tensorflow>=2.12"]
+
+[project.urls]
+Documentation = "https://github.com/GennaroAlberto/hawkes-sim"
+Repository = "https://github.com/GennaroAlberto/hawkes-sim"
+
+[tool.setuptools.packages.find]
+include = ["hawkes_calibration*"]
+exclude = ["tests*", "experiments*", "paper*", "docs*", "results*"]
+
+# ---------------------------------------------------------------------------
+# Tooling
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [".venv", "paper", "results"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+# E741: ambiguous variable names (l, I) are used deliberately in some math code;
+# E402: a few modules import lazily after a guard; B905: zip(strict=) not required.
+ignore = ["E741", "E402", "B905"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]

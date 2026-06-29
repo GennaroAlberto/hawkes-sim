@@ -23,8 +23,12 @@ from math import lgamma
 from typing import Iterable
 
 import numpy as np
-from scipy.optimize import minimize
-from scipy.special import logsumexp
+
+try:  # SciPy is optional: used when available, else a numpy fallback.
+    from scipy.optimize import minimize
+    from scipy.special import logsumexp
+except ImportError:  # pragma: no cover - exercised only without SciPy
+    from ._opt_fallback import logsumexp, minimize
 
 
 # ---------------------------------------------------------------------------

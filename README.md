@@ -1,5 +1,9 @@
 # hawkes_calibration
 
+[![CI](https://github.com/GennaroAlberto/hawkes-sim/actions/workflows/ci.yml/badge.svg)](https://github.com/GennaroAlberto/hawkes-sim/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 Calibrate Hawkes processes in **two data regimes**, with a single consistent API:
 
 1. **Event-time data** — exact timestamps observed. Maximum-likelihood estimation
@@ -20,15 +24,38 @@ from each result to the code — is the textbook **[`paper/textbook.pdf`](paper/
 ## Install
 
 ```bash
-pip install numpy scipy matplotlib        # core (numpy-only runtime)
-pip install tensorflow                    # optional: high-dim TF operators
-pip install jax jaxlib                     # optional: neural PDE solver (JAX)
+pip install -e .                  # core (numpy only)
+pip install -e ".[dev]"           # + pytest, ruff, matplotlib, scipy (development)
+pip install -e ".[jax]"           # optional: JAX neural operator / inverse
+pip install -e ".[tf]"            # optional: TensorFlow operators
+pip install -e ".[all]"           # everything
 ```
 
-The core package and all experiments run on numpy/scipy/matplotlib. TensorFlow and
-JAX are only needed for the optional learned-operator / neural-solver modules and
-are deliberately **not** imported by `hawkes_calibration.__init__`, so the core
-stays lightweight.
+The core imports with **numpy only**; `import hawkes_calibration` has no hard
+dependency on SciPy, JAX, TensorFlow or matplotlib. SciPy is used when present for the
+`sector_ranker` optimiser (a numpy fallback runs otherwise); JAX/TF are needed only for
+the learned-operator and differentiable-inverse modules, which are imported lazily.
+
+## Testing and development
+
+```bash
+pytest                            # full suite; JAX/TF tests skip if not installed
+ruff check .                      # lint  (config in pyproject.toml, line length 100)
+```
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development workflow.
+
+## Documentation
+
+| Document | What it is |
+|---|---|
+| [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md) | technical report: model, learned operator, application |
+| [`paper/investment_case_study.pdf`](paper/investment_case_study.pdf) | the rigorous paper (MBPP + covariate augmentation, proofs) |
+| [`paper/textbook.pdf`](paper/textbook.pdf) | the full mathematical treatment (pedagogical) |
+| [`paper/two_step_ranker.pdf`](paper/two_step_ranker.pdf) | sector Hawkes + within-sector startup ranker |
+| [`SURVIVAL_RANKING.md`](SURVIVAL_RANKING.md) | the survival-with-ranking alternative |
+| [`PINO_RESULTS.md`](PINO_RESULTS.md), [`LEARNING_REPORT.pdf`](LEARNING_REPORT.pdf) | learned-solver results and feasibility study |
+| [`NEXT_FUNDING_DESIGN.md`](NEXT_FUNDING_DESIGN.md), [`PURE_LEARNING.md`](PURE_LEARNING.md) | application design and learning playbook |
 
 ## Interval-censored calibration in 30 seconds
 

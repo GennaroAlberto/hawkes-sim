@@ -31,12 +31,14 @@ from .mbpp import *  # noqa: F401,F403
 from .operators import *  # noqa: F401,F403
 from .sector_ranker import *  # noqa: F401,F403
 from .sector_backtest import *  # noqa: F401,F403  # overrides clean backtest wrapper
+from .sector_survival import *  # noqa: F401,F403
 
 from .eventtime import __all__ as _eventtime_all
 from .mbpp import __all__ as _mbpp_all
 from .operators import __all__ as _operators_all
 from .sector_ranker import __all__ as _sector_ranker_all
 from .sector_backtest import __all__ as _sector_backtest_all
+from .sector_survival import __all__ as _sector_survival_all
 
 __all__ = [
     *_eventtime_all,
@@ -44,4 +46,5 @@ __all__ = [
     *_operators_all,
     *_sector_ranker_all,
     *_sector_backtest_all,
+    *_sector_survival_all,
 ]

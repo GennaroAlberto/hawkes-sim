@@ -1,9 +1,21 @@
 __pycache__/
 *.pyc
 .venv/
+venv/
 .ipynb_checkpoints/
 results/
 .DS_Store
+
+# Packaging / tooling
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
 # LaTeX build artifacts (keep textbook.tex + textbook.pdf)
 *.aux
