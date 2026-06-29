@@ -19,6 +19,10 @@ Two data regimes are supported, organised into subpackages:
   Hawkes/count model plus a dynamic startup risk-set ranker for marked-event
   simulation and synthetic backtests.
 
+* ``survival_second_stage`` -- **startup survival baselines**: Cox risk-set and
+  discrete-time hazard alternatives for choosing the funded firm conditional on a
+  sector event.
+
 * ``optim``      -- a shared numpy BFGS used by the estimators.
 
 The whole public API is re-exported here, so ``from hawkes_calibration import X``
@@ -30,12 +34,14 @@ from .eventtime import *  # noqa: F401,F403
 from .mbpp import *  # noqa: F401,F403
 from .operators import *  # noqa: F401,F403
 from .sector_ranker import *  # noqa: F401,F403
+from .survival_second_stage import *  # noqa: F401,F403
 from .sector_backtest import *  # noqa: F401,F403  # overrides clean backtest wrapper
 
 from .eventtime import __all__ as _eventtime_all
 from .mbpp import __all__ as _mbpp_all
 from .operators import __all__ as _operators_all
 from .sector_ranker import __all__ as _sector_ranker_all
+from .survival_second_stage import __all__ as _survival_second_stage_all
 from .sector_backtest import __all__ as _sector_backtest_all
 
 __all__ = [
@@ -43,5 +49,6 @@ __all__ = [
     *_mbpp_all,
     *_operators_all,
     *_sector_ranker_all,
+    *_survival_second_stage_all,
     *_sector_backtest_all,
 ]
