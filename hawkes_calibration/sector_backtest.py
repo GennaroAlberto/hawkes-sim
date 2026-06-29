@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from .sector_hazard import evaluate_discrete_hazard, fit_discrete_hazard
 from .sector_ranker import (
     evaluate_ranker,
     fit_sector_count_model,
@@ -13,6 +14,7 @@ from .sector_ranker import (
     simulate_marked_paths,
     simulate_synthetic_startup_market,
 )
+from .sector_survival import evaluate_survival, fit_startup_survival, make_tracked_mask
 
 
 def backtest_synthetic_pipeline(
@@ -25,11 +27,12 @@ def backtest_synthetic_pipeline(
     n_lags=4,
     cooldown_weeks=26,
     n_paths=100,
+    tracked_fraction=0.8,
 ):
     """Run an end-to-end synthetic backtest for the two-layer architecture.
 
     This wrapper deliberately zeros all post-``train_end`` event histories before
-    simulation.  The sector and ranker one-step evaluations may condition on
+    simulation.  The sector and second-stage one-step evaluations may condition on
     observed lagged history, but simulated paths must not see future startup events
     when building cooldown covariates.
     """
@@ -60,6 +63,39 @@ def backtest_synthetic_pipeline(
         l2_sector=5e-2,
     )
 
+    # Survival stage with a tracked watch-list and an outside option for events
+    # assigned to untracked firms.
+    tracked = make_tracked_mask(data.active, fraction=tracked_fraction, seed=seed + 99)
+    survival_fit = fit_startup_survival(
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        tracked=tracked,
+        train_end=train_end,
+        cooldown_weeks=cooldown_weeks,
+        l2_global=1e-3,
+        l2_sector=5e-2,
+        l2_outside=5e-2,
+    )
+
+    # Discrete-time hazard baseline: uses active non-event firm-weeks as sampled
+    # negatives rather than only event-time risk-set comparisons.
+    hazard_fit = fit_discrete_hazard(
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        train_end=train_end,
+        cooldown_weeks=cooldown_weeks,
+        negative_sampling_ratio=20,
+        seed=seed + 17,
+        l2_global=1e-3,
+        l2_sector=5e-2,
+    )
+
     # Sector held-out one-step scores, using actual lag history.
     rates_all = sector_fit.rates(data.sector_counts, data.covariates)
     model_rates = rates_all[train_end:T]
@@ -70,6 +106,29 @@ def backtest_synthetic_pipeline(
 
     rank_metrics = evaluate_ranker(
         ranker_fit,
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        start_week=train_end,
+        end_week=T,
+        topk=(1, 5, 10),
+    )
+    survival_metrics = evaluate_survival(
+        survival_fit,
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        tracked=tracked,
+        start_week=train_end,
+        end_week=T,
+        topk=(1, 5, 10),
+    )
+    hazard_metrics = evaluate_discrete_hazard(
+        hazard_fit,
         data.events,
         data.startup_features,
         data.startup_sector,
@@ -106,6 +165,9 @@ def backtest_synthetic_pipeline(
         "data": data,
         "sector_fit": sector_fit,
         "ranker_fit": ranker_fit,
+        "survival_fit": survival_fit,
+        "hazard_fit": hazard_fit,
+        "tracked": tracked,
         "metrics": {
             "n_events_total": int(data.events.shape[0]),
             "n_events_train": int(np.sum(data.events[:, 0] < train_end)),
@@ -116,6 +178,8 @@ def backtest_synthetic_pipeline(
             "sim_sector_mae": sim_sector_mae,
             "baseline_sector_mae": base_sector_mae,
             "ranker": rank_metrics,
+            "survival": survival_metrics,
+            "discrete_hazard": hazard_metrics,
         },
     }
 
