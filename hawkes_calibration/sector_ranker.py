@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import lgamma
-from typing import Iterable
 
 import numpy as np
 
@@ -413,7 +412,8 @@ def fit_startup_ranker(
         cd = cooldown_vector(startup_counts, int(t), cand, cooldown_weeks)
         prepared.append((int(t), int(s), cand, chosen_pos, cd))
     if not prepared:
-        raise ValueError("no training events had a non-empty risk set containing the funded startup")
+        raise ValueError(
+            "no training events had a non-empty risk set containing the funded startup")
 
     def unpack(theta):
         w0 = theta[:p]
@@ -705,6 +705,14 @@ def simulate_marked_paths(
             y_t = rng.poisson(rates)
             if cap is not None:
                 y_t = np.minimum(y_t, cap)      # keep only the first K events per sector-week
+            # Physical guard: a sector cannot fund more *distinct* startups than are
+            # live in its risk set this week.  This also makes the simulation safe by
+            # construction -- if the fitted sector model is near/over critical, the
+            # rate can otherwise blow up and the inner event loop would run for an
+            # astronomically large Poisson draw.
+            avail = np.array(
+                [candidate_set(startup_sector, active, s, t).size for s in range(M)])
+            y_t = np.minimum(y_t, avail)
             sector_counts[t] = y_t
             chosen_this_week: set[int] = set()
             for s in range(M):
