@@ -100,6 +100,32 @@ b[s,r,l] >= 0
 
 This gives Hawkes-like sector momentum while staying aligned with weekly data.
 
+### Noncritical excitation constraint
+
+The sector layer now enforces a stability constraint. Define the summed lag-excitation
+matrix
+
+```text
+G[s,r] = sum_l b[s,r,l].
+```
+
+For a nonnegative matrix, Perron--Frobenius gives:
+
+```text
+spectral_radius(G) <= max_s sum_r G[s,r].
+```
+
+So the stable fitter constrains each receiver row by
+
+```text
+sum_r sum_l b[s,r,l] <= rho_max,   rho_max = 0.95 by default.
+```
+
+This is a convex sufficient condition for `spectral_radius(G) < 1`. It prevents the
+supercritical failure mode where simulation explodes via positive feedback. The fitted
+object also reports `spectral_radius`, `max_row_sum`, and `max_excitation_radius` for
+backtest reporting.
+
 ### Structural zeros
 
 The fitter accepts an optional sector adjacency mask. If `adjacency[s, r] = False`, then all lag coefficients from source sector `r` to receiving sector `s` are forced to zero:
@@ -182,12 +208,13 @@ Exogenous covariates `X[t]` and startup features `Z[i,t]` are taken as given in 
 ### Scope: rank the first K events per sector-week
 
 For the use case we care about, we only need the **next few** funded startups, not a
-full unbounded simulated path. The simulation should therefore **cap the number of
+full unbounded simulated path. The simulation can therefore **cap the number of
 events drawn per sector-week to the first `K`** (e.g. `K = 2`): take
 `n_events = min(Poisson(Lambda[s,t]), K)` and draw `K` distinct startup marks. This is
 both what the business question asks (who are the next 1–2 firms to raise in this
-sector?) and a hard guard that keeps the simulation bounded — see the note on
-supercriticality under [Current limitations](#current-limitations).
+sector?) and a hard guard that keeps the simulation bounded. The stability constraint
+above is the main fix; event caps are still useful when the business only asks for the
+first few marks.
 
 ## Validation on synthetic data
 
@@ -211,9 +238,11 @@ best achievable given the data's irreducible softmax stochasticity.
 gap is mostly irreducible noise, not model error. **Conclusion: the ranking layer
 works** and is close to the achievable ceiling on synthetic data.
 
-The sector (Layer 1) count model likewise beats a historical-mean baseline on held-out
-Poisson NLL. (Reproduce with `evaluate_ranker` over held-out weeks, or
-`backtest_synthetic_pipeline`; metrics land in `results/exp14_sector_ranker.json`.)
+The sector (Layer 1) count model now fits under a noncritical excitation constraint.
+Backtests report the fitted `sector_spectral_radius` and `sector_max_row_sum` alongside
+held-out Poisson NLL and simulation MAE. The stability constraint is intentionally a
+presentation-quality guardrail: it may trade some in-sample flexibility for a model that
+can be simulated and interpreted safely.
 
 ## Files added
 
@@ -221,7 +250,6 @@ Poisson NLL. (Reproduce with `evaluate_ranker` over held-out weeks, or
 
 Main implementation:
 
-- `fit_sector_count_model`
 - `fit_startup_ranker`
 - `ranker_predict_proba`
 - `evaluate_ranker`
@@ -229,12 +257,20 @@ Main implementation:
 - `simulate_marked_paths`
 - data containers for synthetic data and fitted models
 
+### `hawkes_calibration/sector_stability.py`
+
+Stable sector count fitting:
+
+- `fit_sector_count_model` — public stable sector fitter;
+- `aggregate_excitation` — summed-over-lags excitation matrix;
+- `excitation_spectral_radius` — stability diagnostic.
+
 ### `hawkes_calibration/sector_backtest.py`
 
 Clean end-to-end synthetic backtest wrapper:
 
 - generates data;
-- fits the sector model;
+- fits the stable sector model;
 - fits the startup ranker;
 - evaluates held-out sector NLL;
 - evaluates held-out ranker NLL, MRR, and top-k hit rates;
@@ -263,7 +299,7 @@ Coverage for:
 - synthetic market shapes;
 - dynamic risk sets;
 - sector model fitting;
-- nonnegative excitation constraints;
+- nonnegative and noncritical excitation constraints;
 - ranker fitting;
 - negative cooldown constraint;
 - probability normalization over the risk set;
@@ -281,6 +317,7 @@ The package `__init__` exports the prototype functions:
 from hawkes_calibration import (
     simulate_synthetic_startup_market,
     fit_sector_count_model,
+    excitation_spectral_radius,
     fit_startup_ranker,
     evaluate_ranker,
     simulate_marked_paths,
@@ -310,6 +347,7 @@ The backtest reports:
 - sector held-out Poisson NLL per sector-week cell;
 - historical-mean baseline sector NLL;
 - improvement of the fitted sector model over baseline;
+- fitted sector spectral radius and max row sum;
 - simulation MAE for sector-week counts;
 - baseline sector MAE;
 - ranker held-out NLL;
@@ -319,7 +357,7 @@ The backtest reports:
 
 ## Current limitations
 
-This is a first implementation pass. The main limitations are:
+This is still a first implementation pass. The main remaining limitations are:
 
 1. The sector process is a discrete-time Poisson GLM, not a continuous-time Hawkes likelihood.
 2. The ranker currently uses a simple conditional softmax, not a full Plackett-Luce likelihood for multiple events in the same sector-week.
@@ -327,21 +365,7 @@ This is a first implementation pass. The main limitations are:
 4. The sector count model uses Poisson noise; real funding data may be overdispersed, so a negative-binomial extension is likely useful.
 5. The synthetic tests use fixed random seeds and should be checked locally for runtime and robustness.
 6. The ranker uses linear features. In production this can be replaced by a gradient-boosted model, neural scorer, or learned embeddings as long as it still normalizes over the current risk set.
-7. **Supercritical sector simulation (known issue).** `fit_sector_count_model`
-   constrains the lagged sector excitation to be non-negative but **not** its spectral
-   radius. The fitted sector model can therefore be *supercritical* (measured spectral
-   radius ≈ 3.7 of the summed-over-lags excitation matrix), and simulating forward from
-   it explodes via positive feedback: weekly rates hit the `exp(20) ≈ 4.85×10⁸` clip,
-   `Poisson(4.85×10⁸)` draws hundreds of millions of events, and the per-event inner
-   loop `for _ in range(Y[s,t])` iterates that many times — so `simulate_marked_paths`
-   (and the end-to-end backtest) can hang for minutes. The **ranking evaluation uses
-   real observed data (no simulation) and is unaffected**, so the validation results
-   above are sound. Two complementary fixes: (a) cap events per sector-week to the
-   first `K` (see [Scope](#scope-rank-the-first-k-events-per-sector-week)) — which is
-   what the use case needs anyway and bounds the loop directly; and (b) project the
-   fitted excitation to spectral radius `< 1` (a stability constraint, the same lesson
-   as the covariate-MBPP work). Until then, keep `simulate_marked_paths` horizons short
-   or skip the simulation step.
+7. The stability constraint is a sufficient row-sum condition, not the least-restrictive possible spectral-radius constraint. It is deliberately conservative and presentation-safe; a future implementation could use a differentiable spectral-radius parameterization or low-rank excitation budget.
 
 ## Next steps
 
