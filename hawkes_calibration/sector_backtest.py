@@ -25,6 +25,7 @@ def backtest_synthetic_pipeline(
     n_lags=4,
     cooldown_weeks=26,
     n_paths=100,
+    max_events_per_week=None,
 ):
     """Run an end-to-end synthetic backtest for the two-layer architecture.
 
@@ -32,6 +33,11 @@ def backtest_synthetic_pipeline(
     simulation.  The sector and ranker one-step evaluations may condition on
     observed lagged history, but simulated paths must not see future startup events
     when building cooldown covariates.
+
+    ``max_events_per_week`` caps the simulated funding events per sector-week to the
+    first ``K`` (forwarded to :func:`simulate_marked_paths`) -- both the business
+    question ("next K firms to raise") and a guard against a near/over-critical fitted
+    sector model exploding the simulation.
     """
     data = simulate_synthetic_startup_market(
         T=T,
@@ -97,6 +103,7 @@ def backtest_synthetic_pipeline(
         end_week=T,
         n_paths=n_paths,
         seed=seed + 123,
+        max_events_per_week=max_events_per_week,
     )
     sim_mean_sector = paths["sector_counts"].mean(axis=0)
     sim_sector_mae = float(np.mean(np.abs(sim_mean_sector - observed)))

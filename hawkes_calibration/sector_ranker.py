@@ -672,9 +672,20 @@ def simulate_marked_paths(
     end_week,
     n_paths=100,
     seed=0,
+    max_events_per_week=None,
 ):
-    """Simulate sector counts and startup marks from fitted two-layer model."""
+    """Simulate sector counts and startup marks from fitted two-layer model.
+
+    ``max_events_per_week`` caps the number of funding events drawn per sector-week
+    to the first ``K`` (``Y[s,t] = min(Poisson(Lambda[s,t]), K)``).  This matches the
+    business question -- "who are the next 1-2 firms to raise in this sector?" -- and
+    is also a hard guard: if the fitted sector excitation is near/over critical, an
+    uncapped ``Poisson`` draw can hit the rate clip (~4.85e8) and the per-event inner
+    loop would iterate that many times.  ``None`` (default) keeps the uncapped
+    behaviour.
+    """
     rng = np.random.default_rng(seed)
+    cap = None if max_events_per_week is None else int(max_events_per_week)
     Z = np.asarray(startup_features, dtype=float)
     sector_hist0 = np.asarray(initial_sector_counts, dtype=int)
     startup_hist0 = np.asarray(initial_startup_counts, dtype=int)
@@ -692,6 +703,8 @@ def simulate_marked_paths(
         for t in range(start_week, end_week):
             rates = sector_rate_at(sector_model, sector_counts, covariates, t)
             y_t = rng.poisson(rates)
+            if cap is not None:
+                y_t = np.minimum(y_t, cap)      # keep only the first K events per sector-week
             sector_counts[t] = y_t
             chosen_this_week: set[int] = set()
             for s in range(M):
@@ -724,8 +737,13 @@ def backtest_synthetic_pipeline(
     n_lags=4,
     cooldown_weeks=26,
     n_paths=100,
+    max_events_per_week=None,
 ):
-    """Run an end-to-end synthetic backtest for the two-layer architecture."""
+    """Run an end-to-end synthetic backtest for the two-layer architecture.
+
+    ``max_events_per_week`` is forwarded to :func:`simulate_marked_paths` to cap the
+    simulated events per sector-week (the "first K" funded firms).
+    """
     data = simulate_synthetic_startup_market(
         T=T,
         n_sectors=n_sectors,
@@ -786,6 +804,7 @@ def backtest_synthetic_pipeline(
         end_week=T,
         n_paths=n_paths,
         seed=seed + 123,
+        max_events_per_week=max_events_per_week,
     )
     sim_mean_sector = paths["sector_counts"].mean(axis=0)
     sim_sector_mae = float(np.mean(np.abs(sim_mean_sector - observed)))
