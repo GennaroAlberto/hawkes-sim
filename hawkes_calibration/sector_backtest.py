@@ -7,13 +7,13 @@ import numpy as np
 from .sector_hazard import evaluate_discrete_hazard, fit_discrete_hazard
 from .sector_ranker import (
     evaluate_ranker,
-    fit_sector_count_model,
     fit_startup_ranker,
     poisson_nll,
     sector_baseline_rates,
     simulate_marked_paths,
     simulate_synthetic_startup_market,
 )
+from .sector_stability import fit_sector_count_model
 from .sector_survival import evaluate_survival, fit_startup_survival, make_tracked_mask
 
 
@@ -50,6 +50,7 @@ def backtest_synthetic_pipeline(
         n_lags=n_lags,
         train_end=train_end,
         l2=1e-3,
+        max_excitation_radius=0.95,
     )
     ranker_fit = fit_startup_ranker(
         data.events,
@@ -175,6 +176,8 @@ def backtest_synthetic_pipeline(
             "sector_model_nll_per_cell": float(sector_model_nll),
             "sector_baseline_nll_per_cell": float(sector_baseline_nll),
             "sector_nll_improvement": float(sector_baseline_nll - sector_model_nll),
+            "sector_spectral_radius": float(getattr(sector_fit, "spectral_radius", np.nan)),
+            "sector_max_row_sum": float(getattr(sector_fit, "max_row_sum", np.nan)),
             "sim_sector_mae": sim_sector_mae,
             "baseline_sector_mae": base_sector_mae,
             "ranker": rank_metrics,
