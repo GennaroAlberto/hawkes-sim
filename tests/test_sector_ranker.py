@@ -1,15 +1,23 @@
-"""Tests for the sector-level count model + dynamic startup ranker."""
+"""Tests for the sector-level count model + dynamic startup second stages."""
 
 import numpy as np
 
 from hawkes_calibration import (
     backtest_synthetic_pipeline,
     candidate_set,
+    discrete_hazard_predict_proba,
+    evaluate_discrete_hazard,
     evaluate_ranker,
+    evaluate_survival,
+    excitation_spectral_radius,
+    fit_discrete_hazard,
     fit_sector_count_model,
     fit_startup_ranker,
+    fit_startup_survival,
+    make_tracked_mask,
     ranker_predict_proba,
     simulate_synthetic_startup_market,
+    survival_predict_proba,
 )
 
 
@@ -51,11 +59,14 @@ def test_sector_model_and_ranker_fit_on_synthetic_data():
         n_lags=2,
         train_end=train_end,
         l2=1e-3,
+        max_excitation_radius=0.95,
         max_iter=150,
     )
     assert sector_fit.success or np.isfinite(sector_fit.loss)
     assert np.all(sector_fit.excitation >= -1e-12)
     assert sector_fit.excitation.shape == (4, 4, 2)
+    assert excitation_spectral_radius(sector_fit.excitation) <= 0.95000001
+    assert getattr(sector_fit, "spectral_radius") <= 0.95000001
 
     ranker_fit = fit_startup_ranker(
         data.events,
@@ -99,10 +110,101 @@ def test_sector_model_and_ranker_fit_on_synthetic_data():
     assert metrics["nll"] < metrics["random_nll"]
 
 
-def test_end_to_end_backtest_runs_and_ranker_beats_random():
+def test_survival_and_hazard_second_stages_fit_and_score():
+    data = simulate_synthetic_startup_market(
+        T=90,
+        n_sectors=4,
+        startups_per_sector=12,
+        n_lags=2,
+        cooldown_weeks=8,
+        seed=3,
+    )
+    train_end = 60
+    test_event = data.events[data.events[:, 0] >= train_end][0]
+    tracked = make_tracked_mask(data.active, fraction=0.75, seed=10)
+
+    surv = fit_startup_survival(
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        tracked=tracked,
+        train_end=train_end,
+        cooldown_weeks=8,
+        max_iter=150,
+    )
+    assert surv.success or np.isfinite(surv.loss)
+    assert np.all(surv.cooldown_coef <= 1e-12)
+    cand, prob, p_out = survival_predict_proba(
+        surv,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        week=int(test_event[0]),
+        sector=int(test_event[1]),
+        tracked=tracked,
+    )
+    assert cand.size == prob.size
+    assert np.isclose(prob.sum() + p_out, 1.0)
+
+    hazard = fit_discrete_hazard(
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        train_end=train_end,
+        cooldown_weeks=8,
+        negative_sampling_ratio=10,
+        seed=11,
+        max_iter=150,
+    )
+    assert hazard.success or np.isfinite(hazard.loss)
+    assert np.all(hazard.cooldown_coef <= 1e-12)
+    cand, prob = discrete_hazard_predict_proba(
+        hazard,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        week=int(test_event[0]),
+        sector=int(test_event[1]),
+    )
+    assert cand.size == prob.size
+    assert np.isclose(prob.sum(), 1.0)
+
+    surv_metrics = evaluate_survival(
+        surv,
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        tracked=tracked,
+        start_week=train_end,
+        end_week=90,
+    )
+    hazard_metrics = evaluate_discrete_hazard(
+        hazard,
+        data.events,
+        data.startup_features,
+        data.startup_sector,
+        data.active,
+        data.startup_counts,
+        start_week=train_end,
+        end_week=90,
+    )
+    assert surv_metrics["n_events"] > 0
+    assert hazard_metrics["n_events"] > 0
+    assert np.isfinite(surv_metrics["nll"])
+    assert np.isfinite(hazard_metrics["nll"])
+
+
+def test_end_to_end_backtest_runs_with_noncritical_sector_layer():
     # Realistic market (enough candidates per pick that ranking is meaningful); the
-    # risk-set guard + first-K cap keep the simulation bounded and fast even if the
-    # fitted sector model is near-critical.
+    # stability-constrained sector fit + first-K cap keep the simulation bounded.
     out = backtest_synthetic_pipeline(
         seed=0,
         T=150,
@@ -118,13 +220,15 @@ def test_end_to_end_backtest_runs_and_ranker_beats_random():
     assert m["n_events_total"] > m["n_events_train"] > 0
     assert np.isfinite(m["sector_model_nll_per_cell"])
     assert np.isfinite(m["sim_sector_mae"])
-    # The headline: the risk-set ranker is clearly better than picking a startup at
-    # random from the same live risk set.
+    # Sector layer is now stability-constrained (noncritical fit).
+    assert m["sector_spectral_radius"] <= 0.95000001
+    assert m["sector_max_row_sum"] <= 0.95000001
+    # The risk-set ranker clearly beats a random pick over the same live risk set.
     assert m["ranker"]["nll"] < m["ranker"]["random_nll"]
     assert m["ranker"]["top5"] > m["ranker"]["random_top5"]
-    # NOTE: we deliberately do NOT assert that the *sector* count model beats the
-    # historical-mean baseline. As documented in
-    # docs/investment_market_architecture.md (Current limitations #7), the weekly
-    # sector GLM is fit without a spectral-radius (stability) constraint and currently
-    # overfits to supercritical excitation, so it does not yet beat that baseline.
-    # That layer is work-in-progress; the ranking layer is the validated result.
+    # Second-stage survival / hazard models score on held-out events.
+    assert m["survival"]["n_events"] > 0
+    assert m["discrete_hazard"]["n_events"] > 0
+    # NOTE: we do not assert the sector COUNT model beats the historical-mean
+    # baseline -- even stability-constrained it does not yet (weak sector signal in
+    # this synthetic DGP). See docs/investment_market_architecture.md.
