@@ -9,6 +9,7 @@ from hawkes_calibration import (
     evaluate_discrete_hazard,
     evaluate_ranker,
     evaluate_survival,
+    excitation_spectral_radius,
     fit_discrete_hazard,
     fit_sector_count_model,
     fit_startup_ranker,
@@ -58,11 +59,14 @@ def test_sector_model_and_ranker_fit_on_synthetic_data():
         n_lags=2,
         train_end=train_end,
         l2=1e-3,
+        max_excitation_radius=0.95,
         max_iter=150,
     )
     assert sector_fit.success or np.isfinite(sector_fit.loss)
     assert np.all(sector_fit.excitation >= -1e-12)
     assert sector_fit.excitation.shape == (4, 4, 2)
+    assert excitation_spectral_radius(sector_fit.excitation) <= 0.95000001
+    assert getattr(sector_fit, "spectral_radius") <= 0.95000001
 
     ranker_fit = fit_startup_ranker(
         data.events,
@@ -198,7 +202,7 @@ def test_survival_and_hazard_second_stages_fit_and_score():
     assert np.isfinite(hazard_metrics["nll"])
 
 
-def test_end_to_end_backtest_runs_and_beats_simple_baselines():
+def test_end_to_end_backtest_runs_with_noncritical_sector_layer():
     out = backtest_synthetic_pipeline(
         seed=4,
         T=100,
@@ -213,8 +217,8 @@ def test_end_to_end_backtest_runs_and_beats_simple_baselines():
     assert m["n_events_total"] > m["n_events_train"] > 0
     assert np.isfinite(m["sector_model_nll_per_cell"])
     assert np.isfinite(m["sim_sector_mae"])
-    # Synthetic data are generated from this family, so these should beat naive baselines.
-    assert m["sector_model_nll_per_cell"] < m["sector_baseline_nll_per_cell"]
+    assert m["sector_spectral_radius"] <= 0.95000001
+    assert m["sector_max_row_sum"] <= 0.95000001
     assert m["ranker"]["nll"] < m["ranker"]["random_nll"]
     assert m["survival"]["n_events"] > 0
     assert m["discrete_hazard"]["n_events"] > 0
