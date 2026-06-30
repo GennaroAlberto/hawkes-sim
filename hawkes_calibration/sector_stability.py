@@ -3,13 +3,16 @@
 The first sector model used nonnegative lag excitation but did not constrain the
 aggregate excitation matrix to be subcritical.  In forward simulation this can make
 rates explode.  This module provides a drop-in replacement for
-``fit_sector_count_model`` that enforces a noncritical aggregate excitation by
-constraining the row sums of the summed lag matrix.
+``fit_sector_count_model`` that enforces a noncritical aggregate excitation.
 
-For a nonnegative matrix ``G = sum_l B_l``, Perron--Frobenius gives
-``rho(G) <= max_s sum_r G[s,r]``.  Therefore row-sum constraints
-``sum_{r,l} b[s,r,l] <= max_excitation_radius < 1`` are a simple convex sufficient
-condition for stability.
+The stabilized model uses an additive Hawkes-style weekly rate,
+
+    Lambda[s,t] = exp(a[s] + beta[s]' X[t]) + sum_{r,l} b[s,r,l] Y[r,t-l],
+
+rather than putting the lagged counts inside a log link.  With ``b >= 0`` the
+summed-lag matrix ``G = sum_l B_l`` has the usual branching interpretation.  We
+enforce ``rho(G) < 1`` through a row-sum sufficient condition: for nonnegative
+matrices, Perron--Frobenius/Gershgorin gives ``rho(G) <= max_s sum_r G[s,r]``.
 """
 
 from __future__ import annotations
@@ -59,6 +62,27 @@ def _project_to_spectral_radius(b, max_radius):
     return b
 
 
+def sector_rate_at(result: SectorCountResult, counts_history, covariates, week: int):
+    """One-step sector rates, supporting the stabilized additive sector model."""
+    counts_history = np.asarray(counts_history, dtype=float)
+    covariates = np.asarray(covariates, dtype=float)
+    x = covariates[int(week)] if covariates.size else np.zeros(0)
+    link = getattr(result, "rate_link", "log")
+
+    if link == "additive":
+        baseline_eta = result.intercept + result.beta @ x
+        baseline = np.exp(np.clip(baseline_eta, -30.0, 20.0))
+        lam = baseline.copy()
+        for lag in range(1, result.n_lags + 1):
+            lam += result.excitation[:, :, lag - 1] @ counts_history[int(week) - lag]
+        return np.maximum(lam, 1e-12)
+
+    eta = result.intercept + result.beta @ x
+    for lag in range(1, result.n_lags + 1):
+        eta += result.excitation[:, :, lag - 1] @ counts_history[int(week) - lag]
+    return np.exp(np.clip(eta, -30.0, 20.0))
+
+
 def fit_sector_count_model(
     sector_counts,
     covariates=None,
@@ -73,14 +97,14 @@ def fit_sector_count_model(
     project_if_unstable=True,
     max_iter=500,
 ):
-    r"""Fit a stable positive-lag sector count model.
+    r"""Fit a stable additive sector Hawkes/count model.
 
     Model:
 
     .. math::
 
         Y_{s,t} \sim \mathrm{Poisson}(\Lambda_{s,t}),\qquad
-        \log \Lambda_{s,t} = a_s + \beta_s^\top X_t
+        \Lambda_{s,t} = \exp(a_s + \beta_s^\top X_t)
           + \sum_{r=1}^M\sum_{\ell=1}^L b_{sr\ell}Y_{r,t-\ell}.
 
     By default ``b >= 0`` and the aggregate excitation
@@ -180,18 +204,19 @@ def fit_sector_count_model(
         grad_b = np.zeros((M, M, L))
 
         for t in weeks:
-            eta = intercept.copy()
+            base_eta = intercept.copy()
             if p:
-                eta += beta @ X[t]
+                base_eta += beta @ X[t]
+            base = np.exp(np.clip(base_eta, -30.0, 20.0))
+            lam = base.copy()
             for lag in range(1, L + 1):
-                eta += b[:, :, lag - 1] @ y[t - lag]
-            eta = np.clip(eta, -30.0, 20.0)
-            lam = np.exp(eta)
-            err = lam - y[t]
-            loss += float(np.sum(lam - y[t] * eta))
-            grad_intercept += err
+                lam += b[:, :, lag - 1] @ y[t - lag]
+            lam = np.maximum(lam, 1e-12)
+            err = 1.0 - y[t] / lam
+            loss += float(np.sum(lam - y[t] * np.log(lam)))
+            grad_intercept += err * base
             if p:
-                grad_beta += err[:, None] * X[t][None, :]
+                grad_beta += (err * base)[:, None] * X[t][None, :]
             for lag in range(1, L + 1):
                 grad_b[:, :, lag - 1] += err[:, None] * y[t - lag][None, :]
 
@@ -202,7 +227,6 @@ def fit_sector_count_model(
         grad = np.concatenate([grad_intercept, grad_beta.ravel(), grad_b.ravel()])
         return loss, grad
 
-    constraints = ()
     use_row_sum = (
         max_excitation_radius is not None
         and stability_method == "row_sum"
@@ -222,25 +246,21 @@ def fit_sector_count_model(
                 jac[s, row_start:row_start + M * L] = -1.0
             return jac
 
-        constraints = ({"type": "ineq", "fun": row_margin, "jac": row_margin_jac},)
-        method = "SLSQP"
-        options = {"maxiter": int(max_iter), "ftol": 1e-9, "disp": False}
         opt = minimize(
             lambda th: objective(th),
             x0,
             jac=True,
-            method=method,
+            method="SLSQP",
             bounds=bounds,
-            constraints=constraints,
-            options=options,
+            constraints=({"type": "ineq", "fun": row_margin, "jac": row_margin_jac},),
+            options={"maxiter": int(max_iter), "ftol": 1e-9, "disp": False},
         )
     else:
-        method = "L-BFGS-B"
         opt = minimize(
             lambda th: objective(th),
             x0,
             jac=True,
-            method=method,
+            method="L-BFGS-B",
             bounds=bounds,
             options={"maxiter": int(max_iter), "ftol": 1e-9},
         )
@@ -289,16 +309,18 @@ def fit_sector_count_model(
     res.max_excitation_radius = max_excitation_radius
     res.max_row_sum = row_sum_max
     res.stability_method = stability_method
+    res.rate_link = "additive"
     return res
 
 
 # Patch the original module when this module is imported after sector_ranker.  This
-# keeps ``from hawkes_calibration.sector_ranker import fit_sector_count_model`` stable
-# in code paths that import the package root first.
+# keeps ``from hawkes_calibration.sector_ranker import fit_sector_count_model`` and
+# the simulator/backtest code on the stable additive rate path.
 try:  # pragma: no cover - import side effect only
     import hawkes_calibration.sector_ranker as _sector_ranker
 
     _sector_ranker.fit_sector_count_model = fit_sector_count_model
+    _sector_ranker.sector_rate_at = sector_rate_at
 except Exception:
     pass
 
@@ -307,4 +329,5 @@ __all__ = [
     "aggregate_excitation",
     "excitation_spectral_radius",
     "fit_sector_count_model",
+    "sector_rate_at",
 ]
