@@ -32,12 +32,18 @@ high-dimensional excitation.
 
 ```python
 import numpy as np
-from hawkes_calibration import simulate_hawkes, fit_hawkes_mle   # eventtime API
+from hawkes_calibration import simulate_multivariate_hawkes, fit_multivariate
 
-# multivariate exponential-kernel Hawkes; recover (mu, alpha, beta) from event times
-events = simulate_hawkes(mu=[0.3, 0.3], alpha=[[0.2, 0.1], [0.0, 0.25]], beta=1.0, T=2000, seed=0)
-fit = fit_hawkes_mle(events, n_dims=2)
-print(fit.summary())
+# 2D exponential-kernel Hawkes; recover (gamma0, alpha) from event times.
+# Baselines are mu_m = exp(gamma0[m]); beta is held fixed in the fit
+# (alpha and beta are weakly jointly identified).
+beta = np.ones((2, 2))
+events = simulate_multivariate_hawkes(
+    gamma0=np.log([0.3, 0.3]),
+    alpha=np.array([[0.2, 0.1], [0.0, 0.25]]),
+    beta=beta, T=2000.0, seed=0)
+fit = fit_multivariate(events, T=2000.0, beta=beta)
+print(fit.summary())                       # gamma0, alpha (+ SEs), log-likelihood
 ```
 
 **What we found.** On a 12-dimensional process (~14k events) an L1 (BIC-lasso) fit recovers

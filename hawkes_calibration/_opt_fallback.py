@@ -23,7 +23,7 @@ def logsumexp(a, axis=None):
     m = np.max(a, axis=axis, keepdims=True)
     out = m + np.log(np.sum(np.exp(a - m), axis=axis, keepdims=True))
     if axis is None:
-        return float(out)
+        return float(out.reshape(()))  # numpy >= 2 rejects float() on shape-(1,) arrays
     return np.squeeze(out, axis=axis)
 
 
