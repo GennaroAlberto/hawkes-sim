@@ -47,15 +47,19 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development workflow.
 
 ## Documentation
 
+Start with the **complete account** — one document covering the whole project (counts
+theory and MBPP, the funding application, estimation, the event-time model, learned
+operators, the experiments, and the stability/explosion analysis). Everything else is
+either a companion reference or historical detail.
+
 | Document | What it is |
 |---|---|
-| [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md) | technical report: model, learned operator, application |
-| [`paper/investment_case_study.pdf`](paper/investment_case_study.pdf) | the rigorous paper (MBPP + covariate augmentation, proofs) |
-| [`paper/textbook.pdf`](paper/textbook.pdf) | the full mathematical treatment (pedagogical) |
-| [`paper/two_step_ranker.pdf`](paper/two_step_ranker.pdf) | sector Hawkes + within-sector startup ranker |
-| [`SURVIVAL_RANKING.md`](SURVIVAL_RANKING.md) | the survival-with-ranking alternative |
-| [`PINO_RESULTS.md`](PINO_RESULTS.md), [`LEARNING_REPORT.pdf`](LEARNING_REPORT.pdf) | learned-solver results and feasibility study |
-| [`NEXT_FUNDING_DESIGN.md`](NEXT_FUNDING_DESIGN.md), [`PURE_LEARNING.md`](PURE_LEARNING.md) | application design and learning playbook |
+| **[`paper/complete_account.pdf`](paper/complete_account.pdf)** | **the single master report — read this first** |
+| [`paper/textbook.pdf`](paper/textbook.pdf) | the full mathematical treatment (pedagogical, long-form) |
+| [`paper/investment_case_study.pdf`](paper/investment_case_study.pdf) | the rigorous proofs + misspecification grid (math companion) |
+| [`docs/investment_market_architecture.md`](docs/investment_market_architecture.md) | the built two-layer system (sector Hawkes + risk-set ranker) |
+| [`docs/stability_and_explosion_report.md`](docs/stability_and_explosion_report.md) | why simulations blow up and the guards (deep dive) |
+| [`PURE_LEARNING.md`](PURE_LEARNING.md) | developer playbook for the learning experiments |
 
 ## Interval-censored calibration in 30 seconds
 
@@ -162,6 +166,14 @@ hawkes_calibration/
         neural_solver.py   residual + family_residual (numpy, tested) + dispatcher + reference
         neural_solver_jax.py   JAX PINN (JAXNeuralMBPP) + PINO (JAXDeepONetPINO)   [needs jax]
         neural_solver_tf.py    TF  PINN (TFNeuralMBPP)  + PINO (TFDeepONetPINO)    [needs tensorflow]
+
+    sector_ranker.py       sector Poisson-Hawkes count model + within-sector risk-set ranker
+    sector_survival.py     within-sector survival selector with an outside ("not tracked") option
+    sector_backtest.py     end-to-end two-stage backtest wrapper
+    models/                # --- application models, one logical home ---
+        event_block_hawkes.py  event-time block log-linear Hawkes (exp link → self-inhibition,
+                               sector-block excitation, open population, concave MLE)
+        __init__.py        re-exports event_block_hawkes + the sector_* models above
 experiments/   exp1–exp11 + tf_lab (synthetic-data noise-stress harness)
 results/       figures and saved estimates from the experiments
 tests/         the executable ground truth for every numerical claim

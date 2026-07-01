@@ -1,0 +1,994 @@
+\documentclass[11pt]{article}
+
+% ---------------------------------------------------------------------------
+% Journal-style packages
+% ---------------------------------------------------------------------------
+\usepackage[margin=1in]{geometry}
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tikz}
+\usepackage{microtype}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue!55!black,citecolor=blue!50!black,urlcolor=blue!55!black]{hyperref}
+
+\usetikzlibrary{arrows.meta,positioning,fit,shapes.geometric,calc}
+
+% ---------------------------------------------------------------------------
+% Theorems and notation
+% ---------------------------------------------------------------------------
+\theoremstyle{plain}
+\newtheorem{proposition}{Proposition}[section]
+\newtheorem{lemma}[proposition]{Lemma}
+\newtheorem{theorem}[proposition]{Theorem}
+\theoremstyle{definition}
+\newtheorem{definition}[proposition]{Definition}
+\newtheorem{assumption}[proposition]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[proposition]{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\cH}{\mathcal{H}}
+\newcommand{\cF}{\mathcal{F}}
+\newcommand{\cR}{\mathcal{R}}
+\newcommand{\cL}{\mathcal{L}}
+\newcommand{\one}{\mathbf{1}}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator{\softmax}{softmax}
+\DeclareMathOperator{\logit}{logit}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{\bfseries Calibrating Hawkes Processes from Counts and Event Times\\[3pt]
+\large Interval-Censored Mean-Behavior Calibration, Learned Operators, Survival,\\
+and a Private-Market Funding Application --- A Complete Account}
+\author{Alberto Gennaro}
+\date{\today}
+
+\begin{document}
+\emergencystretch=3em
+\maketitle
+
+\begin{abstract}
+This document formalizes a two-stage model for forecasting startup financing events from weekly private-market data. The first stage models the time and sector of funding activity with a multivariate Hawkes or Hawkes-like count process. This captures positive market contagion: recent deals in a sector, or in related sectors, raise the short-run rate of further deals. Because many data feeds provide weekly counts rather than exact event times, we derive the interval-censored route through the Mean Behavior Poisson Process (MBPP), in which the deterministic expected Hawkes intensity solves a Volterra equation and induces a tractable Poisson likelihood for interval counts. The second stage models the identity of the funded startup conditional on a sector event. We argue that this is better posed as a survival/risk-set problem than as a firm-level signed Hawkes process: the firm-level refractory effect after a recent round is a negative cooldown hazard effect, not positive self-excitation. Survival methods also match the data reality that PitchBook-like feeds contain positive financing events while many firm covariates are updated only at the last observed event and must be treated as point-in-time, last-observation-carried-forward features. We present the mathematics of Cox/risk-set likelihoods, discrete-time hazards, DeepSurv/DeepHit alternatives, the connection to rankers, and the current synthetic evidence in the repository. We also develop an \emph{event-time} alternative when exact timestamps are available --- a single-layer, block-structured log-linear Hawkes whose exponential link admits genuine self-inhibition and whose likelihood is concave --- and we document the \emph{learned operators} (a physics-informed neural operator that solves the multivariate MBPP to a few percent in milliseconds) and the inverse-calibration experiments. A dedicated chapter dissects a practical \emph{explosion} problem that recurs across the project: two distinct instability mechanisms, why a ``spectral radius below one'' check is not always sufficient, and the guards that fix it. The recommendation is to deploy a sector Hawkes/MBPP layer plus a startup survival layer with an outside option, with DeepSurv/DeepHit retained as nonlinear benchmarks once the linear survival model underfits, and to prefer the event-time single-layer model whenever exact times are observed.
+\end{abstract}
+
+\noindent\textbf{Executive summary.}
+The proposed production architecture is
+\[
+\boxed{\text{sector Hawkes/count model}} \quad \longrightarrow \quad
+\boxed{\text{startup survival/risk-set selector}}.
+\]
+The sector layer answers \emph{where and when capital flows}; the startup layer answers \emph{which firm receives the event}. This avoids forcing negative firm-level self-inhibition into the Hawkes kernel, preserves the interpretability of positive sector excitation, and aligns the firm-level problem with survival analysis under censoring and dynamic risk sets.
+
+\paragraph{How to read this document.}
+It is organized as a single account of the whole project, from theory to a working application, and a reader can enter at the layer they care about. Sections~\ref{sec:hawkes}--\ref{sec:mbpp} are the \emph{counts} theory: Hawkes processes, why interval censoring breaks the ordinary likelihood, and the Mean-Behavior Poisson Process (MBPP) with full derivations. Sections~\ref{sec:sector}--\ref{sec:positives} build the \emph{application}: the sector contagion layer, the firm-level survival selector with an outside option, and why this fits positives-only data. Section~\ref{sec:estimation} is the \emph{estimation} reference (how every parameter is actually found). Section~\ref{sec:blockhawkes} is the \emph{event-time} alternative (a concave single-layer block Hawkes with self-inhibition). Section~\ref{sec:operators} covers the \emph{learned operators} and inverse calibration. Section~\ref{sec:results} collects the \emph{empirical evidence}, Section~\ref{sec:coding} the \emph{implementation}, and Section~\ref{sec:stability} the \emph{stability/explosion} analysis. Sections~\ref{sec:recommendations}--\ref{sec:conclusion} give recommendations and limitations. Companion artifacts in the repository are the pedagogical \code{textbook.pdf} (the long-form mathematics) and the rigorous \code{investment\_case\_study} (proofs and the misspecification grid).
+
+\tableofcontents
+\newpage
+
+% ---------------------------------------------------------------------------
+\section{Data, objective, and observation regimes}
+\label{sec:data}
+
+\subsection{Business objective}
+At a decision week $t$, the product should output a ranked watch-list of firms likely to announce funding over a short horizon $h$:
+\[
+\text{rank firms by } \Prob\{\text{firm } i \text{ is funded in } (t,t+h]\mid \cH_t\}.
+\]
+The useful output is not merely a point forecast. It is a calibrated ranking with lead time, top-$k$ precision, and an interpretable decomposition into sector-level opportunity and firm-level readiness.
+
+\subsection{Data sources and point-in-time structure}
+The repository and project notes use two primary data sources.
+
+\paragraph{FactSet Standardized Economics.}
+FactSet supplies macroeconomic covariates. In the current feature set, the relevant series include interest-rate, inflation, and labor-market variables such as \code{FFUNDT}, \code{FFUND}, \code{CPI\_RAW}, \code{CPI\_YOY}, and \code{RUNEMP}. These enter mainly as market-wide or sector-level covariates, e.g. rate environment, inflation regime, unemployment, and risk-on/risk-off conditions.
+
+\paragraph{PitchBook Company, Deals, and Investors.}
+PitchBook supplies the positive event stream and firm attributes. The fields fall into six modeling blocks:
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item deal timing and identifiers, e.g. company id, deal id, and deal date;
+\item industry labels, e.g. primary sector, industry group, and industry code;
+\item financing status and deal type, e.g. current financing status, VC round, up/down/flat status, and deal type;
+\item capital and valuation fields, e.g. deal size, pre-money valuation, post valuation, raised-to-date, total raised-to-date, and last financing size;
+\item operating and scale variables, e.g. employees, revenue, EBITDA, gross profit, and net income;
+\item geography and investor identifiers, e.g. headquarters region/country, investor id, investor name, and investor-since date.
+\end{itemize}
+
+\paragraph{Key statistical feature.}
+We observe positive financing events. We do not observe a symmetric event saying that a firm \emph{tried and failed} to raise, nor do we necessarily observe the full universe of private companies that could have raised. Many firm-level covariates are refreshed at financing events and then carried forward. Therefore the firm-level problem is naturally a survival/risk-set problem with point-in-time covariates, not an ordinary balanced classification problem.
+
+\subsection{Two observation regimes}
+There are two levels of temporal resolution.
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Event-time data.} If exact timestamps are available, the classical Hawkes likelihood can be evaluated.
+\item \textbf{Interval-censored data.} If only weekly counts are available, event times within the week are latent. The Hawkes likelihood cannot be computed directly, and the process does not have independent increments. The MBPP gives the tractable counts-only route.
+\end{enumerate}
+
+% ---------------------------------------------------------------------------
+\section{Hawkes processes and the interval-censored problem}
+\label{sec:hawkes}
+
+\subsection{Multivariate Hawkes model}
+Let $N_m(t)$ be the number of events in stream $m\in\{1,\ldots,M\}$ by time $t$. In a multivariate Hawkes process, the conditional intensity of stream $m$ is
+\begin{equation}
+\lambda_m(t)
+= s_m(t) + \sum_{j=1}^{M}\int_0^{t^-} \phi_{mj}(t-u)\,\dd N_j(u),
+\label{eq:hawkes}
+\end{equation}
+where $s_m(t)\ge0$ is the exogenous baseline and $\phi_{mj}\ge0$ is the kernel describing how events in source stream $j$ excite recipient stream $m$. With an exponential kernel,
+\begin{equation}
+\phi_{mj}(\tau)=\alpha_{mj}e^{-\theta_{mj}\tau},\qquad \tau>0,
+\end{equation}
+so that the integrated excitation, or branching contribution, is
+\begin{equation}
+\kappa_{mj}=\int_0^\infty \phi_{mj}(\tau)\,\dd\tau=\frac{\alpha_{mj}}{\theta_{mj}}.
+\end{equation}
+For a nonnegative kernel matrix $K=(\kappa_{mj})$, a standard stability condition is
+\begin{equation}
+\rho(K)<1,
+\label{eq:spectral_stability}
+\end{equation}
+where $\rho(K)$ denotes the spectral radius. This condition has a direct economic interpretation: expected offspring cascades must die out rather than explode.
+
+\subsection{Why interval censoring breaks the ordinary likelihood}
+With exact event times $\{t_k,m_k\}$, the log-likelihood over $[0,T]$ is
+\begin{equation}
+\ell(\Theta)=\sum_{k}\log \lambda_{m_k}(t_k)-\sum_{m=1}^{M}\int_0^T\lambda_m(u)\,\dd u.
+\label{eq:hawkes_likelihood}
+\end{equation}
+Weekly PitchBook-style data often provide only counts
+\begin{equation}
+C_{w,m}=N_m(a_w)-N_m(a_{w-1}),\qquad 0=a_0<a_1<\cdots<a_W=T,
+\end{equation}
+not the $t_k$. Equation~\eqref{eq:hawkes_likelihood} is then unavailable. Moreover, Hawkes increments are not independent: activity in one week raises future intensity. Thus the naive independent Poisson count likelihood is not the likelihood of the Hawkes process.
+
+% ---------------------------------------------------------------------------
+\section{The Mean Behavior Poisson Process}
+\label{sec:mbpp}
+
+\subsection{Mean-intensity equation}
+The key object is the expected intensity
+\begin{equation}
+\xi_m(t)=\E[\lambda_m(t)].
+\end{equation}
+Taking expectations in \eqref{eq:hawkes}, using the compensator identity $\E[\dd N_j(u)]=\xi_j(u)\dd u$, yields the multivariate Volterra equation
+\begin{equation}
+\xi_m(t)=s_m(t)+\sum_{j=1}^{M}\int_0^t \phi_{mj}(t-u)\xi_j(u)\,\dd u.
+\label{eq:mbpp_volterra}
+\end{equation}
+In vector form,
+\begin{equation}
+\xi(t)=s(t)+\int_0^t \Phi(t-u)\xi(u)\,\dd u.
+\end{equation}
+This is deterministic. It is not the random Hawkes intensity, but it is its mean behavior.
+
+\subsection{The MBPP construction}
+Define an inhomogeneous Poisson process $\widetilde N$ with deterministic intensity $\xi(t)$ solving \eqref{eq:mbpp_volterra}. Its compensator is
+\begin{equation}
+\Xi_m(t)=\int_0^t \xi_m(u)\,\dd u.
+\end{equation}
+By Watanabe's characterization, a point process with deterministic compensator is Poisson. Therefore the interval counts of the MBPP satisfy
+\begin{equation}
+C_{w,m}\sim\mathrm{Poisson}\left(\Xi_{w,m}\right),\qquad
+\Xi_{w,m}=\int_{a_{w-1}}^{a_w}\xi_m(u)\,\dd u,
+\label{eq:mbpp_counts}
+\end{equation}
+with independent increments under the MBPP approximation/construction.
+
+\begin{proposition}[Interval-censored objective]
+Given interval counts $C_{w,m}$, the MBPP negative log-likelihood, up to constants independent of parameters, is
+\begin{equation}
+\mathcal L_{\mathrm{IC}}(\Theta)
+=\sum_{w=1}^{W}\sum_{m=1}^{M}\left\{\Xi_{w,m}(\Theta)-C_{w,m}\log \Xi_{w,m}(\Theta)\right\}.
+\label{eq:icll}
+\end{equation}
+This is the objective optimized by the interval-censored fitters.
+\end{proposition}
+
+\subsection{Derivations: mean intensity, Poisson counts, and the loss}
+\label{sec:mbpp_derivations}
+The three results below make Section~\ref{sec:mbpp} self-contained: the mean-intensity equation is derived, the counts are shown to be exactly Poisson, the equation is solved in closed form, and the objective \eqref{eq:icll} is identified as a Kullback--Leibler divergence. Together they are the mathematical content of ``the Mean Poisson likelihood.''
+
+\paragraph{Where the equation comes from.}
+\begin{lemma}[Mean-intensity Volterra equation]
+\label{lem:mean}
+Assume $s,\phi\ge0$ and $\sup_{t\le T}\E[\lambda_m(t)]<\infty$. Then $\xi_m=\E[\lambda_m]$ satisfies \eqref{eq:mbpp_volterra}.
+\end{lemma}
+\begin{proof}
+Take expectations in \eqref{eq:hawkes}. The baseline $s_m$ is deterministic. For the endogenous term, $N_j-\int_0^\cdot\lambda_j$ is a martingale, so the predictable projection of the counting measure is its intensity, $\E[\dd N_j(u)\mid\cF_{u^-}]=\lambda_j(u)\dd u$ and hence $\E[\dd N_j(u)]=\xi_j(u)\dd u$. Because every integrand is nonnegative, Tonelli's theorem lets us exchange expectation and integral,
+\[
+\E\!\int_0^{t}\phi_{mj}(t-u)\,\dd N_j(u)=\int_0^{t}\phi_{mj}(t-u)\,\xi_j(u)\,\dd u .
+\]
+Summing over $j$ gives \eqref{eq:mbpp_volterra}.
+\end{proof}
+Only two facts were used: the model is \emph{linear} in the history, and the compensator of $N_j$ is $\xi_j$. The functional form of $s$ and $\phi$ never entered. This is exactly why the covariate baseline \eqref{eq:baseline_covariates} and the covariate-modulated excitation \eqref{eq:excitation_covariates} leave the equation intact---they change the coefficients $s,\phi$, not the linear structure---whereas a nonlinear intensity (Section~\ref{sec:sector}) would invalidate the proof at the predictable-projection step, since then $\E[g(\lambda)]\neq g(\E[\lambda])$.
+
+\paragraph{Why the counts are exactly Poisson.}
+\begin{theorem}[Watanabe characterization]
+\label{thm:watanabe}
+Let $\widetilde N$ be a simple point process whose compensator $\Xi(t)=\int_0^t\xi(u)\dd u$ is continuous and \emph{deterministic}. Then $\widetilde N$ is an inhomogeneous Poisson process with mean function $\Xi$: counts on disjoint intervals are independent and $\widetilde N(b)-\widetilde N(a)\sim\mathrm{Poisson}\big(\Xi(b)-\Xi(a)\big)$.
+\end{theorem}
+This is the structural payoff and the reason the MBPP exists. The Hawkes process itself has a \emph{random} compensator---it depends on the realised path---so its weekly counts are positively correlated and over-dispersed, and the naive product-Poisson likelihood is \emph{not} its likelihood (Section~\ref{sec:hawkes}). Its mean-behaviour companion, by construction, has the deterministic compensator $\Xi$ of Lemma~\ref{lem:mean}, so Theorem~\ref{thm:watanabe} applies and the interval counts \eqref{eq:mbpp_counts} are genuinely independent Poisson. The interval-censored likelihood \eqref{eq:icll} is then the exact likelihood of the MBPP, used as a tractable surrogate for the intractable Hawkes count likelihood.
+
+\paragraph{Solving the equation.}
+\begin{theorem}[Impulse response and stationary rate]
+\label{thm:impulse}
+If $\rho(K)<1$ the solution map $s\mapsto\xi$ of \eqref{eq:mbpp_volterra} is causal, linear and time-invariant, with matrix impulse response
+\[
+E=\delta\,\mathbb{I}+H,\qquad H=\sum_{n\ge1}\Phi^{\ast n},
+\]
+the Neumann series converging in $L^1$; and $\xi=E\ast s$. For the scalar exponential kernel $\phi(\tau)=\kappa\theta e^{-\theta\tau}$ one gets $H(\tau)=\kappa\theta\,e^{-(1-\kappa)\theta\tau}$, so a constant baseline $\mu$ produces the stationary mean rate $\xi(\infty)=\mu/(1-\kappa)$.
+\end{theorem}
+\begin{proof}[Sketch]
+Feeding a unit impulse into \eqref{eq:mbpp_volterra} gives $E=\delta\mathbb{I}+\Phi\ast E$, hence $H=\Phi\ast E=\Phi+\Phi\ast H$ and, by iteration, $H=\sum_{n\ge1}\Phi^{\ast n}$. Young's convolution inequality gives $\|\Phi^{\ast n}\|_1\le\|\Phi\|_1^{\,n}$ entrywise, and $\|\Phi\|_1=K$, so the series is dominated by $\sum_n\rho(K)^n<\infty$. The scalar formula follows from $\widehat\phi(z)=\kappa\theta/(\theta+z)$ and $\widehat H=\widehat\phi/(1-\widehat\phi)$ inverted back to the time domain. The factor $1/(1-\kappa)$ is the familiar branching-process mean cascade size.
+\end{proof}
+For the covariate-modulated kernel \eqref{eq:excitation_covariates} the equation is no longer a convolution and this transform argument fails; but the equation stays \emph{linear}, and for the exponential shape it is equivalent to a low-dimensional linear time-varying ODE that is integrated exactly on each covariate-constant interval. This is what the interval-censored excitation fitter solves numerically.
+
+\paragraph{The objective is a Kullback--Leibler divergence.}
+\begin{proposition}[IC-LL as KL / Bregman]
+\label{prop:kl}
+Let $\varphi(x)=\sum_i\big(x_i\log x_i-x_i\big)$ be the (negative) Poisson entropy generator. Then, up to a constant independent of $\Theta$, the objective \eqref{eq:icll} equals the Bregman divergence $D_\varphi\!\big(C,\Xi(\Theta)\big)=\mathrm{KL}\big(C,\Xi(\Theta)\big)$. Replacing $\varphi$ by $\tfrac12\|x\|_2^2$ turns the loss into ordinary least squares.
+\end{proposition}
+\begin{proof}
+For the Poisson entropy, $D_\varphi(C,\Xi)=\sum_{w,m}\big(C\log\tfrac{C}{\Xi}-C+\Xi\big)$. The terms $C\log C-C$ do not depend on $\Theta$, so dropping them leaves $\sum_{w,m}(\Xi-C\log\Xi)$, which is \eqref{eq:icll}.
+\end{proof}
+The Bregman--exponential-family correspondence reads this as a noise model: KL corresponds to one Poisson observation per bucket, and it weights bucket $(w,m)$ by $1/\Xi_{w,m}$, which is correct because a Poisson bucket has variance equal to its mean. Least squares assumes homoscedastic Gaussian noise and is therefore mis-weighted for counts---small-count buckets are under-weighted and large-count buckets over-weighted. This is the principled reason the interval-censored fitter optimizes \eqref{eq:icll} rather than a sum of squared count errors.
+
+\subsection{Covariates in the MBPP}
+The baseline can be covariate driven:
+\begin{equation}
+s_m(t)=\exp\left(\gamma_{m0}+\gamma_m^\top X(t)\right),
+\label{eq:baseline_covariates}
+\end{equation}
+where $X(t)$ is a point-in-time market or sector covariate vector. This preserves linearity of \eqref{eq:mbpp_volterra}, because $s(t)$ is an observed deterministic forcing path.
+
+Excitation can also be covariate modulated:
+\begin{equation}
+\phi_{mj}(t,u)=\kappa_{mj}\theta \exp\{\delta^\top Z(t)\}e^{-\theta(t-u)}\one_{u<t},
+\label{eq:excitation_covariates}
+\end{equation}
+which gives
+\begin{equation}
+\xi_m(t)=s_m(t)+\sum_{j=1}^{M}\int_0^t \phi_{mj}(t,u)\xi_j(u)\,\dd u.
+\end{equation}
+The equation is no longer convolutional, because the kernel depends on both $t$ and $u$, but it remains a linear Volterra equation. For exponential shape it can be solved as a finite-dimensional linear time-varying ODE.
+
+\subsection{What is identifiable from counts}
+Interval counts preserve information about the total branching mass $\kappa$ much better than the decay rate $\theta$. Intuitively, weekly buckets count \emph{how much} activity is self-generated, but integrate away the within-week timing that tells us \emph{how fast} the echo decays. Consequently,
+\begin{itemize}[leftmargin=1.5em]
+\item report branching ratios, covariate coefficients, predictive likelihood, and goodness-of-fit as primary quantities;
+\item fix or prior-constrain $\theta$ when the bins are coarse;
+\item use quasi-Poisson or robust uncertainty because true Hawkes counts are more clustered than Poisson MBPP counts.
+\end{itemize}
+
+% ---------------------------------------------------------------------------
+\section{Why the first stage should be sector Hawkes}
+\label{sec:sector}
+
+\subsection{The sector-level model}
+The practical first-stage model in the repository is the weekly sector count process
+\begin{equation}
+Y_{s,t}\sim\mathrm{Poisson}(\Lambda_{s,t}),
+\end{equation}
+with
+\begin{equation}
+\log\Lambda_{s,t}
+=a_s+\beta_s^\top X_t+\sum_{r=1}^{S}\sum_{\ell=1}^{L}b_{sr\ell}Y_{r,t-\ell},
+\qquad b_{sr\ell}\ge0.
+\label{eq:sector_glm}
+\end{equation}
+This is a discrete-time Hawkes-style Poisson autoregression. The diagonal $b_{ss\ell}$ is positive sector self-excitation: one funded company in a sector raises attention, deal flow, and investor appetite for other firms in the same sector. Off-diagonal $b_{sr\ell}$ terms capture cross-sector contagion.
+
+\subsection{Why not model every firm as a Hawkes dimension?}
+A firm-level Hawkes model would index $m=i$ by startup. But the natural diagonal effect is negative: after startup $i$ raises capital, it is less likely to raise again immediately. Classical Hawkes processes have nonnegative kernels. Setting a positive parameter close to zero gives ``no self-excitation,'' not inhibition. True self-inhibition would require a nonlinear link such as
+\begin{equation}
+\lambda_i(t)=\left[\mu_i(t)-\rho_i R_i(t)+\sum_{j\ne i}\alpha_{ij}R_j(t)\right]_+
+\end{equation}
+or
+\begin{equation}
+\lambda_i(t)=\exp\left\{\eta_i(t)-\rho_iR_i(t)+\sum_{j\ne i}\alpha_{ij}R_j(t)\right\}.
+\end{equation}
+Those are legitimate models, but they break the linear expectation identity behind the MBPP: in general $\E[g(Y)]\ne g(\E[Y])$ for a nonlinear positivity map $g$. Therefore the cleaner split is: positive Hawkes excitation at sector level; negative firm cooldown in survival.
+
+% ---------------------------------------------------------------------------
+\section{The second stage as survival/risk-set ranking}
+\label{sec:survival}
+
+\subsection{Risk sets and point-in-time covariates}
+Conditional on a sector event in sector $s$ at week $t$, define the live risk set
+\begin{equation}
+\cR_{s,t}=\{i:\text{startup }i\text{ is active, tracked, and in sector }s\text{ at week }t\}.
+\end{equation}
+For each candidate, construct point-in-time features $Z_{i,t}$. These must use only information available before $t$. Last-round variables are valid if they are as-of variables:
+\[
+\text{last financing size before }t \quad \text{is valid,}
+\]
+but the next financing size or any value refreshed by a future event is leakage.
+
+A key cooldown variable is
+\begin{equation}
+C^{(K)}_{i,t}=\one\left\{\sum_{\ell=1}^{K}Y^{\mathrm{firm}}_{i,t-\ell}>0\right\},
+\label{eq:cooldown}
+\end{equation}
+where $K$ might be 26 weeks for a six-month refractory period. The current week is excluded.
+
+\subsection{Cox/risk-set partial likelihood}
+For a startup $i\in\cR_{s,t}$, define a log-hazard score
+\begin{equation}
+q_{i,t}=(w_0+u_s)^\top Z_{i,t}+\eta_s C^{(K)}_{i,t},\qquad \eta_s\le0.
+\label{eq:cox_score}
+\end{equation}
+A Cox model would write
+\begin{equation}
+h_i(t\mid s)=h_{0s}(t)\exp(q_{i,t}).
+\end{equation}
+Conditional on an event in sector $s$ at week $t$, the sector-time baseline $h_{0s}(t)$ cancels, giving
+\begin{equation}
+\Prob(i\mid s,t)=\frac{\exp(q_{i,t})}{\sum_{j\in\cR_{s,t}}\exp(q_{j,t})}.
+\label{eq:conditional_ranker}
+\end{equation}
+For observed event $(t,s,i^*)$, the contribution to the negative log partial likelihood is
+\begin{equation}
+\ell_{t,s} = \log\sum_{j\in\cR_{s,t}}\exp(q_{j,t})-q_{i^*,t}.
+\label{eq:cox_loss}
+\end{equation}
+This is simultaneously a Cox partial likelihood, McFadden conditional logit likelihood, and risk-set softmax ranker.
+
+\subsection{Ranking by intensity: the 1-D Hawkes view (and its equivalence)}
+\label{sec:intensity_equiv}
+An appealing second-stage proposal is to give each startup a \emph{rate} --- a one-dimensional Hawkes intensity --- and fund the firm with the highest rate. This is not an alternative to the risk-set model; it is the same model. If firm $i$ has intensity $\lambda_i(t)$, then conditional on one event in the sector the probability it lands on $i$ is the \emph{normalized intensity}
+\begin{equation}
+\Prob(i\mid s,t)=\frac{\lambda_i(t)}{\sum_{j\in\cR_{s,t}}\lambda_j(t)}=\softmax\big(\log\lambda_i(t)\big),
+\label{eq:intensity_softmax}
+\end{equation}
+which is exactly the conditional partial likelihood \eqref{eq:conditional_ranker}. Ranking by intensity and maximizing the Cox partial likelihood are one operation; ``highest rate'' is the argmax of the choice probability. Note also that this needs only the observed events and the risk set $\cR_{s,t}$ --- never a labelled negative --- which is why positives-only data (Section~\ref{sec:positives}) pose no problem: the risk set, not a balanced label set, supplies the comparison.
+
+Two facts make the equivalence sharp. First, any part of $\log\lambda_i$ that is \emph{common to all firms in the sector at time $t$} --- the sector baseline and the sector-level excitation that drives ``how much funding happens'' --- \emph{cancels} in \eqref{eq:intensity_softmax}, exactly as the Cox baseline $h_{0s}(t)$ cancels. So the first stage (sector rate) and the second (which firm) separate cleanly: sector-common terms set \emph{when and how many} events occur; only the firm-\emph{differing} terms decide \emph{which} firm. Second, those firm-differing terms are precisely the survival score $q_i=(w_0+u_s)^\top Z_i+\eta_s C^{(K)}_i$ --- covariate effect plus a cooldown. The ``1-D Hawkes rate'' and the survival score are the same function.
+
+\paragraph{Linear and non-linear intensities.}
+The intensity may use a \emph{linear} (additive) or a \emph{non-linear} (exponential) link,
+\begin{equation}
+\lambda_i(t)=\big[\,b_s+w^\top Z_i(t)+a_s E_i(t)-\rho_s R_i(t)\,\big]_+
+\quad\text{or}\quad
+\lambda_i(t)=\exp\!\big(b_s+w^\top Z_i(t)+a_s E_i(t)-\rho_s R_i(t)\big),
+\label{eq:two_links}
+\end{equation}
+with $a_s,\rho_s\ge0$, where $R_i$ is the firm's own recent funding (a refractory/cooldown signal, subtracted) and $E_i$ is the size-normalized recent activity of the \emph{other} firms in the sector (peer excitation). The exponential link keeps $\lambda_i>0$ for any coefficients and makes the conditional log-likelihood \emph{concave} (Section~\ref{sec:blockhawkes}); the additive link is the classical linear Hawkes intensity, rectified to stay positive and fit under nonnegativity constraints. The repository implements both (\code{models/hawkes\_ranker.py}). On the synthetic market they rank almost identically --- top-5 $\approx0.65$ over $\sim$20 candidates for either link --- because, by the cancellation above, the \emph{ordering} is governed by the covariates and the cooldown, not by the link; the exponential link nonetheless gives better-calibrated \emph{probabilities} (lower held-out NLL), consistent with its being the proper normalized-intensity model.
+
+\paragraph{Dropping the last-funded firm.}
+In both links the risk set at a sector event excludes the startup funded at the \emph{previous} event in that sector: the firm that just raised is removed from the competition for the next round. This is a hard refractory rule complementing the soft cooldown $\rho_s R_i$, and for a self-exciting linear intensity it removes the pathology in which the just-funded firm would otherwise carry the highest rate. If the observed recipient is that same firm --- a rare consecutive re-funding --- the removal is skipped so the likelihood stays defined.
+
+\subsection{Outside option}
+In real private-market data, a tracked watch-list is not the entire investable universe. An event may go to an untracked firm. Introduce an outside alternative $0$ with score
+\begin{equation}
+q_{0,s,t}=b_0+\gamma^\top g_{s,t},
+\label{eq:outside_score}
+\end{equation}
+where $g_{s,t}$ contains sector-level features such as risk-set size and recent sector activity. The conditional choice probability is then
+\begin{equation}
+\Prob(i\mid s,t)=
+\frac{\exp(q_{i,t})}{\exp(q_{0,s,t})+\sum_{j\in\cR_{s,t}}\exp(q_{j,t})},
+\qquad i\in\cR_{s,t}\cup\{0\}.
+\label{eq:outside_choice}
+\end{equation}
+This makes $\Prob(\text{outside}\mid s,t)$ an operational output: when high, the watch-list is missing relevant companies.
+
+\paragraph{Estimation, convexity, and gradient.}
+Collect the parameters $\beta=(w_0,\{u_s\},\{\eta_s\},b_0,\gamma)$. For each observed event $(t,s,i^\ast)$ form the augmented candidate set $\cR^+_{s,t}=\cR_{s,t}\cup\{0\}$ and the softmax probabilities $p_j=\exp(q_j)/\sum_{k\in\cR^+_{s,t}}\exp(q_k)$. The penalized negative log partial likelihood
+\begin{equation}
+\cL(\beta)=\sum_{(t,s,i^\ast)}\Big(\log\!\!\sum_{j\in\cR^+_{s,t}}\!\!e^{q_j}-q_{i^\ast}\Big)
++\tfrac{\mu}{2}\big(\|w_0\|^2+\textstyle\sum_s\|u_s\|^2+\|\gamma\|^2\big)
+\label{eq:survival_obj}
+\end{equation}
+is convex in $\beta$, because each scores $q_j$ is affine in $\beta$ and $\log\sum\exp$ is convex; with the box constraint $\eta_s\le0$ the feasible set is convex, so the optimum is global. Its gradient is the standard softmax residual: writing $y_j=\one\{j=i^\ast\}$,
+\begin{equation}
+\nabla_{q_j}\,\ell_{t,s}=p_j-y_j,
+\label{eq:survival_grad}
+\end{equation}
+which is then pushed onto $\beta$ by the chain rule through the affine maps $q_j(\beta)$ (plus the ridge terms). This is the gradient the implementation supplies in closed form; Section~\ref{sec:coding} reports that it agrees with finite differences to $1.3\times10^{-8}$.
+
+\paragraph{Training data: positives and their risk sets only.}
+The estimator consumes the event stream directly. Sweeping weeks, at each event it freezes the live tracked firms in that sector as the candidate set, marks the realised recipient (or the outside option, if the funded firm is off the tracked universe), and accumulates \eqref{eq:survival_obj}. No artificial negative firm-weeks are sampled: the comparison is supplied by the risk set, exactly as in Cox regression. This is the operational form of ``learning from positives without negatives,'' developed in Section~\ref{sec:positives}.
+
+\subsection{From conditional choice to a survival curve}
+The conditional model above answers ``which firm, given a sector event.'' The same hazard yields the survival quantities a manager reads. For firm $i$ with discrete per-week hazard $h_{i,t}=\Prob(\text{funded in week }t\mid\text{at risk at }t)$, the probability of surviving (not yet funded) through week $t$ and the cumulative incidence of funding within horizon $h$ are
+\begin{equation}
+S_{i,t}=\prod_{\tau\le t}\big(1-h_{i,\tau}\big),\qquad
+F_i(t,t{+}h)=1-\prod_{\tau=t+1}^{t+h}\big(1-h_{i,\tau}\big).
+\label{eq:survival_curve}
+\end{equation}
+Ranking the watch-list by $F_i(t,t{+}h)$ is the horizon-$h$ funding-probability ranking of Section~\ref{sec:data}. The per-week hazard $h_{i,t}$ may either be the normalized conditional choice probability scaled by the sector rate $\Lambda_{s,t}$ (Section~\ref{sec:combine}), or be modeled directly as in the discrete-time baseline below.
+
+\paragraph{The likelihood with right-censoring.}
+If exact firm-week funding indicators are used, the full discrete-time survival log-likelihood over active firm-weeks is the masked Bernoulli
+\begin{equation}
+\ell=\sum_{i}\sum_{t\in\mathcal A_i}\Big[Y^{\mathrm{firm}}_{i,t}\log h_{i,t}+\big(1-Y^{\mathrm{firm}}_{i,t}\big)\log(1-h_{i,t})\Big],
+\label{eq:disc_surv_ll}
+\end{equation}
+where $\mathcal A_i$ are the weeks firm $i$ is at risk (entered, not yet funded, before its censoring time). A firm that is never funded in the window contributes only the ``survived'' factors $\log(1-h_{i,t})$: it is \emph{censored}, not labeled a permanent negative. Equation~\eqref{eq:disc_surv_ll} and the risk-set partial likelihood \eqref{eq:cox_loss} are the discrete-time and partial-likelihood faces of the same Cox model; the partial likelihood is what the repository fits because it avoids modeling the sector-time baseline $h_{0s}(t)$.
+
+\subsection{Evaluation under censoring}
+\label{sec:eval}
+Discrimination is measured by the time-dependent concordance index \citep{antolini2005}---the fraction of comparable event pairs whose predicted risks are ordered correctly---together with the business read-outs top-$k$ recall, mean reciprocal rank, and lead time. Calibration is measured by the integrated Brier score under inverse-probability-of-censoring weighting \citep{graf1999} and by comparison of predicted survival against Kaplan--Meier strata \citep{kaplan_meier1958}. For the outside option specifically, we report the AUC of $\Prob(\text{outside}\mid s,t)$ against the realized off-universe indicator and its calibration against the empirical off-universe rate. Concordance and Brier are the standard survival discrimination/calibration pair; top-$k$ and lead time translate them into the watch-list metric the product is judged on.
+
+\subsection{Discrete-time hazard alternative}
+The discrete-time hazard model uses active firm-weeks, including sampled non-event weeks. Define
+\begin{equation}
+Y^{\mathrm{firm}}_{i,t}=\one\{\text{firm }i\text{ is funded in week }t\}.
+\end{equation}
+Then fit
+\begin{equation}
+\logit\Prob(Y^{\mathrm{firm}}_{i,t}=1\mid i\text{ active at }t)
+=c_0+c_s+(w_0+u_s)^\top Z_{i,t}+\eta_s C^{(K)}_{i,t}.
+\label{eq:discrete_hazard}
+\end{equation}
+Given a sector event, hazards can be normalized over $\cR_{s,t}$. This baseline uses explicit negative firm-weeks, but class imbalance and risk-set definition become more important.
+
+\subsection{DeepSurv and DeepHit}
+DeepSurv replaces the linear Cox score in \eqref{eq:cox_score} by a neural network:
+\begin{equation}
+q_{i,t}=f_\vartheta(Z_{i,t},s,\text{history}_{i,t}).
+\end{equation}
+The loss remains the partial likelihood \eqref{eq:cox_loss}. DeepSurv is the natural nonlinear extension if the linear survival model underfits.
+
+DeepHit instead models a discrete distribution over event times and causes. With bins $k=1,\ldots,K$, a neural network outputs hazards $h_k(x)$ or event probabilities. Survival and cumulative incidence are
+\begin{equation}
+S_k(x)=\prod_{j\le k}(1-h_j(x)),\qquad F_k(x)=1-S_k(x),
+\end{equation}
+and firms are ranked by $F_K(x)$, the funding probability within horizon $h$. DeepHit adds a ranking loss over comparable pairs:
+\begin{equation}
+\mathcal L_{\mathrm{rank}}
+=\frac{1}{|\mathcal P|}\sum_{(i,j)\in\mathcal P}\exp\left(-\frac{F_i(\tilde T_i)-F_j(\tilde T_i)}{\sigma}\right),
+\label{eq:deephit_rank}
+\end{equation}
+where $i$ funded before $j$ and $j$ was still at risk. This directly targets the watch-list metric, at the cost of lower interpretability and higher data requirements.
+
+\subsection{Why survival may be more appropriate than a raw ranker}
+The risk-set ranker and Cox partial likelihood are mathematically the same conditional likelihood, but the survival framing is superior for the manager-facing problem for three reasons.
+\begin{enumerate}[leftmargin=1.5em]
+\item It explicitly represents censoring: firms not funded by horizon end are not false negatives forever.
+\item It treats event-updated covariates as as-of histories, which matches how PitchBook variables are observed.
+\item It naturally generalizes from ``which firm conditional on a sector event'' to ``probability of funding within $h$ weeks'' using survival curves and cumulative incidence.
+\end{enumerate}
+
+% ---------------------------------------------------------------------------
+\section{Positive-only observation and why survival fits it}
+\label{sec:positives}
+
+This section states precisely why a dataset that records funding events---and almost nothing else---is well matched to a survival/risk-set model with an outside option, and ill matched to ordinary classification. It is the modeling argument the rest of the paper is built to support.
+
+\paragraph{The observation model.}
+The feed records \emph{events}: a financing occurred for firm $i$ at week $t$. It does \emph{not} record the symmetric negative ``firm $i$ sought capital in week $t$ and was refused,'' and it does not enumerate the full population of private firms that \emph{could} have raised. Formally, for a firm-week $(i,t)$ we see $Y^{\mathrm{firm}}_{i,t}=1$ when a round occurs, but $Y^{\mathrm{firm}}_{i,t}=0$ is not an observed ``did not want to raise.'' It is an at-risk firm that has not raised \emph{yet}. The zeros are censored, not negative, and the universe itself is only partially observed. In addition, most firm covariates are refreshed at rounds and otherwise stale, so every feature must be read as-of $t$ (last-observation-carried-forward), never with a future value.
+
+\paragraph{Why ordinary classification is mis-specified.}
+A balanced classifier for ``will firm $i$ raise in $(t,t+h]$?'' needs labeled negatives. Manufacturing them by calling every unfunded firm-week a negative conflates two very different populations---firms that will \emph{never} raise and firms that simply have \emph{not raised yet}---and the resulting label depends on the arbitrary horizon $h$ and on where the data happens to end (right-censoring). This is the positive-and-unlabeled (PU) regime \citep{elkan2008}: the observed labels are a biased sample of the true ones, the unlabeled set is a mixture of positives and negatives, and a naive classifier trained on ``positive vs.\ everything else'' estimates $\Prob(\text{labeled}\mid x)$, not $\Prob(\text{will raise}\mid x)$. The bias does not vanish with more data.
+
+\paragraph{Why survival is the right frame.}
+Survival analysis is built for exactly this observation model, and it removes the need to fabricate negatives in three ways.
+\begin{enumerate}[leftmargin=1.5em,itemsep=2pt]
+\item \textbf{The risk set is the comparison group.} At each event, the firms at risk in that sector-week are the implicit controls. The partial likelihood \eqref{eq:cox_loss} contrasts the funded firm against its concurrent risk set and needs \emph{only} observed positives plus the membership of those risk sets---never a constructed negative label.
+\item \textbf{Censoring is first class.} A firm not funded by the end of the window contributes ``survived this long'' through the factors in \eqref{eq:disc_surv_ll}, not ``negative forever.'' The horizon $h$ becomes an evaluation choice, not a labeling assumption.
+\item \textbf{Event-driven covariates fit naturally.} Time-varying, as-of histories are exactly what Cox/discrete-hazard models consume, matching how PitchBook fields are refreshed at rounds.
+\end{enumerate}
+
+\paragraph{The unobserved universe and the outside option.}
+Even the risk set is only the \emph{tracked} universe; the real private market is larger and partly invisible. The outside alternative \eqref{eq:outside_choice} absorbs events that go to untracked firms, so the model is not forced to spread all probability over the firms it happens to watch. Two consequences follow. First, the within-set probabilities stay honest: without outside mass, a risk-set model systematically over-concentrates probability on observed candidates, inflating apparent precision. Second, $\Prob(\text{outside}\mid s,t)$ becomes a monitored output---a high value is a data-driven signal that the watch-list is missing relevant companies and should be widened. The outside option is the discrete-choice analogue of an ``other/none'' good \citep{mcfadden1974}, and it is what lets the model degrade gracefully when the funded firm was simply never in view.
+
+\paragraph{Summary.}
+``Positive sector contagion, negative firm cooldown, and an outside option'' is not three modeling tricks but one coherent response to the data: contagion is the only signal genuinely present (events beget events), the firm-level effect that the events imply is suppression rather than excitation (Section~\ref{sec:sector}), and the absent negatives and missing universe are handled by censoring and outside mass rather than by inventing labels.
+
+% ---------------------------------------------------------------------------
+\section{Estimation in detail}
+\label{sec:estimation}
+
+This section gives the explicit estimation machinery behind both stages: the objective, the parameter map, the gradient, the optimizer, the standard errors, and the identifiability caveats. Section~\ref{sec:coding} described the same procedures at the level of software and validation; here is the mathematics. There are three estimators: the continuous-time MBPP fit from interval counts (\S\ref{sec:est_mbpp}), its practical discrete-time sector-GLM counterpart (\S\ref{sec:est_sector}), and the survival/outside model (\S\ref{sec:est_survival}).
+
+\subsection{Estimating the continuous-time MBPP from interval counts}
+\label{sec:est_mbpp}
+
+\paragraph{Parameters and objective.}
+The continuous-time estimand is $\Theta=(\kappa,\theta,\gamma_0,\gamma,\delta)$: branching ratio $\kappa$, decay $\theta$, log-baseline level and coefficients $(\gamma_0,\gamma)$ from \eqref{eq:baseline_covariates}, and excitation-covariate coefficients $\delta$ from \eqref{eq:excitation_covariates}. The estimator minimizes the interval-censored negative log-likelihood \eqref{eq:icll},
+\[
+\cL_{\mathrm{IC}}(\Theta)=\sum_{w,m}\big\{\Xi_{w,m}(\Theta)-C_{w,m}\log\Xi_{w,m}(\Theta)\big\},
+\]
+which by Proposition~\ref{prop:kl} is a Kullback--Leibler divergence between the observed counts and the model compensators.
+
+\paragraph{The parameter-to-compensator map.}
+The only model-specific work in a likelihood evaluation is the map $\Theta\mapsto\Xi(\Theta)$. The baseline is deterministic, $s(t)=\exp(\gamma_0+\gamma^\top X(t))$; the mean intensity solves the linear Volterra equation \eqref{eq:mbpp_volterra}; and the bucket compensators are $\Xi_{w,m}=\int_{a_{w-1}}^{a_w}\xi_m$. For piecewise-constant covariates this is computed \emph{exactly}, with no fine grid. On a segment where the covariates are constant, the exponential-kernel MBPP reduces to the scalar linear ODE
+\begin{equation}
+y'(t)=\mu-r\,y(t),\qquad r=\theta\big(1-\kappa\,e^{\delta^\top Z}\big),
+\label{eq:seg_ode}
+\end{equation}
+with the closed-form state update $y(t{+}d)=y\,e^{-rd}+\tfrac{\mu}{r}(1-e^{-rd})$ and a closed-form segment integral $\int_0^d y$, accumulated across segments; the constant-baseline limit recovers the stationary rate $\xi(\infty)=\mu/(1-\kappa)$ of Theorem~\ref{thm:impulse}. When the covariate is not piecewise constant, the same (still linear) equation is integrated by the time-varying ODE solver on a refined grid. Each likelihood evaluation is therefore an exact or near-exact forward solve, and the whole cost of fitting is repeated forward solves. This exact closed-form solve --- \emph{not} the learned operator of Section~\ref{sec:operators} --- is what the fitters actually call for the exponential kernel; the PINO is an optional accelerator, reserved for the regimes (many repeated solves, larger $M$, or kernels with no closed form) spelled out there.
+
+\paragraph{Reparameterization.}
+To keep iterates feasible the optimizer works in an unconstrained vector $v$ with
+\begin{equation}
+\kappa=\sigma(v_1)\in(0,1),\qquad \theta=e^{v_2}>0,\qquad (\gamma_0,\gamma,\delta)=v_{3:}\ \ \text{free},
+\label{eq:reparam}
+\end{equation}
+so positivity of $\theta$ and the sub-criticality box $0<\kappa<1$ hold automatically and the problem becomes a smooth \emph{unconstrained} minimization. ($\sigma$ is the logistic function; the chain rule carries derivatives back through \eqref{eq:reparam}.)
+
+\paragraph{Optimizer.}
+Minimization uses BFGS with an Armijo backtracking line search (the package's dependency-free \code{minimize\_bfgs}). The gradient $\nabla_v\cL_{\mathrm{IC}}$ is taken by central finite differences---the parameter vector is low-dimensional, so this is cheap and robust---or analytically when supplied. The inverse-Hessian approximation $H$ is updated by the BFGS formula
+\[
+H\leftarrow\Big(I-\tfrac{s y^\top}{s^\top y}\Big)H\Big(I-\tfrac{y s^\top}{s^\top y}\Big)+\tfrac{s s^\top}{s^\top y},\qquad s=v_{+}-v,\ \ y=g_{+}-g,
+\]
+with a curvature guard: when $s^\top y\le0$ the update is skipped and the step reset to steepest descent. Because the covariate-excitation likelihood is non-convex (the kernel depends on $\delta$ multiplicatively, through $e^{\delta^\top Z}$ in \eqref{eq:seg_ode}), the fit uses several random restarts and keeps the best optimum; the constant-baseline, no-covariate case is effectively unimodal and converges from a single start.
+
+\paragraph{Standard errors.}
+At the optimum $\widehat v$ the observed information is the Hessian of the objective, $H_{\mathrm{obs}}=\nabla^2_v\cL_{\mathrm{IC}}(\widehat v)$, computed by central differences; the transformed-parameter covariance is $\widehat{\mathrm{Cov}}(\widehat v)=H_{\mathrm{obs}}^{-1}$ (a pseudo-inverse if $H_{\mathrm{obs}}$ is near-singular). Natural-parameter errors follow by the delta method with $J=\partial\Theta/\partial v$,
+\begin{equation}
+\widehat{\mathrm{Cov}}(\widehat\Theta)=J\,H_{\mathrm{obs}}^{-1}J^\top,\qquad
+\mathrm{SE}(\widehat\Theta_k)=\sqrt{\big[J H_{\mathrm{obs}}^{-1}J^\top\big]_{kk}}.
+\label{eq:delta_se}
+\end{equation}
+The MBPP treats each bucket as Poisson, but true Hawkes counts are over-dispersed (offspring cluster within a bucket), so these model errors are too small. We apply a quasi-Poisson correction \citep{wedderburn1974}: estimate the Pearson dispersion
+\begin{equation}
+\widehat\phi=\frac{1}{m-p}\sum_{w,m}\frac{(C_{w,m}-\widehat\Xi_{w,m})^2}{\widehat\Xi_{w,m}},
+\label{eq:dispersion}
+\end{equation}
+and inflate every standard error by $\sqrt{\max(\widehat\phi,1)}$. This is exactly what the fitter reports.
+
+\paragraph{Identifiability.}
+Interval counts identify the total branching mass $\kappa$ far better than the decay $\theta$: a bucket records \emph{how much} self-generated activity occurred but integrates away the within-bucket timing that pins down \emph{how fast} the echo decays. The likelihood therefore has a shallow $\kappa$--$\theta$ ridge. Practically, report $\kappa$, the covariate coefficients, and predictive likelihood as primary; fix or tightly prior-constrain $\theta$ when buckets are coarse; and read a wide $\theta$ standard error as the honest signal that the data weakly constrain it.
+
+\subsection{Estimating the discrete-time sector model}
+\label{sec:est_sector}
+The production first stage is the discrete-time sector GLM \eqref{eq:sector_glm}, which sidesteps the continuous-time forward solve and is \emph{convex}. Its parameters are the sector intercepts $a_s$, covariate coefficients $\beta_s$, and nonnegative lagged-excitation coefficients $b_{sr\ell}\ge0$. With linear predictor $\eta_{s,t}=a_s+\beta_s^\top X_t+\sum_{r,\ell}b_{sr\ell}Y_{r,t-\ell}$ and $\Lambda_{s,t}=e^{\eta_{s,t}}$, the penalized Poisson negative log-likelihood and its score are
+\begin{equation}
+\cL(a,\beta,b)=\sum_{t,s}\big(\Lambda_{s,t}-Y_{s,t}\,\eta_{s,t}\big)+\tfrac{\lambda}{2}\big\|(\beta,b)\big\|^2,
+\qquad
+\frac{\partial\cL}{\partial\eta_{s,t}}=\Lambda_{s,t}-Y_{s,t}=:e_{s,t}.
+\label{eq:sector_ll}
+\end{equation}
+The residual $e_{s,t}$ chains to the parameters as $\partial_{a_s}\cL=\sum_t e_{s,t}$, $\partial_{\beta_s}\cL=\sum_t e_{s,t}X_t+\lambda\beta_s$, and $\partial_{b_{sr\ell}}\cL=\sum_t e_{s,t}Y_{r,t-\ell}+\lambda b_{sr\ell}$. Since $\eta$ is affine in the parameters and $e^{\eta}-Y\eta$ is convex, $\cL$ is convex; it is minimized by box-constrained L-BFGS-B with this analytic gradient, the lag coefficients constrained to $[0,\infty)$ and a hard adjacency mask pinning disallowed cross-sector entries to zero. The optimum is global. Before any forward simulation the fitted excitation matrix is projected to spectral radius $<1$ (Section~\ref{sec:coding}); goodness of fit is read from the Pearson dispersion \eqref{eq:dispersion} and, in continuous time, from the time-rescaling theorem \citep{ogata1988}, under which a correctly specified fit maps the events to unit-rate Poisson residuals.
+
+\subsection{Estimating the survival model}
+\label{sec:est_survival}
+
+\paragraph{Objective.}
+The survival parameters are $\beta=(w_0,\{u_s\},\{\eta_s\},b_0,\gamma)$: global firm-feature weights, per-sector deviations, per-sector cooldown coefficients, and the outside intercept and sector-feature weights. They minimize the penalized augmented partial likelihood \eqref{eq:survival_obj}, with the per-event softmax $p_j=e^{q_j}/\sum_{k\in\cR^+_{s,t}}e^{q_k}$ over the candidates-plus-outside set $\cR^+_{s,t}=\cR_{s,t}\cup\{0\}$.
+
+\paragraph{Gradient, block by block.}
+For one event with chosen index $i^\ast$ (the outside option $0$ if the funded firm is off-list), the score gradient is the softmax residual
+\begin{equation}
+d_j=p_j-\one\{j=i^\ast\},\qquad j\in\cR^+_{s,t},
+\label{eq:soft_resid}
+\end{equation}
+which propagates to each block exactly as implemented (sums over events):
+\begin{equation}
+\nabla_{b_0}=\sum d_0,\quad
+\nabla_{\gamma}=\sum d_0\,g_{s,t},\quad
+\nabla_{w_0}=\sum_{j\in\cR}d_j Z_{j,t},\quad
+\nabla_{u_s}=\sum_{j\in\cR}d_j Z_{j,t},\quad
+\nabla_{\eta_s}=\sum_{j\in\cR}d_j\,C^{(K)}_{j,t},
+\label{eq:survival_blocks}
+\end{equation}
+the outside residual $d_0$ feeding only the outside parameters and the candidate residuals feeding the shared and sector-specific firm weights and the cooldown, plus the ridge gradients $\mu_{\text{global}}w_0$, $\mu_{\text{sector}}u_s$, $\mu_{\text{sector}}\eta_s$, $\mu_{\text{outside}}\gamma$. This is the closed-form gradient the optimizer receives; Section~\ref{sec:coding} reports that it matches finite differences to $1.3\times10^{-8}$.
+
+\paragraph{Convexity and the Hessian.}
+Each event contributes a multinomial-logit negative log-likelihood, whose Hessian in the scores is
+\[
+\nabla^2_q\,\ell_{t,s}=\diag(p)-p p^\top\ \succeq\ 0 .
+\]
+Pulling back through the affine map $q(\beta)$ gives a positive-semidefinite parameter Hessian, and the ridge terms make it strictly positive-definite. The objective is therefore \emph{strictly convex} with a unique global minimum, and the box $\eta_s\le0$ keeps the feasible set convex---there are no local optima to restart away from, in contrast with the covariate-excitation MBPP of \S\ref{sec:est_mbpp}.
+
+\paragraph{Optimizer and constraints.}
+The objective and analytic gradient \eqref{eq:survival_blocks} are handed to box-constrained L-BFGS-B (SciPy when present), with $\eta_s\in(-\infty,0]$ enforcing self-inhibition and all other coordinates free; ridge values $(\mu_{\text{global}},\mu_{\text{sector}},\mu_{\text{outside}})=(10^{-3},10^{-2},10^{-2})$. Initialization sets $\eta_s=-0.5$ and the outside intercept $b_0=-1$ (the outside option is rare a priori). When SciPy is absent the identical objective and gradient are minimized by a numpy projected-gradient (Adam) fallback that clips $\eta_s$ at $0$ after each step, so the estimator carries no hard dependency.
+
+\paragraph{Identification of the outside option.}
+The outside parameters $(b_0,\gamma)$ are identified by the off-universe events: across events the sector features $g_{s,t}=[\log(1+|\cR_{s,t}|),\ \text{recent sector rate}]$ vary, and so does the fraction of events that land outside the tracked set, which pins down the intercept and slope of the outside log-hazard. With no off-list events the outside mass is unidentified and collapses to its prior ($b_0\to-\infty$); this is exactly the degenerate case the watch-list-coverage diagnostic is meant to flag.
+
+\paragraph{Standard errors and prediction.}
+Asymptotic errors come from the inverse Hessian of the partial likelihood at the optimum, restricted to the inactive ($\eta_s<0$) coordinates; at the small synthetic sizes used here we report point estimates and held-out discrimination rather than Wald intervals. Prediction is the softmax \eqref{eq:outside_choice} over the live candidates and the outside option; multiplying by the sector rate $\Lambda_{s,t}$ yields the marked across-market score \eqref{eq:marked_score}.
+
+% ---------------------------------------------------------------------------
+\section{Combining the stages}
+\label{sec:combine}
+
+Given the sector rate $\Lambda_{s,t}$ and the startup choice probability, the across-market score of firm $i$ in sector $s(i)$ is
+\begin{equation}
+\mathrm{Score}_{i,t}\propto \Lambda_{s(i),t}\,\Prob(i\mid s(i),t).
+\label{eq:marked_score}
+\end{equation}
+For a horizon $h$, the sector layer can simulate or integrate sector event probabilities, while the survival layer maps sector events to firm probabilities. In simulations, after a firm is sampled, its history and cooldown state are updated before the next event.
+
+% ---------------------------------------------------------------------------
+\section{Alternative road: an event-time single-layer block Hawkes with self-inhibition}
+\label{sec:blockhawkes}
+
+The preceding model is built for \emph{interval-censored} data, where exact event times are unavailable and the MBPP is the price of admission. Suppose instead that the event \emph{times} are observed --- a deals feed usually carries a dated round --- and the only sense in which the data are ``censored'' is that we record positive events and never an explicit ``tried and failed.'' Exact times change the problem qualitatively: the full point-process likelihood is available, and that unlocks two things the linear interval-censored route cannot have. This section develops the resulting one-layer model and is honest about where it is strong and where it is not.
+
+\subsection{Why exact times let us add self-inhibition}
+A firm-level effect we have repeatedly argued is \emph{negative} (a refractory period after a round, Sections~\ref{sec:sector},~\ref{sec:survival}) cannot be written in a linear Hawkes process, whose kernels must be nonnegative to keep the intensity nonnegative. The fix available with exact times is the \textbf{exponential link},
+\begin{equation}
+\lambda_i(t)=Y_i(t)\,\exp\!\big(\eta_i(t)\big),\qquad Y_i(t)=\one\{b_i\le t<d_i\},
+\label{eq:bh_intensity}
+\end{equation}
+where $Y_i$ is the firm's \emph{at-risk indicator} on its observed lifetime $[b_i,d_i)$ (entry/birth to exit/death). Because the link is $\exp(\cdot)$, the intensity is positive for \emph{any} real $\eta_i$, so a term in $\eta_i$ may be negative: self-inhibition becomes a multiplicative refractory factor $e^{-\rho R_i(t)}\in(0,1]$ rather than an illegal negative kernel. This is the log-linear / multiplicative point-process model \citep{truccolo2005,bremaud1996}.
+
+\subsection{The one-layer model}
+Index firms $i$ by their sector $s(i)\in\{1,\dots,M\}$ and give each static (point-in-time) covariates $X_i$. The log-intensity is
+\begin{equation}
+\eta_i(t)=\underbrace{a_{s(i)}+\beta_{s(i)}^\top X_i}_{\text{covariate baseline}}
+\;-\;\underbrace{\rho_{s(i)}\,R_i(t)}_{\text{firm self-inhibition}}
+\;+\;\underbrace{\sum_{b=1}^{M} A_{s(i),b}\,E_{i,b}(t)}_{\text{block (sector) excitation}},
+\label{eq:bh_eta}
+\end{equation}
+\begin{equation}
+R_i(t)=\!\!\sum_{t^i_k<t}\! e^{-\omega_{\mathrm{self}}(t-t^i_k)},\qquad
+E_{i,b}(t)=\frac{1}{n_b}\!\!\sum_{\substack{j\in b,\,j\ne i}}\sum_{t^j_k<t}\! e^{-\omega_{\mathrm{cross}}(t-t^j_k)} .
+\label{eq:bh_fields}
+\end{equation}
+$R_i$ is the firm's \emph{own} recent-activity field (so $-\rho_s R_i$ is a cooldown), while $E_{i,b}$ is the \emph{size-normalized} recent activity of the \emph{other} firms in sector $b$ (the average, not the sum, so excitation does not scale mechanically with how many firms a sector happens to contain). The decisive structural choice is that excitation is carried by an $M\times M$ \textbf{sector} matrix $A$, not an $N\times N$ firm matrix: firms are exchangeable within a sector and differ only through $X_i$. The diagonal $A_{ss}>0$ is within-sector contagion across \emph{different} firms; the off-diagonals are cross-sector spillover; and $\rho_s\ge0$ is the firm's own refractory suppression. ``Positive sector contagion, negative firm cooldown'' is now expressed in a single intensity.
+
+\subsection{Block sparsity}
+Even $M\times M$ is more than the data support if every sector pair is free. We impose block structure through a binary mask $\mathcal M$ ($A_{ab}=0$ unless $(a,b)\in\mathcal M$, e.g.\ block-diagonal or an industry adjacency), optionally a low-rank factorization $A=UV^\top$ with $U,V\in\R^{M\times r}$, or a convex group-lasso penalty $\sum_{ab}\|A_{ab}\|$ that learns the sparsity. All three keep the parameter count at $O(M^2+Mp)$ --- independent of how many firms enter or leave --- and all three are convex additions that preserve the concavity established next.
+
+\subsection{Likelihood and concavity}
+With parameters $\Theta=(a,\beta,\rho,A)$ entering $\eta$ \emph{linearly} and the decays $\omega_{\mathrm{self}},\omega_{\mathrm{cross}}$ fixed, the point-process log-likelihood on $[0,T]$ is
+\begin{equation}
+\ell(\Theta)=\sum_{k}\eta_{i_k}(t_k)\;-\;\sum_{i}\int_{b_i}^{d_i}\exp\!\big(\eta_i(t)\big)\,\dd t .
+\label{eq:bh_ll}
+\end{equation}
+\begin{theorem}[Concavity]
+\label{thm:bh_concave}
+If $\Theta\mapsto\eta_i(t)$ is affine for every $i,t$ (as in \eqref{eq:bh_eta} with fixed decays) and the at-risk sets do not depend on $\Theta$, then $\ell$ is concave in $\Theta$; it is strictly concave whenever the design has full rank or a strictly convex penalty is added. Hence the MLE is the unique global maximizer.
+\end{theorem}
+\begin{proof}
+The first sum is linear in $\Theta$. In the second, each integrand $\exp(\eta_i(t))$ is the exponential of an affine function of $\Theta$, hence convex; integrating over the (parameter-free) at-risk set and summing preserves convexity, so $\int\!\exp(\eta)$ is convex and $-\!\int\!\exp(\eta)$ is concave. A sum of a linear and a concave function is concave. Box constraints $\rho_s\ge0$, $A\ge0$ on the mask, and convex penalties (ridge, group-lasso, low-rank nuclear norm) keep the feasible set and objective convex.
+\end{proof}
+This is the payoff for having exact times: unlike the covariate-\emph{excitation} MBPP of \S\ref{sec:est_mbpp} (non-convex because the kernel depends on covariates multiplicatively), the single-layer log-linear Hawkes is a \emph{convex} estimation problem with no local optima --- even with self-inhibition.
+
+\subsection{Estimation: score, Hessian, and the Berman--Turner device}
+Differentiating \eqref{eq:bh_ll}, the score is the point-process GLM ``observed minus expected'' statistic,
+\begin{equation}
+\nabla_\Theta\ell=\sum_{k}\nabla\eta_{i_k}(t_k)-\sum_i\int_{b_i}^{d_i}\nabla\eta_i(t)\,e^{\eta_i(t)}\dd t,
+\qquad
+\nabla^2_\Theta\ell=-\sum_i\int_{b_i}^{d_i}\nabla\eta_i\,\nabla\eta_i^\top\,e^{\eta_i}\dd t\preceq0,
+\label{eq:bh_score}
+\end{equation}
+the Hessian being manifestly negative-semidefinite (a second proof of concavity). On a time grid of width $\Delta$ this is the \textbf{Berman--Turner device} \citep{bermanturner1992}: the compensator integral becomes a quadrature, and \eqref{eq:bh_ll} is exactly a weighted Poisson regression with offset $\log\Delta$,
+\begin{equation}
+\ell\approx\sum_{i,g}\Big[\,\dd N_i[g]\,\eta_i[g]-Y_i[g]\,e^{\eta_i[g]}\,\Delta\,\Big],
+\label{eq:bh_grid}
+\end{equation}
+solvable by Fisher scoring / IRLS or, as in the implementation, by box-constrained L-BFGS-B with the analytic gradient \eqref{eq:bh_score}. The history fields \eqref{eq:bh_fields} decay exponentially, so they update by the one-line recursion $F[g]=(F[g-1]+\dd N[g-1])e^{-\omega\Delta}$; the at-risk integral simply restricts the inner sum to each firm's lifetime. Goodness of fit uses the time-rescaling theorem \citep{ogata1988,ogata1981}: under a correct fit the compensators between a firm's consecutive events are i.i.d.\ $\mathrm{Exp}(1)$.
+
+\subsection{The open population, and an honest assessment}
+The at-risk indicator $Y_i$ is what makes this usable in a churning population: a firm contributes to the likelihood only over its observed lifetime, new firms simply switch on at entry, and exits switch off --- no dimension is ever added to the parameter vector, because the parameters live at the sector level. A genuinely new firm is not a cold start: it inherits its sector's dynamics $(a_{s},\beta_{s},\rho_{s},A_{s,\cdot})$ and is individuated only by its covariates $X_i$. This is precisely why a one-dimension-per-firm Hawkes is the \emph{wrong} object --- it would carry $O(N^2)$ unobservable cross-firm parameters, assign a private baseline to firms seen once or twice, and have nothing to say about a firm with no history --- and why tying parameters at the block/type level is the right reduction. Note that entry/exit is the survival risk set of Section~\ref{sec:survival} re-appearing inside an intensity model: the two roads converge on the same open-population device.
+
+It is not, however, a free lunch, and the repository experiments make the trade-offs concrete (Section~\ref{sec:bh_results}). The estimator is provably correct and concave, fits the intensity tightly, and cleanly recovers the baselines, the covariate effects, and the \emph{ordering} of self-inhibition across sectors. But the absolute split between within-sector excitation $A_{ss}$ and firm self-inhibition $\rho_s$ is only weakly identified from a single market realization: a firm's own recent activity is correlated with its sector's, so the two channels trade off, and resolving the fast refractory effect additionally demands a time grid finer than the refractory timescale. This is the classical single-realization Hawkes identifiability problem \citep{bacry2015,zhou2013}, and it is exactly what the block-sparsity, low-rank, and group-lasso priors above --- or panel data over many markets --- are for. Finally, folding ``when/where'' and ``which firm'' into one layer sacrifices the cleanly separated, calibrated $\Prob(\text{outside})$ of the two-stage design; modeling the arrival of genuinely new firms then requires an explicit birth (entry) intensity or an outside term. The single-layer model is more elegant and globally estimable; the two-stage model is more modular and gives a sharper watch-list signal. Which to deploy depends on whether exact times are available and whether the product needs the outside-firm probability.
+
+% ---------------------------------------------------------------------------
+\section{Learning the MBPP operator and the inverse map}
+\label{sec:operators}
+
+Inside any calibration or simulation loop the bottleneck is the forward solve of the MBPP equation \eqref{eq:mbpp_volterra}. The package therefore also learns the \emph{solution operator} of the multivariate MBPP family --- one network that maps an instance to its whole intensity path --- and, conversely, learns to \emph{invert} interval observations back to parameters. These are accelerators and stress tests for the theory, not replacements for it.
+
+\subsection{The forward operator}
+For the constant-coefficient $M$-sector family the operator to be learned is
+\begin{equation}
+(s,A)\ \longmapsto\ \xi(\cdot)\quad\text{solving}\quad \xi=s+A\,(G\xi),\qquad G=\textstyle\int_0^t e^{-\theta(t-u)}(\cdot)\,\dd u,
+\label{eq:op_target}
+\end{equation}
+with baseline vector $s\in\R^M$ and $M\times M$ excitation matrix $A$. We use a DeepONet/PINO: a \emph{branch} network encodes the instance $(s,A)$, a \emph{trunk} network encodes the query time, and their inner product is $\widehat\xi(t)$. Training is \emph{physics-informed} --- the loss is the collocation residual of \eqref{eq:op_target},
+\begin{equation}
+R=\widehat\xi-s-A\,(G\widehat\xi),
+\label{eq:op_residual}
+\end{equation}
+which is linear in $\widehat\xi$ with gradient $2\big(R-G^\top(RA)\big)$, so its unique minimizer is the exact solution and no ground-truth solver is needed in the loss. The production loss is a \emph{hybrid, scale-invariant} objective: the relative residual $\|R\|^2/\|\widehat\xi\|^2$, plus a relative supervised term on a few exact ``anchor'' solutions, plus an interval-censoring penalty. Optimising the \emph{relative} error directly targets the metric and stops large-intensity (stiff) instances from dominating.
+
+\paragraph{Conditioning is necessary (a go/no-go rule).}
+The single most important architectural finding is that the operator \emph{must} be conditioned on the system it solves. An unconditioned map from forcing to solution is ill-posed --- the same forcing path is the solution of many different systems --- and it fails badly: a vanilla parametric PINN reaches only a median $0.345$ relative error and an FNO fed only the forcing with the system hidden reaches $0.492$, both unusable. Conditioning the branch on $(s,A)$ is what makes the problem a function and the operator accurate.
+
+\paragraph{Results.}
+The conditioned PINO reproduces the exact multivariate solver to a few percent held-out relative $L_2$ and solves an unseen instance in one forward pass ($\approx3$ ms): $0.55\%$ at $M=3$, $1.52\%$ at $M=5$, $2.03\%$ at $M=8$ (400 held-out instances per dimension; trained in 2--4 minutes on CPU), all comfortably under the $5\%$ target and flat across the branching ratio. Table~\ref{tab:pino} collects these against the FNO and unconditioned baselines. A pure-numpy, physics-only reference reaches $\approx2.5\%$ at $M=3$ in $37$ s. Four levers, each measured from a $4$--$10\%$ baseline, produced the final accuracy: the hybrid relative loss; more coverage (4000 train $+$ 2500 anchor instances closed the $M=8$ generalisation gap from $6.1\%$ to $3.9\%$); gradient clipping with best-validation checkpointing (which removed a stiff-batch spike that had sent validation error from $3.8\%$ to $15.9\%$); and Fourier time features with a cosine learning-rate schedule on a wider network.
+
+\paragraph{When it is used --- and when the closed form suffices.}
+The learned operator is an \emph{optional accelerator}, not part of the default estimation path. For the exponential kernel the forward solve is available in \emph{closed form} --- a low-dimensional linear ODE (Section~\ref{sec:est_mbpp}, Theorem~\ref{thm:impulse}), exact and already cheap --- and the interval-censored fitters call that closed form, never the PINO; the deployed sector first stage \eqref{eq:sector_glm} does not solve the MBPP at all, being a direct Poisson GLM on counts. The operator earns its keep only when the exact solve becomes the bottleneck: many repeated solves inside a large calibration sweep or the differentiable inverse (where a fast, vectorised, differentiable forward map is what matters), higher sector counts $M$, or kernels --- power-law, or any shape with no finite state-space representation --- for which no closed form exists and a numerical Volterra solve would otherwise be required. In those regimes one substitutes the PINO for \code{compensator\_interval}, trading an exact solve for a $1$--$2\%$ approximation in exchange for a large, differentiable speed-up; otherwise the closed form is exact and preferred.
+
+\subsection{The inverse map}
+The same differentiable forward solver can be \emph{inverted}: given an interval observation, descend the IC loss \eqref{eq:icll} through the solver to recover the excitation matrix $A$ and the covariate-excitation coefficients $\delta$. On clean data this is essentially exact --- $0.03\%$ error on $A$ and $0.00\%$ on $\delta$ at $M=3$; $2.55\%$ and $0.07\%$ at $M=5$. Under observation noise the two parameter blocks behave very differently: $\delta$ (the covariate effect) stays within $5\%$ up to noise level $\sigma=0.02$, while $A$ is roughly ten times more noise-sensitive ($\sim\!20\%$ at the same $\sigma$). Averaging $R$ independent observations reduces the error like $\sigma/\sqrt{R}$ (at $\sigma=0.1$, $R=256$ brings $A$ to $5.6\%$ and $\delta$ to $1.2\%$). A one-shot \emph{amortized} regressor that maps $(\xi,Z)\mapsto(A,\delta)$ directly plateaus at $\sim\!38\%$ on $A$ and $\sim\!49\%$ on $\delta$ even with $20{,}000$ training instances --- direct regression cannot invert this physics, so differentiable inversion through the solver is the method of record, with the amortized network useful only as a warm start. A practical prerequisite, foreshadowing Section~\ref{sec:stability}, is that the sampled training instances be \emph{subcritical}: without the constraint $\kappa\,e^{\delta^\top\max|Z|}<1$ a sizeable fraction of random instances diverge and the exact target intensity blows up to astronomical values.
+
+% ---------------------------------------------------------------------------
+\section{Experimental evidence in the repository}
+\label{sec:results}
+
+The following are repository results, not new results generated for this memo. They are synthetic-data studies designed to validate mechanisms before the real-data back-test.
+
+\subsection{MBPP and covariate-augmented Hawkes}
+The investment case study reports that under correct specification the augmented interval-censored estimator recovers branching ratios within roughly $0.03$ and covariate coefficients within roughly $0.08$. Under deliberate misspecification--heavy-tailed triggering, nonlinear self-inhibition, and cross-sector coupling--the estimator still recovers the sign and significance of the covariate effect and improves held-out predictive likelihood, although magnitude can be inflated by kernel mismatch.
+
+\subsection{Learned forward operators for the MBPP}
+Neural surrogates are useful for speed, especially when the forward Volterra/ODE solve becomes the bottleneck. The strongest finding is architectural: the surrogate must be conditioned on the system it solves. Conditioned PINO/DeepONet-style operators work; unconditioned maps are ill-posed because the same input forcing can correspond to many systems.
+
+\begin{table}[h]
+\centering
+\caption{Repository-reported learned MBPP solver results.}
+\label{tab:pino}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Model / task & Metric & Result & Interpretation \\
+\midrule
+PINO, held-out & median / mean rel. error & $0.031/0.044$ & usable forward surrogate \\
+PINO solve time & per solve & $3.3$ ms & fast differentiable forward pass \\
+FNO fixed operator & median / p90 rel. error & $0.049/0.087$ & works for fixed system \\
+Unconditioned FNO family & median rel. error & $0.492$ & ill-posed input-output map \\
+Vanilla PINN & median rel. error & $0.345$ & unstable across system family \\
+Amortized inverse & entry / stability corr. & $0.38/0.48$ & warm-start, not final estimator \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+A separate PINO report gives held-out relative errors for multivariate sector dimensions: $0.55\%$ for $M=3$, $1.52\%$ for $M=5$, and $2.03\%$ for $M=8$.
+
+\subsection{Survival-with-ranking demo}
+The survival ranking demo simulates a 600-firm population and compares a single-covariate baseline with likelihood-only and likelihood-plus-ranking survival models.
+
+\begin{table}[h]
+\centering
+\caption{Synthetic survival ranking results.}
+\label{tab:survival}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Model & Concordance index & Recall@10\% \\
+\midrule
+Popularity baseline & $0.617$ & $0.143$ \\
+Survival, likelihood & $0.684$ & $0.159$ \\
+Survival, likelihood + ranking & $0.687$ & $0.161$ \\
+Random & $0.500$ & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The gain from ranking loss is modest in that synthetic setting, but the survival model materially beats the single-covariate baseline and produces calibrated survival curves.
+
+\subsection{Two-stage startup funding ranker}
+The application-facing synthetic market uses $11$ sectors, approximately $35$ candidate startups per sector pick, and a held-out period. The fitted ranker is compared with a random risk-set baseline and an oracle that uses the true data-generating parameters.
+
+\begin{table}[h]
+\centering
+\caption{Synthetic two-stage ranker results.}
+\label{tab:twostage}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Metric & Fitted & Oracle ceiling & Random & Fitted / Oracle \\
+\midrule
+Top-1 hit & $16.7\%$ & $21.2\%$ & $2.9\%$ & $79\%$ \\
+Top-5 hit & $49.2\%$ & $53.7\%$ & $14.3\%$ & $92\%$ \\
+Top-10 hit & $69.2\%$ & $71.6\%$ & $28.6\%$ & $97\%$ \\
+MRR & $0.328$ & $0.371$ & $0.118$ & $88\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+These numbers indicate that the ranker is three to six times better than chance and recovers most of the oracle's achievable performance. The remaining gap is partly irreducible stochasticity: even the true model samples a funded startup from a distribution over roughly 35 candidates.
+
+\subsection{Event-time single-layer block Hawkes}
+\label{sec:bh_results}
+The single-layer model of Section~\ref{sec:blockhawkes} is validated on a synthetic open-population market ($M=4$ sectors, $\sim$18 firms each, $\sim$30\% late entrants and $\sim$10\% early exits, block-diagonal $A$, a fast self-decay and a slow cross-decay), simulated from known parameters and re-estimated by the concave MLE. The findings sharpen the trade-offs of Section~\ref{sec:blockhawkes}.
+
+\begin{table}[h]
+\centering
+\caption{Event-time block-Hawkes: estimator checks and parameter recovery (synthetic).}
+\label{tab:blockhawkes}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Quantity & Result & Reading \\
+\midrule
+analytic gradient vs.\ finite diff. & $1.8\times10^{-6}$ & gradient is exact \\
+NLL Hessian (random points) & PSD, $\min\lambda>0$ & concavity confirmed (Thm.~\ref{thm:bh_concave}) \\
+time-rescaling KS to $\mathrm{Exp}(1)$ & $0.04$--$0.06$ & intensity well specified \\
+baseline $a$ (max abs.\ error) & $<0.2$ & baselines recovered \\
+covariate $\beta$ (corr.\ true vs.\ est.) & $0.98$ & covariate effects recovered \\
+self-inhibition $\rho$ (rank corr.) & $0.93$ & cooldown ordering recovered; $\rho\ge0$ \\
+within-sector $A_{ss}$ (corr.) & $\approx0.5$--$0.6$ & weakly identified (single realization) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The estimator is exact and concave, the fit passes the time-rescaling test, and the baselines, covariate effects, and the \emph{ordering} of self-inhibition are recovered. The absolute excitation/inhibition magnitudes are only weakly identified from one market path --- the own-recency/sector-recency collinearity of Section~\ref{sec:blockhawkes} --- and improve with block sparsity, distinct timescales, or panel data. This is the honest counterpart to the model's elegance: a globally unique fit whose predictive intensity is trustworthy, but whose finest structural coefficients need regularization or more data.
+
+% ---------------------------------------------------------------------------
+\section{Numerical experiments: implementation and coding choices}
+\label{sec:coding}
+
+This section documents how the studies of Section~\ref{sec:results} are implemented, so the numbers are reproducible and the engineering trade-offs are explicit. The emphasis is on the choices a reviewer would want to interrogate: the optimizer, the constraints, the gradients, and the honest failure modes.
+
+\subsection{Software architecture}
+The code is the \code{hawkes\_calibration} Python package (MIT-licensed; \code{pip install -e .}). The deliberate design rule is a \emph{numpy-only core}: SciPy, JAX, TensorFlow and matplotlib are optional extras, imported lazily, so \code{import hawkes\_calibration} succeeds with numpy alone. The package is organized by data regime: \code{eventtime} (exact-timestamp MLE), \code{mbpp} (interval-censored fitters implementing \eqref{eq:icll}), \code{operators} (exact Volterra/ODE solvers plus the learned PINO/DeepONet surrogates of Table~\ref{tab:pino}), \code{sector\_ranker} (the sector count model \eqref{eq:sector_glm} and the risk-set ranker), and \code{sector\_survival} (the survival model with the outside option, \eqref{eq:outside_choice}). The application models share one logical home, \code{models/}, which also holds \code{event\_block\_hawkes} --- the event-time single-layer block Hawkes of Section~\ref{sec:blockhawkes}: a Berman--Turner grid implementation of \eqref{eq:bh_grid} (simulate, concave negative log-likelihood with the analytic ``observed minus expected'' gradient \eqref{eq:bh_score}, box constraints $\rho\ge0$ and masked $A\ge0$, fit by L-BFGS-B, and a time-rescaling diagnostic). A continuous-integration workflow runs the unit-test suite on Python 3.10--3.12.
+
+\subsection{Synthetic data-generating process}
+The function \code{simulate\_synthetic\_startup\_market} produces a weekly market whose ground truth matches the two-stage model, so estimators can be checked against known parameters. Sector counts are drawn from the positive-lag Poisson GLM \eqref{eq:sector_glm} with a sparse, strongly diagonal nonnegative excitation matrix and AR(1) standardized macro covariates; each sector event is then assigned to a live startup by the risk-set softmax with a \emph{negative} true cooldown coefficient---so the data has positive sector excitation and negative firm-level self-inhibition by construction. About a quarter of firms enter after $t=0$, so risk-set sizes vary over time and late entrants exist. A \emph{tracked} watch-list (\code{make\_tracked\_mask}, a random subset) defines the observable universe; funding events to off-list firms become the ``outside'' events used to train and test the outside option. This is the only place randomness enters; all experiments fix the seed.
+
+\subsection{Estimators and how they are fit}
+Both stages are penalized maximum-(partial-)likelihood with closed-form gradients.
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item \textbf{Sector count model} (\code{fit\_sector\_count\_model}). A convex Poisson log-GLM for \eqref{eq:sector_glm}: the intercepts and covariate coefficients are unconstrained, the lagged excitation coefficients $b_{sr\ell}$ are constrained \emph{nonnegative}, and the whole problem is solved by box-constrained L-BFGS-B with an analytic gradient.
+\item \textbf{Survival / outside model} (\code{fit\_startup\_survival}). The convex objective \eqref{eq:survival_obj}: per-event candidate sets, cooldown vectors, and the two-dimensional sector features $g_{s,t}=[\log(1+|\cR_{s,t}|),\ \text{recent sector funding rate}]$ are precomputed once; the cooldown coefficients carry the box constraint $\eta_s\le0$; ridge penalties $(\mu_{\text{global}},\mu_{\text{sector}},\mu_{\text{outside}})=(10^{-3},10^{-2},10^{-2})$ regularize the feature, sector-deviation, and outside weights. Optimization is L-BFGS-B started from $\eta_s=-0.5$ and an outside intercept $b_0=-1$ (outside chosen rarely a priori). The analytic gradient is the softmax residual \eqref{eq:survival_grad}.
+\end{itemize}
+When SciPy is present its L-BFGS-B is used; when it is absent the \emph{same} objectives and gradients are handed to a numpy projected-Adam fallback with a matching call signature, so every estimator runs dependency-free. This is why the survival tests pass in a bare numpy environment.
+
+\subsection{Validation choices}
+The gradients are not taken on faith. A finite-difference check on \eqref{eq:survival_obj} matches the analytic gradient to a maximum absolute error of $1.3\times10^{-8}$. The fitted constraints are asserted (cooldown $\eta_s\le0$; sector excitation $b_{sr\ell}\ge0$), and the candidate-plus-outside probabilities are verified to sum to one. Held-out evaluation uses a strict temporal split (fit on $t<t_{\text{train}}$, score on later weeks). On the small synthetic market the survival model recovers a nonpositive cooldown, the outside option discriminates off-list events at $\mathrm{AUC}\approx0.68$, and the within-universe ranking reaches top-5 $\approx0.70$ over roughly seven candidates. The outside AUC is computed in the Mann--Whitney form. Each reported quantity is produced by a script and pinned by a unit test, so regressions are caught.
+
+\subsection{Implementation caveats}
+Three points are flagged for production rather than hidden.
+\begin{enumerate}[leftmargin=1.5em,itemsep=2pt]
+\item \textbf{Stability is not imposed during the fit.} The sector excitation is constrained nonnegative but \emph{not} spectral-radius-bounded, so a fit can be supercritical ($\rho(K)>1$). For one-step held-out scoring this is harmless, but before \emph{forward simulation} the matrix must be projected to $\rho(K)<1$ (or the event loop capped), otherwise simulated rates diverge---this is the supercritical caveat noted in the learning report.
+\item \textbf{The fallback optimizer is weaker.} Numpy projected-Adam is slower and slightly less accurate than L-BFGS-B; SciPy is recommended for the sector model, where the nonnegativity box matters most.
+\item \textbf{The outside probability is discriminated but loosely calibrated.} At small sample size, $\Prob(\text{outside})$ separates off-universe events well (AUC) but its mean can sit above the realized off-universe rate. A post-hoc temperature/Platt rescaling of the outside score is the cheap fix; it does not affect ranking or AUC.
+\end{enumerate}
+
+\subsection{Reproducibility}
+\code{pip install -e ".[dev]"}; \code{pytest} runs the suite (gradient check, constraint signs, normalization, and held-out discrimination for the survival model; well-posedness and accuracy for the learned operators). The scripts in \code{experiments/} regenerate the figures and JSON metrics in \code{results/}; seeds are fixed throughout.
+
+% ---------------------------------------------------------------------------
+\section{Stability and the explosion problem}
+\label{sec:stability}
+
+A practical instability recurred across the project and is worth a dedicated treatment, because the lesson is counter-intuitive: there are \emph{two} excitation models in this work with \emph{two} different explosion mechanisms, and for one of them the familiar ``spectral radius below one'' check is \emph{not} sufficient. This section states both precisely, recounts the concrete failure, and lists the guards.
+
+\subsection{Two mechanisms}
+\paragraph{Mechanism A --- additive supercriticality (continuous-time / MBPP).}
+For the additive Hawkes and its MBPP mean field, the stationary intensity solves $\xi=s+G\xi$, i.e. $\xi^\ast=(I-G)^{-1}s$ with branching matrix $G=(\kappa_{mj})$. As the spectral radius $\rho(G)\to1$ the inverse blows up and the process becomes supercritical (infinitely many events). Here the spectral radius is exactly the right diagnostic and $\rho(G)<1$ (with a margin) is the cure. The covariate-modulated kernel \eqref{eq:excitation_covariates} adds a wrinkle: the \emph{effective} branching is $\kappa\,e^{\delta^\top Z(t)}$, so sampling parameters without enforcing $\kappa\,e^{\delta^\top\max|Z|}<1$ sent a sizeable fraction ($\sim$18--26\%) of random instances supercritical, with the exact target intensity diverging to astronomical values ($\sim10^{84}$). The fix is to constrain the sampler --- the prerequisite already flagged for the learned operators (Section~\ref{sec:operators}).
+
+\paragraph{Mechanism B --- log-linear positive feedback (discrete-time counts). This is the subtle one.}
+The sector count model \eqref{eq:sector_glm} has conditional mean
+\begin{equation}
+\E[Y_{s,t}\mid\text{past}]=\Lambda_{s,t}=\exp\!\Big(a_s+\beta_s^\top X_t+\textstyle\sum_{r,\ell}b_{sr\ell}Y_{r,t-\ell}\Big),
+\label{eq:loglin_feedback}
+\end{equation}
+which feeds \emph{raw counts} $Y$ through an $\exp$ link. The rate is therefore a convex, exponential function of recent activity: a single busy week makes $\sum b\,Y$ jump, $\Lambda=e^{(\cdot)}$ jumps multiplicatively, the next $Y$ is drawn larger, and the feedback compounds \emph{geometrically}. The crucial trap is that the INGARCH stability condition $\rho(b)<1$ --- correct for the \emph{identity}-link recursion $\Lambda_t=a+\sum b\,Y_{t-\ell}$ --- does \emph{not} stabilize the log-linear model with raw-count feedback: even $\rho(b)=0.4$ is explosive once counts grow. The stable log-linear Poisson autoregression \citep{fokianos2009} feeds back $\log(1+Y_{t-1})$ or lagged log-intensities with bounded coefficients, never raw $Y$.
+
+\subsection{The concrete failure}
+Left unconstrained, the fitted sector model came out with summed-lag spectral radius $\rho\approx3.7$. In forward simulation the feedback \eqref{eq:loglin_feedback} drove $\log\Lambda$ into the $\exp(20)\approx4.85\times10^8$ rate clip; drawing $\mathrm{Poisson}(4.85\times10^8)$ returns on the order of hundreds of millions of events; and the per-event inner loop then iterated $\sim\!5\times10^8$ times, hanging the end-to-end backtest for minutes per path and, with no per-test timeout, showing red continuous integration. It was never a logic bug --- it was a half-billion-iteration loop driven by a supercritical fit. The same mechanism is what made the \emph{event-time} block simulator of Section~\ref{sec:blockhawkes} blow up until the sector field was normalized by sector size (so excitation responds to \emph{average}, not summed, recent activity and does not scale with the number of firms).
+
+\subsection{Why ``I constrained the spectral radius'' is not the whole story}
+We do constrain the fit, but two caveats remain. First, even a stability-constrained fit can produce a catastrophic \emph{one-step} prediction: fed a genuinely large observed $Y$, $\exp(b^\top Y)$ can hit the clip for a single cell, giving an astronomically large predicted rate and a Poisson NLL in the millions on that cell. Second, stability is not predictive value --- to stay stable the count feedback must be kept tiny, so on this synthetic market the sector log-linear layer does not beat a per-sector historical-mean baseline through its self-excitation; the genuine signal must come from the \emph{covariates} (which the mean baseline cannot see) and from the startup ranker, not from count feedback.
+
+\subsection{Defense in depth}
+\begin{table}[h]
+\centering
+\caption{Guards against explosion, by layer.}
+\label{tab:stability}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lll@{}}
+\toprule
+Layer & Guard & Effect \\
+\midrule
+Sector fit & row-sum bound $\sum_{r,\ell}b_{sr\ell}\le\rho_{\max}=0.95$, with projection & Perron--Frobenius $\Rightarrow\rho(G)\le\rho_{\max}<1$; bounds the feedback loop \\
+Simulation & risk-set cap $Y_{s,t}\le$ \#live firms in sector $s$ & cannot fund more distinct firms than exist; loop bounded by construction \\
+Simulation & first-$K$ cap $Y_{s,t}=\min(\mathrm{Poisson}(\Lambda),K)$ & matches the ``next $K$ firms'' question; hard event bound \\
+MBPP/operator sampler & $\kappa\,e^{\delta^\top\max|Z|}<1$ & no supercritical training instances (Mechanism A) \\
+Event-time block & size-normalized field $E_{i,b}$, masked $A\ge0$, spectral cap before simulation & average-activity excitation does not scale with $N$ (Mechanism B) \\
+Generator & \code{excitation\_radius}$\lesssim0.1$; drive signal via covariates & data-generating process is non-critical and learnable \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\paragraph{Rule of thumb.}
+Never simulate a discrete-time log-linear count model with non-trivial raw-count feedback; keep the excitation tiny and let covariates carry the signal. If a simulation is required, the risk-set and first-$K$ caps make it safe by construction. The headline contrast of the whole project follows: \emph{with} event times (Mechanism A, or a log-linear intensity whose parameters enter linearly as in Section~\ref{sec:blockhawkes}) the model is identified and well-behaved; with \emph{only} weekly counts the log-linear feedback is fragile and must be kept near zero, so the value comes from covariates and the survival ranker rather than from count self-excitation.
+
+% ---------------------------------------------------------------------------
+\section{Model selection: recommended hierarchy}
+\label{sec:recommendations}
+
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Primary model: sector Hawkes/MBPP plus Cox survival with outside option.} This is the best match to positive-event funding data, dynamic candidate universes, and point-in-time firm covariates.
+\item \textbf{Discrete-time hazard baseline.} This is a practical supervised baseline using sampled non-event firm-weeks. It is useful for comparison but must handle extreme class imbalance.
+\item \textbf{DeepSurv.} Add when the linear Cox score underfits. Keep it as an optional PyTorch/pycox dependency so the core package remains lightweight.
+\item \textbf{DeepHit / Dynamic-DeepHit.} Use as a strong nonlinear ranking benchmark, especially when sufficient data are available and direct top-$k$ optimization matters more than interpretability.
+\item \textbf{Neural temporal point processes.} RMTPP, Neural Hawkes, and Transformer Hawkes are useful accuracy benchmarks, but they are less interpretable and do not naturally support counts-only MBPP fitting.
+\item \textbf{Investor-company dynamic graph.} The investor table suggests a later extension: model investor-company edge formation and treat funding as an interaction event in a dynamic bipartite graph.
+\end{enumerate}
+
+% ---------------------------------------------------------------------------
+\section{Limitations and controls before production}
+\label{sec:limitations}
+
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{Synthetic evidence only.} The reported results validate mechanisms, not production performance. The next gate is a real temporal back-test.
+\item \textbf{Point-in-time leakage.} All features must be materialized as-of $t$. Future last-financing values, valuations, and statuses must be excluded.
+\item \textbf{Stability.} Any fitted positive excitation matrix used for forward simulation should satisfy $\rho(K)<1$ or be projected into the stable region.
+\item \textbf{Overdispersion.} Weekly deal counts may be overdispersed relative to Poisson. A negative-binomial sector model or quasi-Poisson standard errors should be considered.
+\item \textbf{Multiple same-sector events.} If several startups are funded in the same sector-week, a Plackett-Luce or set likelihood is preferable to independent repeated softmax choices.
+\item \textbf{Missing universe.} A survival model with outside option is appropriate when the tracked universe is incomplete; without outside mass, the model will over-assign probability to observed candidates.
+\end{itemize}
+
+% ---------------------------------------------------------------------------
+\section{Conclusion}
+\label{sec:conclusion}
+
+The core modeling decision is to put positive contagion where it belongs--at the sector level--and negative recent-funding suppression where it belongs--in the firm-level survival hazard. The MBPP provides a principled counts-only route for interval-censored sector Hawkes calibration. Survival methods provide the right firm-level language for positive-event data, right censoring, dynamic risk sets, and event-updated covariates. The current repository evidence supports the feasibility of both pieces on synthetic data: the sector/MBPP machinery is mathematically well specified, learned forward operators can accelerate it, and the two-stage ranker recovers most of the oracle's ranking performance. The next decisive experiment is a point-in-time real-data back-test with strict temporal splits, an outside option, and calibrated top-$k$/lead-time metrics.
+
+\begin{thebibliography}{99}
+
+\bibitem{hawkes1971} Hawkes, A. G. (1971). Spectra of some self-exciting and mutually exciting point processes. \emph{Biometrika}, 58(1), 83--90.
+
+\bibitem{hawkes_oakes1974} Hawkes, A. G. and Oakes, D. (1974). A cluster process representation of a self-exciting process. \emph{Journal of Applied Probability}, 11(3), 493--503.
+
+\bibitem{rizoiu2022} Rizoiu, M.-A., Soen, A., Li, S., Calderon, P., Dong, L., Menon, A. K., and Xie, L. (2022). Interval-censored Hawkes processes. \emph{Journal of Machine Learning Research}, 23(338), 1--84.
+
+\bibitem{cox1972} Cox, D. R. (1972). Regression models and life-tables. \emph{Journal of the Royal Statistical Society: Series B}, 34(2), 187--220.
+
+\bibitem{kaplan_meier1958} Kaplan, E. L. and Meier, P. (1958). Nonparametric estimation from incomplete observations. \emph{Journal of the American Statistical Association}, 53(282), 457--481.
+
+\bibitem{mcfadden1974} McFadden, D. (1974). Conditional logit analysis of qualitative choice behavior. In P. Zarembka (ed.), \emph{Frontiers in Econometrics}. Academic Press.
+
+\bibitem{plackett1975} Plackett, R. L. (1975). The analysis of permutations. \emph{Applied Statistics}, 24(2), 193--202.
+
+\bibitem{fokianos2009} Fokianos, K., Rahbek, A., and Tjostheim, D. (2009). Poisson autoregression. \emph{Journal of the American Statistical Association}, 104(488), 1430--1439.
+
+\bibitem{katzman2018} Katzman, J. L. et al. (2018). DeepSurv: personalized treatment recommender system using a Cox proportional hazards deep neural network. \emph{BMC Medical Research Methodology}, 18(24).
+
+\bibitem{lee2018deephit} Lee, C., Zame, W., Yoon, J., and van der Schaar, M. (2018). DeepHit: a deep learning approach to survival analysis with competing risks. \emph{AAAI}.
+
+\bibitem{du2016rmtpp} Du, N. et al. (2016). Recurrent marked temporal point processes: embedding event history to vector. \emph{KDD}.
+
+\bibitem{mei2017neuralhawkes} Mei, H. and Eisner, J. (2017). The neural Hawkes process: a neurally self-modulating multivariate point process. \emph{NeurIPS}.
+
+\bibitem{zuo2020transformer} Zuo, S., Jiang, H., Li, Z., Zhao, T., and Zha, H. (2020). Transformer Hawkes process. \emph{ICML}.
+
+\bibitem{trivedi2017knowevolve} Trivedi, R., Dai, H., Wang, Y., and Song, L. (2017). Know-Evolve: deep temporal reasoning for dynamic knowledge graphs. \emph{ICML}.
+
+\bibitem{trivedi2019dyrep} Trivedi, R., Farajtabar, M., Biswal, P., and Zha, H. (2019). DyRep: learning representations over dynamic graphs. \emph{ICLR}.
+
+\bibitem{lu2021deeponet} Lu, L., Jin, P., Pang, G., Zhang, Z., and Karniadakis, G. E. (2021). Learning nonlinear operators via DeepONet. \emph{Nature Machine Intelligence}, 3, 218--229.
+
+\bibitem{li2021pino} Li, Z. et al. (2021). Physics-informed neural operator for learning partial differential equations. \emph{arXiv:2111.03794}.
+
+\bibitem{watanabe1964} Watanabe, S. (1964). On discontinuous additive functionals and L\'evy measures of a Markov process. \emph{Japanese Journal of Mathematics}, 34, 53--70.
+
+\bibitem{daley2003} Daley, D. J. and Vere-Jones, D. (2003). \emph{An Introduction to the Theory of Point Processes, Vol. I} (2nd ed.). Springer.
+
+\bibitem{banerjee2005} Banerjee, A., Merugu, S., Dhillon, I. S., and Ghosh, J. (2005). Clustering with Bregman divergences. \emph{Journal of Machine Learning Research}, 6, 1705--1749.
+
+\bibitem{elkan2008} Elkan, C. and Noto, K. (2008). Learning classifiers from only positive and unlabeled data. \emph{KDD}, 213--220.
+
+\bibitem{antolini2005} Antolini, L., Boracchi, P., and Biganzoli, E. (2005). A time-dependent discrimination index for survival data. \emph{Statistics in Medicine}, 24(24), 3927--3944.
+
+\bibitem{graf1999} Graf, E., Schmoor, C., Sauerbrei, W., and Schumacher, M. (1999). Assessment and comparison of prognostic classification schemes for survival data. \emph{Statistics in Medicine}, 18(17--18), 2529--2545.
+
+\bibitem{wedderburn1974} Wedderburn, R. W. M. (1974). Quasi-likelihood functions, generalized linear models, and the Gauss--Newton method. \emph{Biometrika}, 61(3), 439--447.
+
+\bibitem{ogata1988} Ogata, Y. (1988). Statistical models for earthquake occurrences and residual analysis for point processes. \emph{Journal of the American Statistical Association}, 83(401), 9--27.
+
+\bibitem{nocedal2006} Nocedal, J. and Wright, S. J. (2006). \emph{Numerical Optimization} (2nd ed.). Springer.
+
+\bibitem{mccullagh1989} McCullagh, P. and Nelder, J. A. (1989). \emph{Generalized Linear Models} (2nd ed.). Chapman \& Hall.
+
+\bibitem{ogata1981} Ogata, Y. (1981). On Lewis' simulation method for point processes. \emph{IEEE Transactions on Information Theory}, 27(1), 23--31.
+
+\bibitem{truccolo2005} Truccolo, W., Eden, U. T., Fellows, M. R., Donoghue, J. P., and Brown, E. N. (2005). A point process framework for relating neural spiking activity to spiking history, neural ensemble, and extrinsic covariate effects. \emph{Journal of Neurophysiology}, 93(2), 1074--1089.
+
+\bibitem{bremaud1996} Br\'emaud, P. and Massouli\'e, L. (1996). Stability of nonlinear Hawkes processes. \emph{The Annals of Probability}, 24(3), 1563--1588.
+
+\bibitem{bermanturner1992} Berman, M. and Turner, T. R. (1992). Approximating point process likelihoods with GLIM. \emph{Applied Statistics}, 41(1), 31--38.
+
+\bibitem{zhou2013} Zhou, K., Zha, H., and Song, L. (2013). Learning social infectivity in sparse low-rank networks using multi-dimensional Hawkes processes. \emph{AISTATS}, 641--649.
+
+\bibitem{bacry2015} Bacry, E., Mastromatteo, I., and Muzy, J.-F. (2015). Hawkes processes in finance. \emph{Market Microstructure and Liquidity}, 1(1), 1550005.
+
+\end{thebibliography}
+
+\end{document}

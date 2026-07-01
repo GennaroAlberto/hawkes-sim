@@ -6,8 +6,18 @@ import re
 import markdown
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-MD = os.path.join(ROOT, "LEARNING_REPORT.md")
+# Source note; may be absent (the standalone result notes were folded into
+# paper/complete_account.pdf and the archive removed). Pass a path as argv[1] to override.
+import sys
+MD = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "LEARNING_REPORT.md")
 HTML = os.path.join(ROOT, "LEARNING_REPORT.html")
+
+if not os.path.exists(MD):
+    raise SystemExit(
+        f"[_make_pdf] source markdown not found: {MD}\n"
+        "The learning-report notes now live in paper/complete_account.pdf; "
+        "pass a markdown path as the first argument to render a different file."
+    )
 
 with open(MD) as f:
     text = f.read()

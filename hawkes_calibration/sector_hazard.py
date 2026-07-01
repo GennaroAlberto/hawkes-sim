@@ -16,8 +16,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.optimize import minimize
-from scipy.special import expit
+
+try:  # SciPy is optional: used when available, else a numpy fallback.
+    from scipy.optimize import minimize
+    from scipy.special import expit
+except ImportError:  # pragma: no cover - exercised only without SciPy
+    from ._opt_fallback import minimize
+
+    def expit(x):
+        return 1.0 / (1.0 + np.exp(-np.clip(np.asarray(x, float), -500.0, 500.0)))
 
 from .sector_ranker import candidate_set, cooldown_vector
 

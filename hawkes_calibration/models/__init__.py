@@ -21,6 +21,8 @@ distinct, self-contained modules:
 
 from .event_block_hawkes import *  # noqa: F401,F403
 from .event_block_hawkes import __all__ as _block_all
+from .hawkes_ranker import *  # noqa: F401,F403
+from .hawkes_ranker import __all__ as _ranker_all
 
 # Re-export the existing application models so this is one logical home
 # (the implementations stay in their original modules; nothing is moved).
@@ -31,4 +33,4 @@ _reexport = list(getattr(_sr, "__all__", [])) + list(getattr(_ss, "__all__", [])
 for _name in _reexport:
     globals()[_name] = getattr(_sr, _name, None) or getattr(_ss, _name)
 
-__all__ = [*_block_all, *_reexport]
+__all__ = [*_block_all, *_ranker_all, *_reexport]

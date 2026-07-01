@@ -44,6 +44,7 @@ from .sector_stability import *  # noqa: F401,F403  # overrides stable sector fi
 from .sector_backtest import *  # noqa: F401,F403  # uses stable sector fitter
 from .sector_survival import *  # noqa: F401,F403
 from .models.event_block_hawkes import *  # noqa: F401,F403  # event-time block Hawkes
+from .models.hawkes_ranker import *  # noqa: F401,F403  # 1-D Hawkes within-sector rankers
 from .sector_hazard import *  # noqa: F401,F403
 
 from .eventtime import __all__ as _eventtime_all
@@ -54,6 +55,7 @@ from .sector_stability import __all__ as _sector_stability_all
 from .sector_backtest import __all__ as _sector_backtest_all
 from .sector_survival import __all__ as _sector_survival_all
 from .models.event_block_hawkes import __all__ as _models_block_all
+from .models.hawkes_ranker import __all__ as _models_ranker_all
 from .sector_hazard import __all__ as _sector_hazard_all
 
 __all__ = [
@@ -65,5 +67,6 @@ __all__ = [
     *_sector_backtest_all,
     *_sector_survival_all,
     *_models_block_all,
+    *_models_ranker_all,
     *_sector_hazard_all,
 ]
