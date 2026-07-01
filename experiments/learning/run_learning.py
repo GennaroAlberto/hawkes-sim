@@ -1,5 +1,5 @@
 r"""
-Runner for the pure-learning experiments (see ../../PURE_LEARNING.md).
+Runner for the pure-learning experiments (see ../../docs/package_guide.md).
 
 * ``--selfcheck``  runs the numpy-only well-posedness checks (works anywhere) and is
   the gate every learned solver depends on.
@@ -167,7 +167,7 @@ def main(argv):
     if "--selfcheck" in argv or len(argv) == 0:
         ok = numpy_selfcheck()
         print("\nNext: install jax / tensorflow and run train_pinn / train_pino / train_fno /"
-              " train_amortized (see PURE_LEARNING.md).")
+              " train_amortized (see docs/package_guide.md).")
         sys.exit(0 if ok else 1)
     print("Usage: run_learning.py --selfcheck   (then call the train_* entry points from Python)")
 

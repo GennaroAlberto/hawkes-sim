@@ -1,5 +1,5 @@
 r"""
-Deliverable driver for the pure-learning experiments (PURE_LEARNING.md).
+Deliverable driver for the pure-learning experiments (docs/package_guide.md).
 
 Runs the three experiment families on the *stability-constrained* investment
 parameter box and writes machine-readable metrics (JSON) plus figures into

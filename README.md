@@ -56,10 +56,9 @@ either a companion reference or historical detail.
 |---|---|
 | **[`paper/complete_account.pdf`](paper/complete_account.pdf)** | **the single master report — read this first** |
 | [`paper/textbook.pdf`](paper/textbook.pdf) | the full mathematical treatment (pedagogical, long-form) |
-| [`paper/investment_case_study.pdf`](paper/investment_case_study.pdf) | the rigorous proofs + misspecification grid (math companion) |
+| [`docs/package_guide.md`](docs/package_guide.md) | runnable tour of the package, part by part (how each piece works) |
 | [`docs/investment_market_architecture.md`](docs/investment_market_architecture.md) | the built two-layer system (sector Hawkes + risk-set ranker) |
 | [`docs/stability_and_explosion_report.md`](docs/stability_and_explosion_report.md) | why simulations blow up and the guards (deep dive) |
-| [`PURE_LEARNING.md`](PURE_LEARNING.md) | developer playbook for the learning experiments |
 
 ## Interval-censored calibration in 30 seconds
 

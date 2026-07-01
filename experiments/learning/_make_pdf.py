@@ -1,4 +1,4 @@
-"""Render LEARNING_REPORT.md -> a self-contained HTML (base64 figures) for PDF export."""
+"""Render docs/package_guide.md -> a self-contained HTML (base64 figures) for PDF export."""
 import base64
 import os
 import re
@@ -9,8 +9,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # Source note; may be absent (the standalone result notes were folded into
 # paper/complete_account.pdf and the archive removed). Pass a path as argv[1] to override.
 import sys
-MD = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "LEARNING_REPORT.md")
-HTML = os.path.join(ROOT, "LEARNING_REPORT.html")
+MD = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs/package_guide.md")
+HTML = os.path.join(ROOT, "package_guide.html")
 
 if not os.path.exists(MD):
     raise SystemExit(

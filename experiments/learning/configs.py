@@ -52,7 +52,7 @@ def sample_params_stable(n, seed=0, zmax=0.5, cap=0.9):
         kappa * exp(|delta| * zmax) <= cap < 1,
 
     by clipping kappa down to the stability ceiling.  This is the prior the
-    learned solvers are actually trained and evaluated on (see PURE_LEARNING.md):
+    learned solvers are actually trained and evaluated on (see docs/package_guide.md):
     the raw box bleeds ~18% into the supercritical region where xi is unbounded.
     """
     P = sample_params(n, seed=seed)
