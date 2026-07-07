@@ -46,27 +46,51 @@ and order and **doubles** the ranking metrics (top-5 0.29 vs 0.14). The entire g
 risk-set contamination — the event-time observation problem, since the data never
 labels when a firm leaves the private market.
 
-**What the exit models buy (and don't).** Two learned exit heuristics were tested:
-- *recency prune* (drop firms silent > cap): closes the **NLL** gap (4.20 = oracle)
-  but only because the pool shrinks — **ranking barely moves** (top-5 0.157) and the
-  weights stay inverted; it also over-prunes first-time funders.
-- *raised-and-silent prune* (exit only firms that raised then went quiet; keep
-  never-yet-funded firms): keeps all events, small NLL gain, but again **no ranking
-  recovery and no weight fix**.
+**What the exit models buy (and don't).** Four exit strategies were tested, from
+crude to principled:
 
-**Conclusion.** Simple recency/silence rules are **not sufficient** to reconstruct the
-at-risk set. Graduation/death does not reduce to "has been silent" (a firm can exit
-right after a large raise), so the contaminating firms are not cleanly separable by
-recency alone. Recovering the oracle-level ranking needs a **genuine survival / exit
-model** with richer signal (stage, size, sector hazard) — the `sector_survival.py` /
-`fit_discrete_hazard` machinery — used to define a probabilistic risk set that keeps
-first-time funders while removing true exits. That is the open piece of E2 track (3).
+1. *recency prune* (drop firms silent > cap): closes the **NLL** gap (4.20 = oracle)
+   only by shrinking the pool — ranking barely moves (top-5 0.157), weights stay
+   inverted, and it over-prunes first-time funders.
+2. *raised-and-silent prune* (exit only firms that raised then went quiet): keeps all
+   events, small NLL gain, no ranking recovery, no weight fix.
+3. *learned exit hazard, hard prune*: a logistic exit model on
+   `[recency, stage, raised, employees, age, weeks-since-entry]`, trained on an
+   **observable-only** label ("any deal in the next 26 weeks"). Feasibility is real —
+   this model predicts the *oracle* active-status with **AUC 0.877**, and the top
+   predictors are exactly the right ones (recency −, stage −, raised − → late-stage /
+   high-raised firms graduate out). Yet pruning by it *lowers* top-5 to ~0.11
+   (imperfect exit modeling drops true funded firms → misses) and does not de-bias the
+   weights.
+4. *learned exit hazard, soft weight* (log-odds-active as a fixed score offset, no
+   dropping): NLL 4.79, top-5 0.124 — no better, weights still off.
+
+**Conclusion (stronger than the briefing anticipated).** The observed→oracle gap is
+**not closable by any observable risk-set reweighting/pruning** tested. The reason is
+structural: the observation process (which firms populate the pool, and their
+recency/stage) is **confounded with the funding outcome**. Given the contaminated
+pool, the "inverted" observed weight on recency (+1.94) is in fact the *Bayes-optimal*
+predictive weight — recency is a rational **proxy for the unobserved exit
+information**. Recovering the true structural weights requires the true entry/exit
+(oracle); an exit model good enough to predict exit (AUC 0.877) is still not good
+enough to reconstruct it without dropping real events. This is precisely the
+event-time observation problem the campaign is about.
+
+**Recommendation for real data.** The ranking value lives in **exit/graduation
+labeling**, not in the ranker model. Invest the pipeline effort in the best possible
+firm-lifecycle signal (business-status transitions, IPO / M&A events, going-quiet
+hazards by stage) and **report ranking metrics under both the observed pool and the
+best available exit mask as a bound** — the spread (top-5 0.14 → 0.29 here) is the
+cost of the observation gap and should be quoted for real deployments.
 
 ## Status vs EXPERIMENTS.md
 
 - E1 recovery table + latent-artifact diagnosis: **done** (baselines reproduced). The
   `latent_strength ∈ {0,0.15,0.3}` regeneration sweep is still to run.
-- E2 regimes (1) observed and (2) oracle: **done, reproduced exactly**. Regime (3), a
-  survival-based risk set that closes the ranking gap, is **open** — recency heuristics
-  shown insufficient here.
+- E2 regimes (1) observed and (2) oracle: **done, reproduced exactly**. Regime (3):
+  **investigated thoroughly with a negative result** — four exit models (incl. a
+  learned hazard that predicts oracle exit at AUC 0.877) fail to close the ranking gap
+  from observables; the gap is structurally tied to unobserved exit, not to a weak
+  model. The ranker experiment lives in `experiments/campaign_regimeA.py` (observed /
+  oracle / recency-prune); the learned-hazard variants are documented above.
 - E3 (regime B stress), E4 (PINO vs analytical), E5 (forecast backtest): not started.
