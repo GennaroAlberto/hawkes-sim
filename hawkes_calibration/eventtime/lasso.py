@@ -17,7 +17,9 @@ gradient step is the usual one.
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 import numpy as np
 
 from .likelihood import log_likelihood_and_grad
@@ -116,7 +118,7 @@ def fit_multivariate_lasso(
             dgam = new_gam - y_gam
             da = new_a - y_a
             inner = (gg0 * dg0).sum() + (ggam * dgam).sum() + (ga * da).sum()
-            sqnorm = (dg0 ** 2).sum() + (dgam ** 2).sum() + (da ** 2).sum()
+            sqnorm = (dg0**2).sum() + (dgam**2).sum() + (da**2).sum()
             # Compare smooth part of objective (-ll); penalty is identical in both
             smooth_new = -ll_new
             smooth_model = (-ll_y) + inner + 0.5 * L * sqnorm
@@ -125,7 +127,7 @@ def fit_multivariate_lasso(
             L *= 2.0
 
         # Nesterov momentum update
-        t_kp1 = 0.5 * (1.0 + np.sqrt(1.0 + 4.0 * t_k ** 2))
+        t_kp1 = 0.5 * (1.0 + np.sqrt(1.0 + 4.0 * t_k**2))
         mom = (t_k - 1.0) / t_kp1
         y_g0 = new_g0 + mom * (new_g0 - gamma0)
         y_gam = new_gam + mom * (new_gam - gamma) if p_cov > 0 else y_gam

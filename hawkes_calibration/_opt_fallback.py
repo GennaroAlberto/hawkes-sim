@@ -62,14 +62,18 @@ def minimize(fun, x0, jac=True, method=None, bounds=None, options=None):
             best_f, best_x = float(f), x.copy()
         m = b1 * m + (1 - b1) * g
         v = b2 * v + (1 - b2) * g * g
-        mhat = m / (1 - b1 ** t)
-        vhat = v / (1 - b2 ** t)
-        lr = lr0 * (0.1 ** (t / steps))                 # decay lr0 -> 0.1*lr0
+        mhat = m / (1 - b1**t)
+        vhat = v / (1 - b2**t)
+        lr = lr0 * (0.1 ** (t / steps))  # decay lr0 -> 0.1*lr0
         x = x - lr * mhat / (np.sqrt(vhat) + eps)
         x = np.minimum(np.maximum(x, lo), hi)
 
     f, g = fun(x)
     if np.isfinite(f) and f < best_f:
         best_f, best_x = float(f), x.copy()
-    return SimpleNamespace(x=best_x, fun=best_f, success=True,
-                           message="numpy projected-Adam fallback (SciPy not installed)")
+    return SimpleNamespace(
+        x=best_x,
+        fun=best_f,
+        success=True,
+        message="numpy projected-Adam fallback (SciPy not installed)",
+    )

@@ -37,10 +37,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .core import MBPP, ExponentialKernel, kappa_theta_to_alpha_beta
-from .exogenous import PiecewiseConstant, CovariateExogenous
-from ..operators import solve_mbpp_ltv, solve_mbpp_ode
+from ..operators import solve_mbpp_ltv
 from ..optim import minimize_bfgs
+from .core import MBPP, ExponentialKernel, kappa_theta_to_alpha_beta
+from .exogenous import CovariateExogenous, PiecewiseConstant
 
 
 # ---------------------------------------------------------------------------
@@ -60,8 +60,7 @@ def sse_loss(counts, Xi):
     return float(np.sum((counts - Xi) ** 2))
 
 
-_LOSSES = {"ic-ll": ic_ll, "ic_ll": ic_ll, "kl": ic_ll,
-           "sse": sse_loss, "squared": sse_loss}
+_LOSSES = {"ic-ll": ic_ll, "ic_ll": ic_ll, "kl": ic_ll, "sse": sse_loss, "squared": sse_loss}
 
 
 # ---------------------------------------------------------------------------
@@ -92,10 +91,18 @@ def _num_hessian(f, x, eps=1e-4):
     H = np.zeros((n, n))
     for i in range(n):
         for j in range(i, n):
-            xpp = x.copy(); xpp[i] += eps; xpp[j] += eps
-            xpm = x.copy(); xpm[i] += eps; xpm[j] -= eps
-            xmp = x.copy(); xmp[i] -= eps; xmp[j] += eps
-            xmm = x.copy(); xmm[i] -= eps; xmm[j] -= eps
+            xpp = x.copy()
+            xpp[i] += eps
+            xpp[j] += eps
+            xpm = x.copy()
+            xpm[i] += eps
+            xpm[j] -= eps
+            xmp = x.copy()
+            xmp[i] -= eps
+            xmp[j] += eps
+            xmm = x.copy()
+            xmm[i] -= eps
+            xmm[j] -= eps
             H[i, j] = H[j, i] = (f(xpp) - f(xpm) - f(xmp) + f(xmm)) / (4 * eps * eps)
     return H
 
@@ -118,7 +125,8 @@ def _observed_information_se(objective, vec_opt, build_to_natural):
     J = np.zeros((nat0.size, vec_opt.size))
     eps = 1e-5
     for j in range(vec_opt.size):
-        vp = np.asarray(vec_opt, float).copy(); vp[j] += eps
+        vp = np.asarray(vec_opt, float).copy()
+        vp[j] += eps
         J[:, j] = (np.atleast_1d(np.asarray(build_to_natural(vp), float)) - nat0) / eps
     cov_nat = J @ cov_v @ J.T
     return np.sqrt(np.clip(np.diag(cov_nat), 0.0, None))
@@ -139,10 +147,10 @@ class ICFitResult:
     n_events: int = 0
     gamma0: float | None = None
     gamma: np.ndarray | None = None
-    delta: np.ndarray | None = None        # excitation-covariate coefficients
-    baseline: float | None = None          # fitted constant baseline (excitation model)
-    kappas: np.ndarray | None = None       # sum-of-exponentials branching weights
-    thetas: np.ndarray | None = None       # sum-of-exponentials decay bank
+    delta: np.ndarray | None = None  # excitation-covariate coefficients
+    baseline: float | None = None  # fitted constant baseline (excitation model)
+    kappas: np.ndarray | None = None  # sum-of-exponentials branching weights
+    thetas: np.ndarray | None = None  # sum-of-exponentials decay bank
     baseline_vec: np.ndarray | None = None  # M-vector baseline (multivariate fit)
     kappa_matrix: np.ndarray | None = None  # MxM branching matrix (multivariate fit)
 
@@ -166,11 +174,16 @@ class ICFitResult:
             f"  -> exponential kernel phi(t) = {a:.4f} * exp(-{b:.4f} t)",
         ]
         if self.gamma0 is not None:
-            lines.append(f"  gamma0 (log-baseline)   = {self.gamma0:.4f}   (baseline mu0 = {np.exp(self.gamma0):.4f})")
+            lines.append(
+                f"  gamma0 (log-baseline)   = {self.gamma0:.4f}   "
+                f"(baseline mu0 = {np.exp(self.gamma0):.4f})"
+            )
             lines.append(f"  gamma (covariate coefs) = {np.asarray(self.gamma).tolist()}")
         if self.delta is not None:
             lines.append(f"  baseline mu             = {self.baseline:.4f}")
-            lines.append(f"  delta (excitation-covariate coefs) = {np.asarray(self.delta).tolist()}")
+            lines.append(
+                f"  delta (excitation-covariate coefs) = {np.asarray(self.delta).tolist()}"
+            )
             lines.append(f"  -> branching ratio kappa(t) = {self.kappa:.4f} * exp(delta^T Z(t))")
         if self.kappas is not None:
             lines.append(f"  baseline mu             = {self.baseline:.4f}")
@@ -179,7 +192,9 @@ class ICFitResult:
             for th, ka in zip(self.thetas, self.kappas):
                 lines.append(f"    theta={th:.3f}  kappa={ka:.4f}")
         if self.scale != 1.0 or self.background != 0.0:
-            lines.append(f"  exogenous scale mu = {self.scale:.4f}, background nu = {self.background:.4f}")
+            lines.append(
+                f"  exogenous scale mu = {self.scale:.4f}, background nu = {self.background:.4f}"
+            )
         return "\n".join(lines)
 
 
@@ -252,8 +267,9 @@ def fit_mbpp_ic(
         exo = exogenous
         if augmenting:
             exo = _augment_piecewise(exogenous, scale, background)
-        mbpp = MBPP(ExponentialKernel(kappa, theta), exo, method=method,
-                    grid_dt=grid_dt, grid_T=grid_T)
+        mbpp = MBPP(
+            ExponentialKernel(kappa, theta), exo, method=method, grid_dt=grid_dt, grid_T=grid_T
+        )
         Xi = mbpp.compensator_interval(obs_times, endogenous=endogenous)
         if not np.all(np.isfinite(Xi)):
             return 1e12
@@ -288,9 +304,13 @@ def fit_mbpp_ic(
             # Hawkes counts are over-dispersed (offspring clustering), so we inflate
             # the model SEs by sqrt(Pearson dispersion) -- a standard robust fix.
             exo_opt = _augment_piecewise(exogenous, scale, background) if augmenting else exogenous
-            Xi_opt = MBPP(ExponentialKernel(kappa, theta), exo_opt, method=method,
-                          grid_dt=grid_dt, grid_T=grid_T).compensator_interval(
-                              obs_times, endogenous=endogenous)
+            Xi_opt = MBPP(
+                ExponentialKernel(kappa, theta),
+                exo_opt,
+                method=method,
+                grid_dt=grid_dt,
+                grid_T=grid_T,
+            ).compensator_interval(obs_times, endogenous=endogenous)
             Xi_opt = np.maximum(Xi_opt, 1e-12)
             disp = float(np.sum((counts - Xi_opt) ** 2 / Xi_opt) / max(counts.size - 2, 1))
             scale_se = np.sqrt(max(disp, 1.0))
@@ -340,8 +360,10 @@ def fit_mbpp_ic_multi(
     loss_fn = _LOSSES[loss]
 
     def build(vec):
-        return (float(np.clip(_sigmoid(vec[0]), 1e-4, 1 - 1e-4)),
-                float(np.clip(np.exp(np.clip(vec[1], -20, 20)), 1e-4, 1e4)))
+        return (
+            float(np.clip(_sigmoid(vec[0]), 1e-4, 1 - 1e-4)),
+            float(np.clip(np.exp(np.clip(vec[1], -20, 20)), 1e-4, 1e4)),
+        )
 
     def objective(vec):
         kappa, theta = build(vec)
@@ -368,8 +390,12 @@ def fit_mbpp_ic_multi(
     kappa, theta = build(best.x)
     total_events = int(sum(int(np.sum(c)) for c in counts_list))
     return ICFitResult(
-        kappa=float(kappa), theta=float(theta), loss=float(best.fun), loss_name=loss,
-        success=bool(best.success), n_intervals=int(np.asarray(counts_list[0]).size),
+        kappa=float(kappa),
+        theta=float(theta),
+        loss=float(best.fun),
+        loss_name=loss,
+        success=bool(best.success),
+        n_intervals=int(np.asarray(counts_list[0]).size),
         n_events=total_events,
     )
 
@@ -433,7 +459,7 @@ def fit_mbpp_ic_covariates(
         kappa = float(np.clip(_sigmoid(vec[0]), 1e-4, 1 - 1e-4))
         theta = float(np.clip(np.exp(np.clip(vec[1], -20, 20)), 1e-4, 1e4))
         gamma0 = float(vec[2])
-        gamma = np.asarray(vec[3:3 + p], dtype=float)
+        gamma = np.asarray(vec[3 : 3 + p], dtype=float)
         return kappa, theta, gamma0, gamma
 
     def objective(vec):
@@ -458,11 +484,16 @@ def fit_mbpp_ic_covariates(
         if r == 0:
             v0 = np.concatenate([[_logit(kappa0), np.log(theta0), gamma0_init], np.zeros(p)])
         else:
-            v0 = np.concatenate([
-                [_logit(rng.uniform(0.1, 0.9)), np.log(rng.uniform(0.3, 3.0)),
-                 gamma0_init + rng.normal(0, 0.5)],
-                rng.normal(0, 0.5, size=p),
-            ])
+            v0 = np.concatenate(
+                [
+                    [
+                        _logit(rng.uniform(0.1, 0.9)),
+                        np.log(rng.uniform(0.3, 3.0)),
+                        gamma0_init + rng.normal(0, 0.5),
+                    ],
+                    rng.normal(0, 0.5, size=p),
+                ]
+            )
         res = minimize_bfgs(objective, v0, max_iter=400, ftol=1e-10, gtol=1e-6)
         if best is None or res.fun < best.fun:
             best = res
@@ -470,9 +501,15 @@ def fit_mbpp_ic_covariates(
     kappa, theta, gamma0, gamma = build(best.x)
     total_events = int(sum(int(c.sum()) for c in counts_list))
     return ICFitResult(
-        kappa=float(kappa), theta=float(theta), loss=float(best.fun), loss_name=loss,
-        success=bool(best.success), n_intervals=int(counts_list[0].size),
-        n_events=total_events, gamma0=float(gamma0), gamma=gamma,
+        kappa=float(kappa),
+        theta=float(theta),
+        loss=float(best.fun),
+        loss_name=loss,
+        success=bool(best.success),
+        n_intervals=int(counts_list[0].size),
+        n_events=total_events,
+        gamma0=float(gamma0),
+        gamma=gamma,
     )
 
 
@@ -493,18 +530,18 @@ def _sumexp_compensator_const(mu, a, b, obs_times):
     p_i = (1^T V)_i (V^{-1} w)_i.  Stable since sum_q a_q/b_q = kappa < 1 makes A
     Hurwitz (no zero eigenvalue).
     """
-    a = np.asarray(a, dtype=float); b = np.asarray(b, dtype=float)
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
     Q = a.size
     A = np.outer(a, np.ones(Q)) - np.diag(b)
     lam, V = np.linalg.eig(A)
     w = np.linalg.solve(A, a)
-    p = (np.ones(Q) @ V) * (np.linalg.solve(V, w))      # (Q,) complex
+    p = (np.ones(Q) @ V) * (np.linalg.solve(V, w))  # (Q,) complex
     t = np.asarray(obs_times, dtype=float)
-    Et = np.exp(np.outer(t, lam))                       # (m+1, Q)
+    Et = np.exp(np.outer(t, lam))  # (m+1, Q)
     over = np.where(np.abs(lam) > 1e-12, (Et - 1.0) / lam, np.outer(t, np.ones(Q)))
     Xi = mu * (t + np.real(over @ p - t * np.sum(p)))
     return Xi
-
 
 
 def fit_mbpp_ic_sumexp(
@@ -555,7 +592,7 @@ def fit_mbpp_ic_sumexp(
 
     def build(vec):
         mu = float(np.exp(np.clip(vec[0], -20, 20)))
-        kappas = np.exp(np.clip(vec[1:1 + Q], -20, 5))      # >= 0
+        kappas = np.exp(np.clip(vec[1 : 1 + Q], -20, 5))  # >= 0
         return mu, kappas
 
     def interval_compensators(mu, kappas):
@@ -566,7 +603,7 @@ def fit_mbpp_ic_sumexp(
 
     def objective(vec):
         mu, kappas = build(vec)
-        if np.sum(kappas) >= 0.999:                          # keep subcritical
+        if np.sum(kappas) >= 0.999:  # keep subcritical
             return 1e12
         Xi = interval_compensators(mu, kappas)
         if not np.all(np.isfinite(Xi)) or np.any(Xi <= 0):
@@ -580,18 +617,25 @@ def fit_mbpp_ic_sumexp(
         if r == 0:
             v0 = np.concatenate([[np.log(mu0)], np.log(np.full(Q, 0.3 / Q))])
         else:
-            v0 = np.concatenate([[np.log(mu0 * rng.uniform(0.5, 1.5))],
-                                 np.log(rng.uniform(0.02, 0.6 / Q, size=Q))])
+            v0 = np.concatenate(
+                [[np.log(mu0 * rng.uniform(0.5, 1.5))], np.log(rng.uniform(0.02, 0.6 / Q, size=Q))]
+            )
         res = minimize_bfgs(objective, v0, max_iter=300, ftol=1e-10, gtol=1e-6)
         if best is None or res.fun < best.fun:
             best = res
 
     mu, kappas = build(best.x)
     return ICFitResult(
-        kappa=float(np.sum(kappas)), theta=float(np.sum(kappas * thetas) / max(np.sum(kappas), 1e-9)),
-        loss=float(best.fun), loss_name=loss, success=bool(best.success),
-        n_intervals=int(counts_list[0].size), n_events=int(sum(int(c.sum()) for c in counts_list)),
-        baseline=float(mu), kappas=kappas, thetas=thetas,
+        kappa=float(np.sum(kappas)),
+        theta=float(np.sum(kappas * thetas) / max(np.sum(kappas), 1e-9)),
+        loss=float(best.fun),
+        loss_name=loss,
+        success=bool(best.success),
+        n_intervals=int(counts_list[0].size),
+        n_events=int(sum(int(c.sum()) for c in counts_list)),
+        baseline=float(mu),
+        kappas=kappas,
+        thetas=thetas,
     )
 
 
@@ -603,7 +647,7 @@ def _excitation_modulation(Z, delta):
     delta = np.atleast_1d(np.asarray(delta, dtype=float))
 
     def mod(t):
-        z = np.atleast_2d(np.asarray(Z(t), dtype=float))[0]   # (p,)
+        z = np.atleast_2d(np.asarray(Z(t), dtype=float))[0]  # (p,)
         return np.array([[np.exp(np.clip(float(delta @ z), -30.0, 30.0))]])
 
     return mod
@@ -708,8 +752,14 @@ def fit_mbpp_ic_excitation(
 
     # refined integration grid: obs endpoints + sub-steps (so Xi is read exactly
     # at the observation times, and discontinuities in Z are resolved).
-    fine = np.unique(np.concatenate(
-        [np.linspace(obs_times[i], obs_times[i + 1], n_sub + 1) for i in range(obs_times.size - 1)]))
+    fine = np.unique(
+        np.concatenate(
+            [
+                np.linspace(obs_times[i], obs_times[i + 1], n_sub + 1)
+                for i in range(obs_times.size - 1)
+            ]
+        )
+    )
     if mu0 is None:
         mu0 = max(np.mean([c.sum() for c in counts_list]) / max(T, 1.0), 1e-2) * 0.5
 
@@ -717,7 +767,7 @@ def fit_mbpp_ic_excitation(
         kappa = float(np.clip(_sigmoid(vec[0]), 1e-4, 1 - 1e-4))
         theta = float(np.clip(np.exp(np.clip(vec[1], -20, 20)), 1e-4, 1e4))
         mu = float(np.exp(np.clip(vec[2], -20, 20)))
-        delta = np.asarray(vec[3:3 + p], dtype=float)
+        delta = np.asarray(vec[3 : 3 + p], dtype=float)
         return kappa, theta, mu, delta
 
     def interval_compensators(kappa, theta, mu, delta):
@@ -726,10 +776,14 @@ def fit_mbpp_ic_excitation(
         with np.errstate(over="ignore", invalid="ignore"):
             Xi_obs = _excitation_compensator_fast(mu, kappa, theta, Z, delta, obs_times)
             if Xi_obs is None:
-                _, Xi = solve_mbpp_ltv(lambda t: np.array([mu]), np.array([[kappa * theta]]),
-                                       np.array([[theta]]), fine,
-                                       modulation=_excitation_modulation(Z, delta),
-                                       return_compensator=True)
+                _, Xi = solve_mbpp_ltv(
+                    lambda t: np.array([mu]),
+                    np.array([[kappa * theta]]),
+                    np.array([[theta]]),
+                    fine,
+                    modulation=_excitation_modulation(Z, delta),
+                    return_compensator=True,
+                )
                 Xi_obs = np.interp(obs_times, fine, Xi[:, 0])
             return np.diff(Xi_obs)
 
@@ -746,8 +800,16 @@ def fit_mbpp_ic_excitation(
         if r == 0:
             v0 = np.concatenate([[_logit(kappa0), np.log(theta0), np.log(mu0)], np.zeros(p)])
         else:
-            v0 = np.concatenate([[_logit(rng.uniform(0.1, 0.8)), np.log(rng.uniform(0.4, 2.0)),
-                                  np.log(mu0 * rng.uniform(0.5, 1.5))], rng.normal(0, 0.5, size=p)])
+            v0 = np.concatenate(
+                [
+                    [
+                        _logit(rng.uniform(0.1, 0.8)),
+                        np.log(rng.uniform(0.4, 2.0)),
+                        np.log(mu0 * rng.uniform(0.5, 1.5)),
+                    ],
+                    rng.normal(0, 0.5, size=p),
+                ]
+            )
         res = minimize_bfgs(objective, v0, max_iter=300, ftol=1e-10, gtol=1e-6)
         if best is None or res.fun < best.fun:
             best = res
@@ -755,9 +817,15 @@ def fit_mbpp_ic_excitation(
     kappa, theta, mu, delta = build(best.x)
     total_events = int(sum(int(c.sum()) for c in counts_list))
     return ICFitResult(
-        kappa=float(kappa), theta=float(theta), loss=float(best.fun), loss_name=loss,
-        success=bool(best.success), n_intervals=int(counts_list[0].size),
-        n_events=total_events, baseline=float(mu), delta=delta,
+        kappa=float(kappa),
+        theta=float(theta),
+        loss=float(best.fun),
+        loss_name=loss,
+        success=bool(best.success),
+        n_intervals=int(counts_list[0].size),
+        n_events=total_events,
+        baseline=float(mu),
+        delta=delta,
     )
 
 
@@ -815,8 +883,14 @@ def fit_mbpp_ic_excitation_multi(
     p = np.atleast_1d(np.asarray(Z(obs_times[0]), dtype=float)).reshape(-1).size
     T = float(obs_times[-1])
 
-    fine = np.unique(np.concatenate(
-        [np.linspace(obs_times[i], obs_times[i + 1], n_sub + 1) for i in range(obs_times.size - 1)]))
+    fine = np.unique(
+        np.concatenate(
+            [
+                np.linspace(obs_times[i], obs_times[i + 1], n_sub + 1)
+                for i in range(obs_times.size - 1)
+            ]
+        )
+    )
     if mu0 is None:
         per_comp = np.mean([c.sum(axis=0) for c in counts_list], axis=0) / max(T, 1.0)
         mu0 = np.maximum(per_comp * 0.5, 1e-2)
@@ -827,9 +901,9 @@ def fit_mbpp_ic_excitation_multi(
 
     def build(vec):
         mu = np.exp(np.clip(vec[:M], -20, 20))
-        kappa = kappa_max * _sigmoid(vec[M:M + n_k]).reshape(M, M)
+        kappa = kappa_max * _sigmoid(vec[M : M + n_k]).reshape(M, M)
         theta = float(np.clip(np.exp(np.clip(vec[M + n_k], -20, 20)), 1e-4, 1e4))
-        delta = np.asarray(vec[M + n_k + 1:M + n_k + 1 + p], dtype=float)
+        delta = np.asarray(vec[M + n_k + 1 : M + n_k + 1 + p], dtype=float)
         return mu, kappa, theta, delta
 
     def interval_compensators(mu, kappa, theta, delta):
@@ -837,10 +911,11 @@ def fit_mbpp_ic_excitation_multi(
         B = theta * np.ones((M, M))
         mod = _multi_modulation(Z, delta, M)
         with np.errstate(over="ignore", invalid="ignore"):
-            _, Xi = solve_mbpp_ltv(lambda t: mu, A0, B, fine, modulation=mod,
-                                   return_compensator=True)
+            _, Xi = solve_mbpp_ltv(
+                lambda t: mu, A0, B, fine, modulation=mod, return_compensator=True
+            )
         Xi_obs = np.column_stack([np.interp(obs_times, fine, Xi[:, m]) for m in range(M)])
-        return np.diff(Xi_obs, axis=0)                  # (n_int, M)
+        return np.diff(Xi_obs, axis=0)  # (n_int, M)
 
     def objective(vec):
         mu, kappa, theta, delta = build(vec)
@@ -857,13 +932,23 @@ def fit_mbpp_ic_excitation_multi(
     best = None
     for r in range(max(1, n_restarts)):
         if r == 0:
-            v0 = np.concatenate([np.log(mu0), vlogit(np.full(n_k, kappa0 / kappa_max)),
-                                 [np.log(theta0)], np.zeros(p)])
+            v0 = np.concatenate(
+                [
+                    np.log(mu0),
+                    vlogit(np.full(n_k, kappa0 / kappa_max)),
+                    [np.log(theta0)],
+                    np.zeros(p),
+                ]
+            )
         else:
-            v0 = np.concatenate([np.log(mu0 * rng.uniform(0.6, 1.4, size=M)),
-                                 vlogit(rng.uniform(0.03, 0.4, size=n_k) / kappa_max),
-                                 [np.log(theta0 * rng.uniform(0.6, 1.6))],
-                                 rng.normal(0, 0.4, size=p)])
+            v0 = np.concatenate(
+                [
+                    np.log(mu0 * rng.uniform(0.6, 1.4, size=M)),
+                    vlogit(rng.uniform(0.03, 0.4, size=n_k) / kappa_max),
+                    [np.log(theta0 * rng.uniform(0.6, 1.6))],
+                    rng.normal(0, 0.4, size=p),
+                ]
+            )
         res = minimize_bfgs(objective, v0, max_iter=250, ftol=1e-9, gtol=1e-6)
         if best is None or res.fun < best.fun:
             best = res
@@ -872,9 +957,16 @@ def fit_mbpp_ic_excitation_multi(
     spectral_radius = float(np.max(np.abs(np.linalg.eigvals(kappa))))
     total_events = int(sum(int(c.sum()) for c in counts_list))
     return ICFitResult(
-        kappa=spectral_radius, theta=float(theta), loss=float(best.fun), loss_name=loss,
-        success=bool(best.success), n_intervals=int(counts_list[0].shape[0]),
-        n_events=total_events, baseline_vec=mu, kappa_matrix=kappa, delta=delta,
+        kappa=spectral_radius,
+        theta=float(theta),
+        loss=float(best.fun),
+        loss_name=loss,
+        success=bool(best.success),
+        n_intervals=int(counts_list[0].shape[0]),
+        n_events=total_events,
+        baseline_vec=mu,
+        kappa_matrix=kappa,
+        delta=delta,
         baseline=float(mu.mean()),
     )
 

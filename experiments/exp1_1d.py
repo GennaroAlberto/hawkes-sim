@@ -6,15 +6,16 @@ function of the horizon T, the bias and the standard error of the MLE for
 (mu, alpha). beta is held fixed at its true value (standard assumption).
 """
 
-import os
 import json
-import numpy as np
+import os
+
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from hawkes_calibration import simulate_multivariate_hawkes, fit_univariate
+from hawkes_calibration import fit_univariate, simulate_multivariate_hawkes
 
 
 def run(seed=1, out_dir="results", n_reps=30):
@@ -83,14 +84,18 @@ def run(seed=1, out_dir="results", n_reps=30):
     axes[1].legend()
     axes[1].grid(alpha=0.3)
 
-    fig.suptitle(rf"Univariate Hawkes, $\mu={mu_true}$, $\alpha={alpha_true}$, $\beta={beta_true}$  ({n_reps} replications)")
+    fig.suptitle(
+        rf"Univariate Hawkes, $\mu={mu_true}$, $\alpha={alpha_true}$, $\beta={beta_true}$  ({n_reps} replications)"
+    )
     fig.tight_layout()
     fig_path = os.path.join(out_dir, "exp1_1d.png")
     fig.savefig(fig_path, dpi=140)
     plt.close(fig)
 
     with open(os.path.join(out_dir, "exp1_1d.json"), "w") as f:
-        json.dump({"truth": dict(mu=mu_true, alpha=alpha_true, beta=beta_true), "rows": rows}, f, indent=2)
+        json.dump(
+            {"truth": dict(mu=mu_true, alpha=alpha_true, beta=beta_true), "rows": rows}, f, indent=2
+        )
     print(f"\nWrote {fig_path}")
     return rows
 

@@ -8,7 +8,9 @@ The interface mimics scipy.optimize.minimize's OptimizeResult superficially.
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 import numpy as np
 
 
@@ -27,8 +29,10 @@ def _numgrad(f, x, fx=None, eps=1e-5):
     n = x.size
     g = np.zeros(n)
     for i in range(n):
-        xp = x.copy(); xp[i] += eps
-        xm = x.copy(); xm[i] -= eps
+        xp = x.copy()
+        xp[i] += eps
+        xm = x.copy()
+        xm[i] -= eps
         g[i] = (f(xp) - f(xm)) / (2 * eps)
     return g
 

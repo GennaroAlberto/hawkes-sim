@@ -36,37 +36,57 @@ continues to work for every X.  See the ``README`` for usage and
 ``paper/textbook.pdf`` for the full mathematical treatment.
 """
 
+from . import sector_backtest as _sector_backtest_mod
+from . import sector_stability as _sector_stability_mod
 from .eventtime import *  # noqa: F401,F403
-from .mbpp import *  # noqa: F401,F403
-from .operators import *  # noqa: F401,F403
-from .sector_ranker import *  # noqa: F401,F403
-from .sector_stability import *  # noqa: F401,F403  # overrides stable sector fitter
-from .sector_backtest import *  # noqa: F401,F403  # uses stable sector fitter
-from .sector_survival import *  # noqa: F401,F403
-from .models.event_block_hawkes import *  # noqa: F401,F403  # event-time block Hawkes
-from .models.hawkes_ranker import *  # noqa: F401,F403  # 1-D Hawkes within-sector rankers
-from .sector_hazard import *  # noqa: F401,F403
-
 from .eventtime import __all__ as _eventtime_all
+from .mbpp import *  # noqa: F401,F403
 from .mbpp import __all__ as _mbpp_all
-from .operators import __all__ as _operators_all
-from .sector_ranker import __all__ as _sector_ranker_all
-from .sector_stability import __all__ as _sector_stability_all
-from .sector_backtest import __all__ as _sector_backtest_all
-from .sector_survival import __all__ as _sector_survival_all
+from .models.event_block_hawkes import *  # noqa: F401,F403  # event-time block Hawkes
 from .models.event_block_hawkes import __all__ as _models_block_all
+from .models.hawkes_ranker import *  # noqa: F401,F403  # 1-D Hawkes within-sector rankers
 from .models.hawkes_ranker import __all__ as _models_ranker_all
+from .operators import *  # noqa: F401,F403
+from .operators import __all__ as _operators_all
+from .sector_backtest import *  # noqa: F401,F403
+from .sector_backtest import __all__ as _sector_backtest_all
+from .sector_hazard import *  # noqa: F401,F403
 from .sector_hazard import __all__ as _sector_hazard_all
+from .sector_ranker import *  # noqa: F401,F403
+from .sector_ranker import __all__ as _sector_ranker_all
+from .sector_stability import *  # noqa: F401,F403
+from .sector_stability import __all__ as _sector_stability_all
+from .sector_survival import *  # noqa: F401,F403
+from .sector_survival import __all__ as _sector_survival_all
 
-__all__ = [
-    *_eventtime_all,
-    *_mbpp_all,
-    *_operators_all,
-    *_sector_ranker_all,
-    *_sector_stability_all,
-    *_sector_backtest_all,
-    *_sector_survival_all,
-    *_models_block_all,
-    *_models_ranker_all,
-    *_sector_hazard_all,
-]
+# ---------------------------------------------------------------------------
+# Canonical implementations for names that exist in more than one module.
+# Plain assignments (NOT imports) so import-sorters cannot reorder them above
+# the star imports -- these are the single source of truth for the collisions:
+#   * the stability-constrained sector fitter supersedes the legacy one in
+#     sector_ranker (noncritical excitation; see sector_stability.py);
+#   * the backtest wrapper in sector_backtest supersedes the prototype in
+#     sector_ranker (zeroed post-train histories, stable fitter, survival stage).
+# ---------------------------------------------------------------------------
+backtest_synthetic_pipeline = _sector_backtest_mod.backtest_synthetic_pipeline
+fit_sector_count_model = _sector_stability_mod.fit_sector_count_model
+sector_rate_at = _sector_stability_mod.sector_rate_at
+
+# Public API: union of the submodule __all__ lists, deduplicated (collisions
+# above appear once, resolved to the canonical binding).
+__all__ = list(
+    dict.fromkeys(
+        [
+            *_eventtime_all,
+            *_mbpp_all,
+            *_operators_all,
+            *_sector_ranker_all,
+            *_sector_stability_all,
+            *_sector_backtest_all,
+            *_sector_survival_all,
+            *_models_block_all,
+            *_models_ranker_all,
+            *_sector_hazard_all,
+        ]
+    )
+)

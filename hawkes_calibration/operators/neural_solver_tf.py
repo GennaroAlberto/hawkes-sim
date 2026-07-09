@@ -46,10 +46,22 @@ def _trapezoid_weight_matrix(t):
 
 
 class TFNeuralMBPP:
-    def __init__(self, mode="pinn", coll_grid=None, Z_on_grid=None, T=30.0,
-                 width=64, depth=3, n_delta=1, seed=0,
-                 kappa_range=(0.05, 0.9), theta_range=(0.2, 3.0),
-                 mu_range=(0.5, 5.0), delta_range=(-2.0, 2.0), ic_weight=10.0):
+    def __init__(
+        self,
+        mode="pinn",
+        coll_grid=None,
+        Z_on_grid=None,
+        T=30.0,
+        width=64,
+        depth=3,
+        n_delta=1,
+        seed=0,
+        kappa_range=(0.05, 0.9),
+        theta_range=(0.2, 3.0),
+        mu_range=(0.5, 5.0),
+        delta_range=(-2.0, 2.0),
+        ic_weight=10.0,
+    ):
         tf.random.set_seed(seed)
         self.mode = mode
         self.T = float(T)
@@ -64,7 +76,9 @@ class TFNeuralMBPP:
         self.W = tf.constant(_trapezoid_weight_matrix(np.asarray(coll_grid)), tf.float32)
         if Z_on_grid is None:
             Z_on_grid = np.zeros((self.M, n_delta))
-        self.Z = tf.constant(np.atleast_2d(np.asarray(Z_on_grid, float)).reshape(self.M, -1), tf.float32)
+        self.Z = tf.constant(
+            np.atleast_2d(np.asarray(Z_on_grid, float)).reshape(self.M, -1), tf.float32
+        )
         # pairwise time differences t_i - t_j
         self.dt = self.t[:, None] - self.t[None, :]
         self.tril = tf.constant(np.tril(np.ones((self.M, self.M))), tf.float32)
@@ -81,38 +95,61 @@ class TFNeuralMBPP:
     def _xi_on_grid(self, P):
         # P: (B, p_dim).  Returns xi on the collocation grid: (B, M)
         B = tf.shape(P)[0]
-        tt = tf.tile((self.t / self.T)[None, :, None], [B, 1, 1])         # (B, M, 1)
-        pp = tf.tile(P[:, None, :], [1, self.M, 1])                       # (B, M, p_dim)
+        tt = tf.tile((self.t / self.T)[None, :, None], [B, 1, 1])  # (B, M, 1)
+        pp = tf.tile(P[:, None, :], [1, self.M, 1])  # (B, M, p_dim)
         x = tf.reshape(tf.concat([tt, pp], axis=2), (-1, 1 + self.p_dim))
         return tf.reshape(self.net(x), (B, self.M))
 
     def _loss(self, P, reweight=False):
-        xi = self._xi_on_grid(P)                                         # (B, M)
-        kappa = P[:, 0:1]; theta = P[:, 1:2]; mu = P[:, 2:3]
-        delta = P[:, 3:3 + self.n_delta]                                 # (B, q)
-        mod = tf.exp(tf.clip_by_value(tf.matmul(delta, self.Z, transpose_b=True), -30.0, 30.0))  # (B, M)
-        K = (kappa[:, :, None] * theta[:, :, None] * mod[:, :, None]
-             * tf.exp(-theta[:, :, None] * self.dt[None]))               # (B, M, M)
+        xi = self._xi_on_grid(P)  # (B, M)
+        kappa = P[:, 0:1]
+        theta = P[:, 1:2]
+        mu = P[:, 2:3]
+        delta = P[:, 3 : 3 + self.n_delta]  # (B, q)
+        mod = tf.exp(
+            tf.clip_by_value(tf.matmul(delta, self.Z, transpose_b=True), -30.0, 30.0)
+        )  # (B, M)
+        K = (
+            kappa[:, :, None]
+            * theta[:, :, None]
+            * mod[:, :, None]
+            * tf.exp(-theta[:, :, None] * self.dt[None])
+        )  # (B, M, M)
         K = K * self.tril[None]
-        integ = tf.matmul(self.W[None] * K, xi[:, :, None])[:, :, 0]      # (B, M)
+        integ = tf.matmul(self.W[None] * K, xi[:, :, None])[:, :, 0]  # (B, M)
         R = xi - mu - integ
         if reweight:
-            R = R / (tf.sqrt(tf.reduce_mean(xi ** 2, axis=1, keepdims=True)) + 1e-3)
+            R = R / (tf.sqrt(tf.reduce_mean(xi**2, axis=1, keepdims=True)) + 1e-3)
         ic = tf.reduce_mean((xi[:, 0:1] - mu) ** 2)
-        return tf.reduce_mean(R ** 2) + self.ic_weight * ic
+        return tf.reduce_mean(R**2) + self.ic_weight * ic
 
     def _sample(self, batch, kappa_max=None):
         kmax = self.ranges["kappa"][1] if kappa_max is None else kappa_max
+
         def u(lo, hi, shape):
             return tf.random.uniform(shape, lo, hi)
-        r = self.ranges
-        return tf.concat([
-            u(r["kappa"][0], kmax, (batch, 1)), u(*r["theta"], (batch, 1)),
-            u(*r["mu"], (batch, 1)), u(*r["delta"], (batch, self.n_delta)),
-        ], axis=1)
 
-    def train(self, n_steps=20000, batch=64, lr=1e-3,
-              anchors=None, data_weight=1.0, curriculum=False, reweight=False):
+        r = self.ranges
+        return tf.concat(
+            [
+                u(r["kappa"][0], kmax, (batch, 1)),
+                u(*r["theta"], (batch, 1)),
+                u(*r["mu"], (batch, 1)),
+                u(*r["delta"], (batch, self.n_delta)),
+            ],
+            axis=1,
+        )
+
+    def train(
+        self,
+        n_steps=20000,
+        batch=64,
+        lr=1e-3,
+        anchors=None,
+        data_weight=1.0,
+        curriculum=False,
+        reweight=False,
+    ):
         r"""
         Train the PINN.  ``anchors=(P_anchor, XI_anchor)`` adds a supervised MSE
         term (hybrid loss) weighted by ``data_weight``; ``curriculum=True`` widens
@@ -148,7 +185,9 @@ class TFNeuralMBPP:
     # -- inference -------------------------------------------------------
     def _p_vec(self, params):
         delta = np.atleast_1d(np.asarray(params.get("delta", [0.0]), float)).reshape(-1)
-        return np.concatenate([[params["kappa"], params["theta"], params.get("mu", 1.0)], delta]).astype(np.float32)
+        return np.concatenate(
+            [[params["kappa"], params["theta"], params.get("mu", 1.0)], delta]
+        ).astype(np.float32)
 
     def solve(self, params, t_grid):
         t = np.asarray(t_grid, np.float32)
@@ -168,8 +207,7 @@ class TFNeuralMBPP:
 
         @tf.function
         def f(p_vec, t):
-            x = tf.concat([(t / T)[:, None],
-                           tf.tile(p_vec[None, :], [tf.shape(t)[0], 1])], axis=1)
+            x = tf.concat([(t / T)[:, None], tf.tile(p_vec[None, :], [tf.shape(t)[0], 1])], axis=1)
             return net(x)[:, 0]
 
         return f
@@ -186,9 +224,21 @@ class TFDeepONetPINO:
     operator solves any instance in the family in a single forward pass.
     """
 
-    def __init__(self, coll_grid=None, T=30.0, p_latent=64, width=96, depth=3, seed=0,
-                 kappa_range=(0.05, 0.9), theta_range=(0.2, 3.0), mu_range=(0.5, 5.0),
-                 delta_range=(-2.0, 2.0), z_steps=5, ic_weight=10.0):
+    def __init__(
+        self,
+        coll_grid=None,
+        T=30.0,
+        p_latent=64,
+        width=96,
+        depth=3,
+        seed=0,
+        kappa_range=(0.05, 0.9),
+        theta_range=(0.2, 3.0),
+        mu_range=(0.5, 5.0),
+        delta_range=(-2.0, 2.0),
+        z_steps=5,
+        ic_weight=10.0,
+    ):
         tf.random.set_seed(seed)
         self.T = float(T)
         if coll_grid is None:
@@ -199,43 +249,76 @@ class TFDeepONetPINO:
         self.dt = self.t[:, None] - self.t[None, :]
         self.tril = tf.constant(np.tril(np.ones((self.M, self.M))), tf.float32)
         self.ranges = dict(kappa=kappa_range, theta=theta_range, mu=mu_range, delta=delta_range)
-        self.z_steps = int(z_steps); self.ic_weight = float(ic_weight)
-        mk = lambda nin: tf.keras.Sequential(
-            [layers.Input(shape=(nin,))] + [layers.Dense(width, activation="tanh") for _ in range(depth)]
-            + [layers.Dense(p_latent)])
+        self.z_steps = int(z_steps)
+        self.ic_weight = float(ic_weight)
+
+        def mk(nin):
+            return tf.keras.Sequential(
+                [layers.Input(shape=(nin,))]
+                + [layers.Dense(width, activation="tanh") for _ in range(depth)]
+                + [layers.Dense(p_latent)]
+            )
+
         self.branch = mk(self.M + 4)
         self.trunk = mk(1)
         self.opt = tf.keras.optimizers.Adam(1e-3)
 
     def _xi_grid(self, Zb, P):
         # Zb: (B,M), P: (B,4) -> xi on grid (B, M)
-        bcoef = self.branch(tf.concat([Zb, P], axis=1))                  # (B, p_latent)
-        Tr = self.trunk((self.t / self.T)[:, None])                      # (M, p_latent)
-        return tf.matmul(bcoef, Tr, transpose_b=True)                    # (B, M)
+        bcoef = self.branch(tf.concat([Zb, P], axis=1))  # (B, p_latent)
+        Tr = self.trunk((self.t / self.T)[:, None])  # (M, p_latent)
+        return tf.matmul(bcoef, Tr, transpose_b=True)  # (B, M)
 
     def _loss(self, Zb, P, reweight=False):
         xi = self._xi_grid(Zb, P)
-        kappa = P[:, 0:1]; theta = P[:, 1:2]; mu = P[:, 2:3]; delta = P[:, 3:4]
-        mod = tf.exp(tf.clip_by_value(delta * Zb, -30.0, 30.0))          # (B, M)
-        K = (kappa[:, :, None] * theta[:, :, None] * mod[:, :, None]
-             * tf.exp(-theta[:, :, None] * self.dt[None])) * self.tril[None]
+        kappa = P[:, 0:1]
+        theta = P[:, 1:2]
+        mu = P[:, 2:3]
+        delta = P[:, 3:4]
+        mod = tf.exp(tf.clip_by_value(delta * Zb, -30.0, 30.0))  # (B, M)
+        K = (
+            kappa[:, :, None]
+            * theta[:, :, None]
+            * mod[:, :, None]
+            * tf.exp(-theta[:, :, None] * self.dt[None])
+        ) * self.tril[None]
         integ = tf.matmul(self.W[None] * K, xi[:, :, None])[:, :, 0]
         R = xi - mu - integ
         if reweight:
-            R = R / (tf.sqrt(tf.reduce_mean(xi ** 2, axis=1, keepdims=True)) + 1e-3)
-        return tf.reduce_mean(R ** 2) + self.ic_weight * tf.reduce_mean((xi[:, 0:1] - mu) ** 2)
+            R = R / (tf.sqrt(tf.reduce_mean(xi**2, axis=1, keepdims=True)) + 1e-3)
+        return tf.reduce_mean(R**2) + self.ic_weight * tf.reduce_mean((xi[:, 0:1] - mu) ** 2)
 
     def _sample(self, batch, kappa_max=None):
         kmax = self.ranges["kappa"][1] if kappa_max is None else kappa_max
         r = self.ranges
-        P = tf.concat([tf.random.uniform((batch, 1), r["kappa"][0], kmax), tf.random.uniform((batch, 1), *r["theta"]),
-                       tf.random.uniform((batch, 1), *r["mu"]), tf.random.uniform((batch, 1), *r["delta"])], axis=1)
+        P = tf.concat(
+            [
+                tf.random.uniform((batch, 1), r["kappa"][0], kmax),
+                tf.random.uniform((batch, 1), *r["theta"]),
+                tf.random.uniform((batch, 1), *r["mu"]),
+                tf.random.uniform((batch, 1), *r["delta"]),
+            ],
+            axis=1,
+        )
         t = np.asarray(self.t)
-        Zb = np.stack([_random_step_path(t, self.z_steps, int(np.random.randint(2 ** 31))) for _ in range(batch)])
+        Zb = np.stack(
+            [
+                _random_step_path(t, self.z_steps, int(np.random.randint(2**31)))
+                for _ in range(batch)
+            ]
+        )
         return tf.constant(Zb, tf.float32), P
 
-    def train(self, n_steps=20000, batch=32, lr=1e-3,
-              anchors=None, data_weight=1.0, curriculum=False, reweight=False):
+    def train(
+        self,
+        n_steps=20000,
+        batch=32,
+        lr=1e-3,
+        anchors=None,
+        data_weight=1.0,
+        curriculum=False,
+        reweight=False,
+    ):
         r"""
         Train the operator on the family.  ``anchors=(Z_anchor, P_anchor,
         XI_anchor)`` adds a supervised MSE term (hybrid loss; recommended for a
@@ -270,9 +353,20 @@ class TFDeepONetPINO:
         return self
 
     def solve(self, params, t_grid, Z_on_grid):
-        p = np.array([[params["kappa"], params["theta"], params.get("mu", 1.0),
-                       float(np.atleast_1d(params.get("delta", [0.0]))[0])]], np.float32)
-        bcoef = self.branch(tf.concat([tf.constant(np.asarray(Z_on_grid, np.float32)[None, :]), p], axis=1))
+        p = np.array(
+            [
+                [
+                    params["kappa"],
+                    params["theta"],
+                    params.get("mu", 1.0),
+                    float(np.atleast_1d(params.get("delta", [0.0]))[0]),
+                ]
+            ],
+            np.float32,
+        )
+        bcoef = self.branch(
+            tf.concat([tf.constant(np.asarray(Z_on_grid, np.float32)[None, :]), p], axis=1)
+        )
         Tr = self.trunk((tf.constant(np.asarray(t_grid, np.float32)) / self.T)[:, None])
         return tf.matmul(bcoef, Tr, transpose_b=True).numpy()[0]
 

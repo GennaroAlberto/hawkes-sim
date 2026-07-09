@@ -146,7 +146,7 @@ class PiecewiseConstant(Exogenous):
         return out
 
     def _rect_compensator(self, t, a, b, c, K):
-        """\int_0^t of the rectangle response above."""
+        r"""\int_0^t of the rectangle response above."""
         t = np.asarray(t, dtype=float)
         out = np.zeros_like(t)
         mid = (t > a) & (t <= b)
@@ -182,7 +182,9 @@ class PiecewiseConstant(Exogenous):
         for i in range(self.rates.size):
             if self.rates[i] == 0.0:
                 continue
-            out += self.rates[i] * self._rect_compensator(t, self.breaks[i], self.breaks[i + 1], c, K)
+            out += self.rates[i] * self._rect_compensator(
+                t, self.breaks[i], self.breaks[i + 1], c, K
+            )
         return out
 
 
@@ -317,7 +319,8 @@ class MultiImpulse(Exogenous):
         return out
 
     def endo_compensator_exp(self, t, kappa, theta):
-        r"""\int_0^t (h*s) = sum_z w_z * (kappa/(1-kappa)) (1 - exp((kappa-1)theta(t-s_z))) 1[t>s_z]."""
+        r"""\int_0^t (h*s) = sum_z w_z * (kappa/(1-kappa))
+        * (1 - exp((kappa-1)theta(t-s_z))) 1[t>s_z]."""
         t = np.atleast_1d(np.asarray(t, dtype=float))
         c = _c(kappa, theta)
         K = kappa / (1.0 - kappa)
@@ -358,11 +361,24 @@ class Sine(Exogenous):
         denom = 1.0 + theta**2 - 2.0 * kappa * theta**2 + kappa**2 * theta**2
         const = -a / (kappa - 1.0)
         expc = (
-            kappa / (kappa - 1.0)
-            * (a + a * theta**2 - 2 * a * kappa * theta**2 + a * kappa**2 * theta**2 + theta * kappa - theta)
+            kappa
+            / (kappa - 1.0)
+            * (
+                a
+                + a * theta**2
+                - 2 * a * kappa * theta**2
+                + a * kappa**2 * theta**2
+                + theta * kappa
+                - theta
+            )
             / denom
         ) * np.exp(c * t)
-        trig = (np.sin(t) + theta**2 * np.sin(t) - kappa * theta**2 * np.sin(t) - kappa * theta * np.cos(t)) / denom
+        trig = (
+            np.sin(t)
+            + theta**2 * np.sin(t)
+            - kappa * theta**2 * np.sin(t)
+            - kappa * theta * np.cos(t)
+        ) / denom
         xi = const + expc + trig
         return xi - self.intensity(t)
 

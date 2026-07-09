@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .exogenous import PiecewiseConstant, MultiImpulse
+from .exogenous import MultiImpulse, PiecewiseConstant
 
 
 # ---------------------------------------------------------------------------
@@ -127,8 +127,9 @@ def simulate_separable_hawkes(exogenous, kappa, theta, T, seed=None):
 # ---------------------------------------------------------------------------
 # Covariate-modulated excitation (true Hawkes with time-varying triggering).
 # ---------------------------------------------------------------------------
-def simulate_hawkes_excitation(exogenous, kappa, theta, Z, delta, T, seed=None,
-                               return_labels=False):
+def simulate_hawkes_excitation(
+    exogenous, kappa, theta, Z, delta, T, seed=None, return_labels=False
+):
     r"""
     Simulate a *true* univariate Hawkes process whose excitation is modulated by
     covariates, ``alpha(t) = kappa*theta * exp(delta^T Z(t))`` (the receiving-time
@@ -157,7 +158,9 @@ def simulate_hawkes_excitation(exogenous, kappa, theta, Z, delta, T, seed=None,
 
     # envelope bound B = max over [0,T] of exp(delta^T Z(t)); grid-sampled.
     grid = np.linspace(0.0, T, max(400, int(T * 8)))
-    dz_grid = np.array([float(delta @ np.atleast_1d(np.asarray(Z(g), float)).reshape(-1)) for g in grid])
+    dz_grid = np.array(
+        [float(delta @ np.atleast_1d(np.asarray(Z(g), float)).reshape(-1)) for g in grid]
+    )
     dz_max = float(dz_grid.max())
     B = np.exp(dz_max)
 
@@ -166,14 +169,14 @@ def simulate_hawkes_excitation(exogenous, kappa, theta, Z, delta, T, seed=None,
     while current:
         nxt = []
         for p in current:
-            n = rng.poisson(kappa * B)               # envelope offspring count
+            n = rng.poisson(kappa * B)  # envelope offspring count
             if n == 0:
                 continue
             times = p + rng.exponential(1.0 / theta, size=n)
             times = times[times <= T]
             for t in times:
                 dzt = float(delta @ np.atleast_1d(np.asarray(Z(t), float)).reshape(-1))
-                if rng.uniform() < np.exp(dzt - dz_max):   # thinning acceptance
+                if rng.uniform() < np.exp(dzt - dz_max):  # thinning acceptance
                     offspring.append(t)
                     nxt.append(t)
         current = nxt

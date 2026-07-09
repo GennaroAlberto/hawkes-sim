@@ -60,7 +60,7 @@ def ks_test_exp1(x):
     n = x.size
     if n == 0:
         return 0.0, 1.0
-    F = 1.0 - np.exp(-np.maximum(x, 0.0))            # Exp(1) CDF
+    F = 1.0 - np.exp(-np.maximum(x, 0.0))  # Exp(1) CDF
     emp_hi = np.arange(1, n + 1) / n
     emp_lo = np.arange(0, n) / n
     D = float(max(np.max(emp_hi - F), np.max(F - emp_lo)))
@@ -79,7 +79,7 @@ def qq_exp1(x):
     x = np.sort(np.asarray(x, dtype=float))
     n = x.size
     probs = (np.arange(1, n + 1) - 0.5) / n
-    theo = -np.log(1.0 - probs)                      # Exp(1) inverse CDF
+    theo = -np.log(1.0 - probs)  # Exp(1) inverse CDF
     return theo, x
 
 
@@ -101,4 +101,4 @@ def dispersion(counts, Xi, n_params=0):
     """
     r = poisson_pearson_residuals(counts, Xi)
     dof = max(r.size - n_params, 1)
-    return float(np.sum(r ** 2) / dof)
+    return float(np.sum(r**2) / dof)

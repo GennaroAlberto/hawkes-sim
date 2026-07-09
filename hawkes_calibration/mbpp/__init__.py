@@ -18,58 +18,58 @@ bayes              Bayesian posterior over (kappa, theta): adaptive Metropolis,
                    Laplace, hierarchical pooling, priors, R-hat
 """
 
+from .bayes import (
+    BayesResult,
+    GaussianPrior,
+    adaptive_metropolis,
+    default_prior,
+    fit_mbpp_bayes,
+    fit_mbpp_bayes_hierarchical,
+    laplace_posterior,
+    rhat,
+)
 from .core import (
     MBPP,
-    make_mbpp,
     ExponentialKernel,
     PowerLawKernel,
-    kappa_theta_to_alpha_beta,
     alpha_beta_to_kappa_theta,
+    kappa_theta_to_alpha_beta,
+    make_mbpp,
 )
 from .exogenous import (
-    Constant,
-    Rectangle,
-    PiecewiseConstant,
     LHPP,
-    MultiImpulse,
-    Sine,
-    Dassios,
+    Constant,
     CovariateExogenous,
+    Dassios,
+    MultiImpulse,
+    PiecewiseConstant,
+    Rectangle,
+    Sine,
+)
+from .gof import (
+    dispersion,
+    ks_test_exp1,
+    poisson_pearson_residuals,
+    qq_exp1,
+    time_rescaling_residuals,
 )
 from .ic_simulate import (
-    simulate_separable_hawkes,
-    simulate_hawkes_excitation,
     interval_censor,
+    simulate_hawkes_excitation,
+    simulate_separable_hawkes,
     uniform_obs_times,
 )
 from .interval_censored import (
-    ic_ll,
-    sse_loss,
+    ICFitResult,
     fit_mbpp_ic,
-    fit_mbpp_ic_multi,
     fit_mbpp_ic_covariates,
     fit_mbpp_ic_excitation,
     fit_mbpp_ic_excitation_multi,
+    fit_mbpp_ic_multi,
     fit_mbpp_ic_sumexp,
     forecast_counts,
-    ICFitResult,
-)
-from .gof import (
-    time_rescaling_residuals,
-    ks_test_exp1,
-    qq_exp1,
-    poisson_pearson_residuals,
-    dispersion,
-)
-from .bayes import (
-    fit_mbpp_bayes,
-    fit_mbpp_bayes_hierarchical,
-    GaussianPrior,
-    default_prior,
-    BayesResult,
-    adaptive_metropolis,
-    laplace_posterior,
-    rhat,
+    ic_ll,
+    sse_loss,
 )
 
 __all__ = [

@@ -22,20 +22,20 @@ We report three things:
 Output: results/exp6_ic_scenarios.png and results/exp6_ic_scenarios.json.
 """
 
-import os
 import json
+import os
 import time
 
-import numpy as np
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from hawkes_calibration.mbpp.exogenous import PiecewiseConstant, MultiImpulse, LHPP
+from hawkes_calibration.mbpp.exogenous import LHPP, MultiImpulse, PiecewiseConstant
 from hawkes_calibration.mbpp.ic_simulate import (
-    simulate_separable_hawkes,
     interval_censor,
+    simulate_separable_hawkes,
     uniform_obs_times,
 )
 from hawkes_calibration.mbpp.interval_censored import fit_mbpp_ic_multi
@@ -62,7 +62,7 @@ def _fit_groups(seqs, obs, scenario, loss, n_groups):
     K = len(seqs) // n_groups
     ests = []
     for g in range(n_groups):
-        grp = seqs[g * K:(g + 1) * K]
+        grp = seqs[g * K : (g + 1) * K]
         counts_list, exo_list = [], []
         for imm, off in grp:
             counts_list.append(interval_censor(off, obs))
@@ -70,8 +70,9 @@ def _fit_groups(seqs, obs, scenario, loss, n_groups):
                 exo_list.append(MultiImpulse(imm))
             else:  # F
                 exo_list.append(LHPP(obs, interval_censor(imm, obs)))
-        res = fit_mbpp_ic_multi(obs, counts_list, exo_list, loss=loss,
-                                endogenous=True, method="closed", n_restarts=2)
+        res = fit_mbpp_ic_multi(
+            obs, counts_list, exo_list, loss=loss, endogenous=True, method="closed", n_restarts=2
+        )
         ests.append((res.kappa, res.theta))
     return np.array(ests)
 
@@ -81,8 +82,7 @@ def run(seed=0, out_dir="results", T=30.0):
     t0 = time.time()
     results = {}
 
-    regimes = {"subcritical (n*=0.6)": (0.6, 0.8),
-               "near-critical (n*=0.95)": (0.95, 1.15)}
+    regimes = {"subcritical (n*=0.6)": (0.6, 0.8), "near-critical (n*=0.95)": (0.95, 1.15)}
 
     # ---- 1) recovery table: scenarios E,F x regimes x losses, 30 intervals --
     n_groups, K = 8, 10
@@ -94,15 +94,20 @@ def run(seed=0, out_dir="results", T=30.0):
             for loss in ["ic-ll", "sse"]:
                 ests = _fit_groups(seqs, obs30, scen, loss, n_groups)
                 table[f"{rname} | {scen} | {loss}"] = dict(
-                    kappa_true=kt, theta_true=tt,
-                    kappa_mean=float(ests[:, 0].mean()), kappa_std=float(ests[:, 0].std()),
-                    theta_mean=float(ests[:, 1].mean()), theta_std=float(ests[:, 1].std()),
+                    kappa_true=kt,
+                    theta_true=tt,
+                    kappa_mean=float(ests[:, 0].mean()),
+                    kappa_std=float(ests[:, 0].std()),
+                    theta_mean=float(ests[:, 1].mean()),
+                    theta_std=float(ests[:, 1].std()),
                 )
     results["recovery_table"] = table
     print("=== Recovery table (30 intervals) ===")
     for k, v in table.items():
-        print(f"{k:42s}: kappa={v['kappa_mean']:.3f}±{v['kappa_std']:.3f} "
-              f"(true {v['kappa_true']}), theta={v['theta_mean']:.3f}±{v['theta_std']:.3f} (true {v['theta_true']})")
+        print(
+            f"{k:42s}: kappa={v['kappa_mean']:.3f}±{v['kappa_std']:.3f} "
+            f"(true {v['kappa_true']}), theta={v['theta_mean']:.3f}±{v['theta_std']:.3f} (true {v['theta_true']})"
+        )
 
     # ---- 2) granularity sweep (scenario F, subcritical, IC-LL) -------------
     kt, tt = regimes["subcritical (n*=0.6)"]
@@ -112,13 +117,19 @@ def run(seed=0, out_dir="results", T=30.0):
     for n_int in grans:
         obs = uniform_obs_times(T, n_int)
         ests = _fit_groups(seqs, obs, "F", "ic-ll", n_groups)
-        sweep[n_int] = dict(kappa_mean=float(ests[:, 0].mean()), kappa_std=float(ests[:, 0].std()),
-                            theta_mean=float(ests[:, 1].mean()), theta_std=float(ests[:, 1].std()))
+        sweep[n_int] = dict(
+            kappa_mean=float(ests[:, 0].mean()),
+            kappa_std=float(ests[:, 0].std()),
+            theta_mean=float(ests[:, 1].mean()),
+            theta_std=float(ests[:, 1].std()),
+        )
     results["granularity_sweep"] = sweep
     print("\n=== Granularity sweep (scenario F, IC-LL, n*=0.6) ===")
     for n_int, v in sweep.items():
-        print(f"  {n_int:3d} intervals: kappa={v['kappa_mean']:.3f}±{v['kappa_std']:.3f}, "
-              f"theta={v['theta_mean']:.3f}±{v['theta_std']:.3f}")
+        print(
+            f"  {n_int:3d} intervals: kappa={v['kappa_mean']:.3f}±{v['kappa_std']:.3f}, "
+            f"theta={v['theta_mean']:.3f}±{v['theta_std']:.3f}"
+        )
 
     # ---- figure ----------------------------------------------------------
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))

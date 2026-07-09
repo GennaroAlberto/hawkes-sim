@@ -31,8 +31,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from .nn import MLP
 from .linear import solve_mbpp_ode_multivariate
+from .nn import MLP
 
 
 # ---------------------------------------------------------------------------
@@ -57,8 +57,9 @@ def conv_matrix(t_grid, theta):
 # ---------------------------------------------------------------------------
 # Instance sampler: subcritical excitation matrices + baseline vectors.
 # ---------------------------------------------------------------------------
-def sample_instances(n, M, seed=0, diag=(0.05, 0.45), off=(0.0, 0.25),
-                     s_range=(0.4, 2.2), rho_max=0.75):
+def sample_instances(
+    n, M, seed=0, diag=(0.05, 0.45), off=(0.0, 0.25), s_range=(0.4, 2.2), rho_max=0.75
+):
     rng = np.random.default_rng(seed)
     S = rng.uniform(*s_range, size=(n, M))
     A = np.empty((n, M, M))
@@ -67,14 +68,15 @@ def sample_instances(n, M, seed=0, diag=(0.05, 0.45), off=(0.0, 0.25),
         a[np.diag_indices(M)] = rng.uniform(*diag, size=M)
         rho = float(np.max(np.abs(np.linalg.eigvals(a))))
         if rho > rho_max:
-            a *= rho_max / rho                       # keep subcritical (bounded xi)
+            a *= rho_max / rho  # keep subcritical (bounded xi)
         A[k] = a
     return S, A
 
 
 def exact_solution(S, A, t_grid, theta=1.0):
     """Exact multivariate MBPP intensities (the oracle), shape (n, N, M)."""
-    t = np.asarray(t_grid, float); M = A.shape[1]
+    t = np.asarray(t_grid, float)
+    M = A.shape[1]
     B = theta * np.ones((M, M))
     out = np.empty((len(A), t.size, M))
     for k in range(len(A)):
@@ -96,49 +98,65 @@ class MultivariateMBPPOperator:
         self.branch = MLP([M + M * M, hidden, hidden, p * M], seed=seed)
         self.trunk = MLP([1, hidden, hidden, p], seed=seed + 1)
         self.b0 = np.zeros(M)
-        self._mb0 = np.zeros(M); self._vb0 = np.zeros(M); self._tb0 = 0
-        self.pin_mean = None; self.pin_std = None
+        self._mb0 = np.zeros(M)
+        self._vb0 = np.zeros(M)
+        self._tb0 = 0
+        self.pin_mean = None
+        self.pin_std = None
         self.yscale = 1.0
         self.tq = None
 
     # -- helpers ------------------------------------------------------------
     def _params(self, S, A):
-        return np.concatenate([np.asarray(S, float),
-                               np.asarray(A, float).reshape(len(A), -1)], axis=1)
+        return np.concatenate(
+            [np.asarray(S, float), np.asarray(A, float).reshape(len(A), -1)], axis=1
+        )
 
     def _forward(self, S, A):
         P = (self._params(S, A) - self.pin_mean) / self.pin_std
-        C = self.branch.forward(P).reshape(-1, self.p, self.M)       # (b, p, M)
-        Tr = self.trunk.forward(self.tq)                             # (N, p)
+        C = self.branch.forward(P).reshape(-1, self.p, self.M)  # (b, p, M)
+        Tr = self.trunk.forward(self.tq)  # (N, p)
         xi = np.einsum("bkm,nk->bnm", C, Tr) * self.yscale + self.b0  # (b, N, M)
         return xi, C, Tr
 
     def residual(self, xi, S, A):
-        Gxi = np.einsum("nl,blm->bnm", self.G, xi)                  # (b, N, M)
+        Gxi = np.einsum("nl,blm->bnm", self.G, xi)  # (b, N, M)
         exc = np.einsum("bnj,bmj->bnm", Gxi, np.asarray(A, float))  # sum_j A_{mj}(Gxi)_{n,j}
         return xi - np.asarray(S, float)[:, None, :] - exc
 
     # -- training -----------------------------------------------------------
-    def train(self, S, A, epochs=4000, lr=2e-3, batch=64, anchors=None,
-              data_weight=0.0, seed=0, val=None, log_every=0):
+    def train(
+        self,
+        S,
+        A,
+        epochs=4000,
+        lr=2e-3,
+        batch=64,
+        anchors=None,
+        data_weight=0.0,
+        seed=0,
+        val=None,
+        log_every=0,
+    ):
         """Physics-informed training on the MBPP residual (optionally + anchors).
 
         anchors : (S_a, A_a, XI_a) exact solutions to add a supervised MSE term.
         val     : (S_v, A_v) held-out instances; if given, prints/records rel-L2 vs exact.
         Returns a history dict.
         """
-        S = np.asarray(S, float); A = np.asarray(A, float)
+        S = np.asarray(S, float)
+        A = np.asarray(A, float)
         self.pin_mean = self._params(S, A).mean(0)
         self.pin_std = self._params(S, A).std(0) + 1e-8
-        self.yscale = float(S.mean() / (1.0 - 0.3))                  # rough output scale
-        self.tq = ((self.t.reshape(-1, 1) - self.t.mean()) / (self.t.std() + 1e-8))
+        self.yscale = float(S.mean() / (1.0 - 0.3))  # rough output scale
+        self.tq = (self.t.reshape(-1, 1) - self.t.mean()) / (self.t.std() + 1e-8)
         rng = np.random.default_rng(seed)
         n = len(S)
         hist = {"epoch": [], "residual": [], "val_rel_l2": []}
         XIv = exact_solution(*val, self.t, self.theta) if val is not None else None
 
         for ep in range(epochs):
-            cur_lr = lr * (0.3 ** (ep / max(1, epochs)))            # gentle exp decay to 0.3x
+            cur_lr = lr * (0.3 ** (ep / max(1, epochs)))  # gentle exp decay to 0.3x
             idx = rng.choice(n, size=min(batch, n), replace=False)
             Sb, Ab = S[idx], A[idx]
             xi, C, Tr = self._forward(Sb, Ab)
@@ -148,7 +166,7 @@ class MultivariateMBPPOperator:
             RA = np.einsum("bnm,bmj->bnj", R, Ab)
             GtRA = np.einsum("nl,bnj->blj", self.G, RA)
             dxi = (2.0 / cnt) * (R - GtRA)
-            res_loss = float(np.mean(R ** 2))
+            res_loss = float(np.mean(R**2))
 
             # optional supervised anchor term
             if anchors is not None and data_weight > 0:
@@ -167,7 +185,8 @@ class MultivariateMBPPOperator:
 
             if val is not None and (log_every and ep % log_every == 0 or ep == epochs - 1):
                 rel = self._rel_l2(val[0], val[1], XIv)
-                hist["epoch"].append(ep); hist["residual"].append(res_loss)
+                hist["epoch"].append(ep)
+                hist["residual"].append(res_loss)
                 hist["val_rel_l2"].append(rel)
                 if log_every:
                     print(f"  epoch {ep:5d}  residual={res_loss:.3e}  val rel-L2={rel:.4f}")
@@ -175,16 +194,22 @@ class MultivariateMBPPOperator:
 
     def _backward(self, dxi, C, Tr, lr):
         dyi = dxi * self.yscale
-        dC = np.einsum("bnm,nk->bkm", dyi, Tr)                       # (b, p, M)
-        dTr = np.einsum("bnm,bkm->nk", dyi, C)                       # (N, p)
-        db0 = dxi.sum((0, 1))                                        # (M,)
-        self.branch.backward(dC.reshape(dC.shape[0], -1)); self.branch.adam_step(lr)
-        self.trunk.backward(dTr); self.trunk.adam_step(lr)
+        dC = np.einsum("bnm,nk->bkm", dyi, Tr)  # (b, p, M)
+        dTr = np.einsum("bnm,bkm->nk", dyi, C)  # (N, p)
+        db0 = dxi.sum((0, 1))  # (M,)
+        self.branch.backward(dC.reshape(dC.shape[0], -1))
+        self.branch.adam_step(lr)
+        self.trunk.backward(dTr)
+        self.trunk.adam_step(lr)
         # adam on b0
         self._tb0 += 1
         self._mb0 = 0.9 * self._mb0 + 0.1 * db0
         self._vb0 = 0.999 * self._vb0 + 0.001 * db0 * db0
-        self.b0 -= lr * (self._mb0 / (1 - 0.9 ** self._tb0)) / (np.sqrt(self._vb0 / (1 - 0.999 ** self._tb0)) + 1e-8)
+        self.b0 -= (
+            lr
+            * (self._mb0 / (1 - 0.9**self._tb0))
+            / (np.sqrt(self._vb0 / (1 - 0.999**self._tb0)) + 1e-8)
+        )
 
     # -- inference / evaluation --------------------------------------------
     def predict(self, S, A):
@@ -201,8 +226,18 @@ class MultivariateMBPPOperator:
 
     # -- persistence --------------------------------------------------------
     def save(self, path):
-        np.savez(path,
-                 bW=np.array(self.branch.W, dtype=object), bb=np.array(self.branch.b, dtype=object),
-                 tW=np.array(self.trunk.W, dtype=object), tb=np.array(self.trunk.b, dtype=object),
-                 b0=self.b0, pin_mean=self.pin_mean, pin_std=self.pin_std,
-                 yscale=self.yscale, t=self.t, theta=self.theta, p=self.p, M=self.M)
+        np.savez(
+            path,
+            bW=np.array(self.branch.W, dtype=object),
+            bb=np.array(self.branch.b, dtype=object),
+            tW=np.array(self.trunk.W, dtype=object),
+            tb=np.array(self.trunk.b, dtype=object),
+            b0=self.b0,
+            pin_mean=self.pin_mean,
+            pin_std=self.pin_std,
+            yscale=self.yscale,
+            t=self.t,
+            theta=self.theta,
+            p=self.p,
+            M=self.M,
+        )

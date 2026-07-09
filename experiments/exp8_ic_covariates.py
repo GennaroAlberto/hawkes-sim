@@ -18,22 +18,22 @@ are reparameterised through the log-linear link (see `CovariateExogenous`).
 Output: results/exp8_ic_covariates.png and results/exp8_ic_covariates.json.
 """
 
-import os
 import json
+import os
 
-import numpy as np
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from hawkes_calibration import (
-    PiecewiseConstantCovariate,
     CovariateExogenous,
-    simulate_separable_hawkes,
-    interval_censor,
-    uniform_obs_times,
+    PiecewiseConstantCovariate,
     fit_mbpp_ic_covariates,
+    interval_censor,
+    simulate_separable_hawkes,
+    uniform_obs_times,
 )
 
 
@@ -63,20 +63,24 @@ def run(seed=0, out_dir="results", T=200.0):
     n_seq, n_rep = 20, 10
     obs = uniform_obs_times(T, 200)
     ests = []
-    for rep in range(n_rep):
+    for _rep in range(n_rep):
         counts = _make_counts(cov, g0_true, g1_true, kappa_true, theta_true, T, obs, n_seq, rng)
         r = fit_mbpp_ic_covariates(obs, counts, cov, loss="ic-ll", endogenous=False, n_restarts=3)
         ests.append([r.kappa, r.theta, r.gamma0, float(r.gamma[0])])
     ests = np.array(ests)
     names = ["kappa", "theta", "gamma0", "gamma1"]
     truth = dict(kappa=kappa_true, theta=theta_true, gamma0=g0_true, gamma1=g1_true)
-    stats = {n: dict(mean=float(ests[:, i].mean()), std=float(ests[:, i].std()), true=truth[n])
-             for i, n in enumerate(names)}
+    stats = {
+        n: dict(mean=float(ests[:, i].mean()), std=float(ests[:, i].std()), true=truth[n])
+        for i, n in enumerate(names)
+    }
 
     print("=== Covariate baseline recovery from interval-censored counts ===")
     print(f"    (200 intervals, {n_seq} sequences/fit, {n_rep} repeats)")
     for n in names:
-        print(f"  {n:7s}: {stats[n]['mean']:+.3f} ± {stats[n]['std']:.3f}   (true {stats[n]['true']:+.2f})")
+        print(
+            f"  {n:7s}: {stats[n]['mean']:+.3f} ± {stats[n]['std']:.3f}   (true {stats[n]['true']:+.2f})"
+        )
     print("  -> the covariate coefficient gamma1 is recovered tightly; the absolute")
     print("     kernel/baseline split (kappa, theta, gamma0) is more weakly identified")
     print("     in the non-separable joint fit (a known MBPP limitation).")
@@ -92,11 +96,22 @@ def run(seed=0, out_dir="results", T=200.0):
     ax = axes[0]
     tg = np.linspace(0, T, 2000)
     Xt = cov(tg)[:, 0]
-    ax.plot(tg, np.exp(g0_true + g1_true * Xt), "k-", lw=2,
-            label=r"true $\mu(t)=e^{\gamma_0+\gamma_1 X(t)}$")
-    ax.plot(tg, np.exp(g0_hat + g1_hat * Xt), "b--", lw=2,
-            label="recovered $\\hat\\mu(t)$ (from counts alone)")
-    ax.set_xlabel("time"); ax.set_ylabel("exogenous baseline $\\mu(t)$")
+    ax.plot(
+        tg,
+        np.exp(g0_true + g1_true * Xt),
+        "k-",
+        lw=2,
+        label=r"true $\mu(t)=e^{\gamma_0+\gamma_1 X(t)}$",
+    )
+    ax.plot(
+        tg,
+        np.exp(g0_hat + g1_hat * Xt),
+        "b--",
+        lw=2,
+        label="recovered $\\hat\\mu(t)$ (from counts alone)",
+    )
+    ax.set_xlabel("time")
+    ax.set_ylabel("exogenous baseline $\\mu(t)$")
     ax.set_xlim(0, 100)
     ax.set_title("Regime-switching baseline recovered from interval counts")
     ax.legend(fontsize=9)

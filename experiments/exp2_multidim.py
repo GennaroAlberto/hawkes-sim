@@ -15,14 +15,14 @@ diagonal. We check that MLE recovers both magnitudes and zeros.
 """
 
 import os
-import json
-import numpy as np
+
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from hawkes_calibration import simulate_multivariate_hawkes, fit_multivariate
+from hawkes_calibration import fit_multivariate, simulate_multivariate_hawkes
 
 
 def run(seed=2, T=5000.0, out_dir="results"):
@@ -74,17 +74,34 @@ def run(seed=2, T=5000.0, out_dir="results"):
     fig, axes = plt.subplots(1, 3, figsize=(13, 4))
     vmax = max(A_true.max(), A_hat.max())
     for ax, M, title in zip(
-        axes, [A_true, A_hat, A_hat - A_true], ["true $A$", "estimated $\\hat A$", "error $\\hat A - A$"]
+        axes,
+        [A_true, A_hat, A_hat - A_true],
+        ["true $A$", "estimated $\\hat A$", "error $\\hat A - A$"],
     ):
-        im = ax.imshow(M, vmin=-vmax if "error" in title else 0, vmax=vmax, cmap="RdBu_r" if "error" in title else "viridis")
+        im = ax.imshow(
+            M,
+            vmin=-vmax if "error" in title else 0,
+            vmax=vmax,
+            cmap="RdBu_r" if "error" in title else "viridis",
+        )
         ax.set_title(title)
         ax.set_xlabel("from j")
         ax.set_ylabel("to m")
         for i in range(M.shape[0]):
             for j in range(M.shape[1]):
-                ax.text(j, i, f"{M[i,j]:.3f}", ha="center", va="center", color="white" if abs(M[i,j]) > vmax * 0.5 else "black", fontsize=10)
+                ax.text(
+                    j,
+                    i,
+                    f"{M[i, j]:.3f}",
+                    ha="center",
+                    va="center",
+                    color="white" if abs(M[i, j]) > vmax * 0.5 else "black",
+                    fontsize=10,
+                )
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    fig.suptitle(f"3D Hawkes -- elicitation matrix recovery (T={int(T)}, total events = {sum(counts)})")
+    fig.suptitle(
+        f"3D Hawkes -- elicitation matrix recovery (T={int(T)}, total events = {sum(counts)})"
+    )
     fig.tight_layout()
     fig_path = os.path.join(out_dir, "exp2_multidim_heatmap.png")
     fig.savefig(fig_path, dpi=140)

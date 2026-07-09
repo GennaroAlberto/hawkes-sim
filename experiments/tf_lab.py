@@ -32,12 +32,12 @@ for a ready-made one).
 
 from __future__ import annotations
 
-import os
 import json
-from dataclasses import dataclass, field, asdict
+import os
+from dataclasses import dataclass, field
 
-import numpy as np
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -60,8 +60,10 @@ def forcing_sine(M, t, rng):
     s = np.zeros((t.size, M))
     for m in range(M):
         offset = rng.uniform(1.0, 3.0)
-        comp = sum(rng.uniform(0.2, 1.2) * np.sin(rng.uniform(0.1, 1.0) * t + rng.uniform(0, 2 * np.pi))
-                   for _ in range(rng.integers(1, 4)))
+        comp = sum(
+            rng.uniform(0.2, 1.2) * np.sin(rng.uniform(0.1, 1.0) * t + rng.uniform(0, 2 * np.pi))
+            for _ in range(rng.integers(1, 4))
+        )
         s[:, m] = np.maximum(offset + comp, 0.05)
     return s
 
@@ -88,7 +90,7 @@ def forcing_smooth(M, t, rng, n_freq=6):
         for _ in range(n_freq):
             w = rng.uniform(0.5, 6.0) * (2 * np.pi / span)
             v += rng.normal() * np.sin(w * t) + rng.normal() * np.cos(w * t)
-        s[:, m] = np.logaddexp(0.0, v / np.sqrt(n_freq) + 0.5)   # softplus -> positive
+        s[:, m] = np.logaddexp(0.0, v / np.sqrt(n_freq) + 0.5)  # softplus -> positive
     return s
 
 
@@ -120,14 +122,15 @@ def solve_mbpp_batch(S_grid, A, B, t):
     xi for a batch of forcings ``S_grid`` (K, T, M) sharing kernel matrices
     A, B (M, M).  States Y_{m,j}, xi_m = s_m + sum_j Y_{m,j}.  Returns (K, T, M).
     """
-    A = np.asarray(A, float); B = np.asarray(B, float)
+    A = np.asarray(A, float)
+    B = np.asarray(B, float)
     K, T, M = S_grid.shape
     Y = np.zeros((K, M, M))
     XI = np.empty((K, T, M))
     XI[:, 0, :] = S_grid[:, 0, :] + Y.sum(2)
 
-    def deriv(Y, s):                       # Y:(K,M,M)  s:(K,M)
-        xi = s + Y.sum(axis=2)             # (K,M)
+    def deriv(Y, s):  # Y:(K,M,M)  s:(K,M)
+        xi = s + Y.sum(axis=2)  # (K,M)
         return A[None] * xi[:, None, :] - B[None] * Y
 
     for n in range(1, T):
@@ -158,15 +161,15 @@ def add_noise(XI, kind, level, rng, dt=1.0):
     if level <= 0:
         return XI.copy(), np.ones_like(XI)
     mask = np.ones_like(XI)
-    if kind == "gauss":                    # additive observation noise
+    if kind == "gauss":  # additive observation noise
         noisy = XI + level * XI.std() * rng.standard_normal(XI.shape)
-    elif kind == "mult":                   # multiplicative (heteroscedastic)
+    elif kind == "mult":  # multiplicative (heteroscedastic)
         noisy = XI * (1.0 + level * rng.standard_normal(XI.shape))
-    elif kind == "poisson":                # count noise via finite exposure
+    elif kind == "poisson":  # count noise via finite exposure
         exposure = 1.0 / max(level, 1e-6)
         counts = rng.poisson(np.maximum(XI, 0) * exposure)
         noisy = counts / exposure
-    elif kind == "missing":                # randomly drop a fraction of time steps
+    elif kind == "missing":  # randomly drop a fraction of time steps
         noisy = XI.copy()
         drop = rng.random(XI.shape[:2]) < level
         noisy[drop] = 0.0
@@ -189,23 +192,33 @@ SCALES = {
 @dataclass
 class Instance:
     S_train: np.ndarray
-    XI_train: np.ndarray          # clean targets (reference)
-    XI_train_noisy: np.ndarray    # corrupted targets (what you fit on)
+    XI_train: np.ndarray  # clean targets (reference)
+    XI_train_noisy: np.ndarray  # corrupted targets (what you fit on)
     mask_train: np.ndarray
     S_test: np.ndarray
-    XI_test: np.ndarray           # clean test targets (what you evaluate against)
+    XI_test: np.ndarray  # clean test targets (what you evaluate against)
     t: np.ndarray
     meta: dict = field(default_factory=dict)
 
     @property
     def shape(self):
-        return dict(M=self.meta["M"], T=self.meta["T"],
-                    n_train=len(self.S_train), n_test=len(self.S_test))
+        return dict(
+            M=self.meta["M"], T=self.meta["T"], n_train=len(self.S_train), n_test=len(self.S_test)
+        )
 
 
-def make_instance(scale="small", forcing="pc", noise_kind="gauss", noise_level=0.0,
-                  theta=1.0, vary_system=False, horizon=30.0, test_frac=0.2,
-                  seed=0, **overrides):
+def make_instance(
+    scale="small",
+    forcing="pc",
+    noise_kind="gauss",
+    noise_level=0.0,
+    theta=1.0,
+    vary_system=False,
+    horizon=30.0,
+    test_frac=0.2,
+    seed=0,
+    **overrides,
+):
     r"""
     Build a synthetic operator-learning instance.
 
@@ -224,19 +237,20 @@ def make_instance(scale="small", forcing="pc", noise_kind="gauss", noise_level=0
     -------
     Instance
     """
-    cfg = dict(SCALES[scale]); cfg.update(overrides)
+    cfg = dict(SCALES[scale])
+    cfg.update(overrides)
     M, T, n = cfg["M"], cfg["T"], cfg["n_samples"]
     rng = np.random.default_rng(seed)
     t = np.linspace(0.0, horizon, T)
     B = np.full((M, M), float(theta))
     gen = FORCINGS[forcing]
 
-    S = np.stack([gen(M, t, rng) for _ in range(n)]).astype(float)   # (n,T,M)
+    S = np.stack([gen(M, t, rng) for _ in range(n)]).astype(float)  # (n,T,M)
     if vary_system:
         XI = np.empty_like(S)
         for i in range(n):
             G = random_branching_matrix(M, cfg["density"], cfg["max_radius"], rng)
-            XI[i] = solve_mbpp_batch(S[i:i + 1], G * B, B, t)[0]
+            XI[i] = solve_mbpp_batch(S[i : i + 1], G * B, B, t)[0]
         G_used = None
     else:
         G = random_branching_matrix(M, cfg["density"], cfg["max_radius"], rng)
@@ -247,13 +261,30 @@ def make_instance(scale="small", forcing="pc", noise_kind="gauss", noise_level=0
 
     n_test = int(n * test_frac)
     sl_tr, sl_te = slice(n_test, None), slice(0, n_test)
-    meta = dict(M=M, T=T, n_samples=n, scale=scale, forcing=forcing,
-                noise_kind=noise_kind, noise_level=noise_level, theta=theta,
-                vary_system=vary_system, horizon=horizon,
-                spectral_radius=None if G_used is None else float(np.max(np.abs(np.linalg.eigvals(G_used)))))
+    meta = dict(
+        M=M,
+        T=T,
+        n_samples=n,
+        scale=scale,
+        forcing=forcing,
+        noise_kind=noise_kind,
+        noise_level=noise_level,
+        theta=theta,
+        vary_system=vary_system,
+        horizon=horizon,
+        spectral_radius=None
+        if G_used is None
+        else float(np.max(np.abs(np.linalg.eigvals(G_used)))),
+    )
     return Instance(
-        S_train=S[sl_tr], XI_train=XI[sl_tr], XI_train_noisy=XI_noisy[sl_tr], mask_train=mask[sl_tr],
-        S_test=S[sl_te], XI_test=XI[sl_te], t=t, meta=meta,
+        S_train=S[sl_tr],
+        XI_train=XI[sl_tr],
+        XI_train_noisy=XI_noisy[sl_tr],
+        mask_train=mask[sl_tr],
+        S_test=S[sl_te],
+        XI_test=XI[sl_te],
+        t=t,
+        meta=meta,
     )
 
 
@@ -274,16 +305,16 @@ class MultivariateSpectralOperator:
         self.W = None
 
     def fit(self, S, XI):
-        Sf = np.fft.rfft(S, axis=1)            # (K,F,M)
+        Sf = np.fft.rfft(S, axis=1)  # (K,F,M)
         Xf = np.fft.rfft(XI, axis=1)
         K, Fr, M = Sf.shape
         W = np.empty((Fr, M, M), complex)
         eye = self.ridge * np.eye(M)
         for f in range(Fr):
-            Sff = Sf[:, f, :]                  # (K,M)
-            G = Sff.conj().T @ Sff + eye       # (M,M)
-            P = Sff.conj().T @ Xf[:, f, :]     # (M,M)
-            W[f] = np.linalg.solve(G, P)       # R_f^T
+            Sff = Sf[:, f, :]  # (K,M)
+            G = Sff.conj().T @ Sff + eye  # (M,M)
+            P = Sff.conj().T @ Xf[:, f, :]  # (M,M)
+            W[f] = np.linalg.solve(G, P)  # R_f^T
         self.W = W
         return self
 
@@ -319,9 +350,15 @@ def find_breaking_point(levels, errors, factor=2.0, min_abs=0.08):
     return None
 
 
-def noise_sweep(scale="small", forcings=("pc", "sine", "smooth", "bursty"),
-                noise_kind="gauss", levels=(0.0, 0.05, 0.1, 0.2, 0.4, 0.8),
-                fit_eval=None, seed=0, ridge=1e-2):
+def noise_sweep(
+    scale="small",
+    forcings=("pc", "sine", "smooth", "bursty"),
+    noise_kind="gauss",
+    levels=(0.0, 0.05, 0.1, 0.2, 0.4, 0.8),
+    fit_eval=None,
+    seed=0,
+    ridge=1e-2,
+):
     r"""
     For each forcing class, build instances across ``levels`` (train on noisy,
     test on clean) and record the relative L2 error and the breaking point.
@@ -348,23 +385,28 @@ def noise_sweep(scale="small", forcings=("pc", "sine", "smooth", "bursty"),
     for fc in forcings:
         errs = []
         for lvl in levels:
-            inst = make_instance(scale=scale, forcing=fc, noise_kind=noise_kind,
-                                 noise_level=lvl, seed=seed)
+            inst = make_instance(
+                scale=scale, forcing=fc, noise_kind=noise_kind, noise_level=lvl, seed=seed
+            )
             errs.append(fe(inst))
-        out[fc] = dict(levels=levels, errors=errs,
-                       breaking=find_breaking_point(levels, errs))
+        out[fc] = dict(levels=levels, errors=errs, breaking=find_breaking_point(levels, errs))
     return out
 
 
 def plot_sweep(sweep, title, path):
     fig, ax = plt.subplots(figsize=(8, 5))
     for fc, r in sweep.items():
-        line, = ax.plot(r["levels"], r["errors"], "o-", label=fc)
+        (line,) = ax.plot(r["levels"], r["errors"], "o-", label=fc)
         if r["breaking"] is not None:
             ax.axvline(r["breaking"], color=line.get_color(), ls=":", alpha=0.5)
-    ax.set_xlabel("noise level"); ax.set_ylabel("test rel. L2 vs clean targets")
-    ax.set_title(title); ax.legend(); ax.grid(alpha=0.3)
-    fig.tight_layout(); fig.savefig(path, dpi=140); plt.close(fig)
+    ax.set_xlabel("noise level")
+    ax.set_ylabel("test rel. L2 vs clean targets")
+    ax.set_title(title)
+    ax.legend()
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
 
 
 def run_demo(out_dir="results", scale="small", noise_kind="gauss"):
@@ -374,7 +416,7 @@ def run_demo(out_dir="results", scale="small", noise_kind="gauss"):
     print(f"=== tf_lab noise sweep ({scale}, {noise_kind}, linear spectral baseline) ===")
     for fc, r in sweep.items():
         bp = r["breaking"]
-        print(f"  {fc:8s}: errors={[round(e,3) for e in r['errors']]}  breaks@{bp}")
+        print(f"  {fc:8s}: errors={[round(e, 3) for e in r['errors']]}  breaks@{bp}")
     path = os.path.join(out_dir, "tf_lab_noise_sweep.png")
     plot_sweep(sweep, f"MBPP operator: noise tolerance by forcing ({scale}, {noise_kind})", path)
     with open(os.path.join(out_dir, "tf_lab_noise_sweep.json"), "w") as f:

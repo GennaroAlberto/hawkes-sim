@@ -12,11 +12,24 @@ Run with:  python -m pytest tests/test_operators.py -q
 import numpy as np
 
 from hawkes_calibration import (
-    MBPP, ExponentialKernel, Sine, Constant, PiecewiseConstant,
-    FunctionalMBPP, SpectralOperator, solve_mbpp_ode, solve_mbpp_ode_multivariate,
-    solve_mbpp_ltv, kernel_exponentials, make_exp_sum_kernel, MLP, DeepONetOperator,
-    AmortizedInference, simulate_separable_hawkes, interval_censor, uniform_obs_times,
-    PiecewiseConstantCovariate, fit_mbpp_ic_excitation,
+    MBPP,
+    MLP,
+    AmortizedInference,
+    Constant,
+    ExponentialKernel,
+    FunctionalMBPP,
+    PiecewiseConstant,
+    PiecewiseConstantCovariate,
+    Sine,
+    SpectralOperator,
+    fit_mbpp_ic_excitation,
+    interval_censor,
+    kernel_exponentials,
+    simulate_separable_hawkes,
+    solve_mbpp_ltv,
+    solve_mbpp_ode,
+    solve_mbpp_ode_multivariate,
+    uniform_obs_times,
 )
 from hawkes_calibration.mbpp.interval_censored import _excitation_modulation
 
@@ -91,8 +104,9 @@ def test_multivariate_mbpp_solver():
     a, b = kernel_exponentials(ker)
     t = np.linspace(0, 30, 1501)
     xi1 = solve_mbpp_ode(Constant(2.0, 60).intensity, a, b, t)
-    xiM = solve_mbpp_ode_multivariate(lambda tt: np.array([2.0 if tt > 0 else 0.0]),
-                                      np.array([[0.48]]), np.array([[0.8]]), t)[:, 0]
+    xiM = solve_mbpp_ode_multivariate(
+        lambda tt: np.array([2.0 if tt > 0 else 0.0]), np.array([[0.48]]), np.array([[0.8]]), t
+    )[:, 0]
     assert np.max(np.abs(xi1 - xiM)) < 1e-9
     # M=3 constant baseline: stationary intensity -> (I-G)^{-1} mu
     A = np.array([[0.3, 0.1, 0.0], [0.0, 0.25, 0.15], [0.1, 0.0, 0.2]])
@@ -114,22 +128,30 @@ def test_ltv_solver_reduces_to_lti():
     xi_lti = solve_mbpp_ode_multivariate(lambda tt: mu, A, B, t)
     xi_ltv = solve_mbpp_ltv(lambda tt: mu, A, B, t, modulation=None)
     assert np.max(np.abs(xi_lti - xi_ltv)) < 1e-9
+
     # doubling excitation over a window elevates the intensity, then it relaxes back
     def mod(tt):
         return np.full((2, 2), 2.0 if 15 <= tt < 25 else 1.0)
+
     xi_mod = solve_mbpp_ltv(lambda tt: mu, A, B, t, modulation=mod)
     i_mid = np.searchsorted(t, 22)
     i_end = np.searchsorted(t, 38)
-    assert np.all(xi_mod[i_mid] > xi_lti[-1] + 1e-3)        # elevated during window
+    assert np.all(xi_mod[i_mid] > xi_lti[-1] + 1e-3)  # elevated during window
     assert np.allclose(xi_mod[i_end], xi_lti[-1], atol=1e-2)  # relaxed back after
 
 
 def _excitation_dXi(obs, Z, kappa, theta, mu, delta, n_sub=6):
-    fine = np.unique(np.concatenate(
-        [np.linspace(obs[i], obs[i + 1], n_sub + 1) for i in range(obs.size - 1)]))
-    _, Xi = solve_mbpp_ltv(lambda t: np.array([mu]), np.array([[kappa * theta]]),
-                           np.array([[theta]]), fine,
-                           modulation=_excitation_modulation(Z, [delta]), return_compensator=True)
+    fine = np.unique(
+        np.concatenate([np.linspace(obs[i], obs[i + 1], n_sub + 1) for i in range(obs.size - 1)])
+    )
+    _, Xi = solve_mbpp_ltv(
+        lambda t: np.array([mu]),
+        np.array([[kappa * theta]]),
+        np.array([[theta]]),
+        fine,
+        modulation=_excitation_modulation(Z, [delta]),
+        return_compensator=True,
+    )
     return np.diff(np.interp(obs, fine, Xi[:, 0]))
 
 
@@ -137,6 +159,7 @@ def test_excitation_likelihood_detects_modulation():
     # the IC-LL built on the LTV solver correctly prefers the true excitation
     # modulation over no modulation (delta=0): the machinery is sensitive to delta.
     from hawkes_calibration.mbpp.interval_censored import ic_ll
+
     rng = np.random.default_rng(0)
     m = 60
     obs = np.arange(m + 1, dtype=float)
@@ -149,7 +172,7 @@ def test_excitation_likelihood_detects_modulation():
     dXi_0 = _excitation_dXi(obs, Z, kappa, theta, mu, 0.0)
     loss_true = sum(ic_ll(c, dXi_true) for c in counts)
     loss_zero = sum(ic_ll(c, dXi_0) for c in counts)
-    assert loss_true < loss_zero          # the modulated model fits the data better
+    assert loss_true < loss_zero  # the modulated model fits the data better
 
 
 def test_excitation_fit_runs_and_is_sane():
@@ -174,7 +197,8 @@ def test_mlp_learns_simple_function():
     for _ in range(2000):
         p = net.forward(X)
         d = (2.0 / len(X)) * (p - Y)
-        net.backward(d); net.adam_step(3e-3)
+        net.backward(d)
+        net.adam_step(3e-3)
     assert np.mean((net.forward(X) - Y) ** 2) < 1e-2
 
 

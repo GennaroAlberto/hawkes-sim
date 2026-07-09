@@ -86,7 +86,7 @@ def mbpp_volterra_residual(xi, t_grid, forcing, kernel):
     N = t.size
     R = np.empty(N)
     s = np.array([float(forcing(ti)) for ti in t])
-    R[0] = xi[0] - s[0]                       # integral over [0,0] = 0
+    R[0] = xi[0] - s[0]  # integral over [0,0] = 0
     for i in range(1, N):
         ti = t[i]
         integ = 0.0
@@ -157,7 +157,7 @@ def excitation_kernel_matrix(t_grid, Z_grid, kappa, theta, delta):
     """
     t = np.asarray(t_grid, float)
     Z = np.asarray(Z_grid, float)
-    mod = np.exp(np.clip(delta * Z, -30, 30))                 # (M,)
+    mod = np.exp(np.clip(delta * Z, -30, 30))  # (M,)
     dt = t[:, None] - t[None, :]
     K = kappa * theta * mod[:, None] * np.exp(-theta * dt)
     return np.tril(K)
@@ -249,7 +249,11 @@ def solver_accuracy_report(predict, t_grid, params_array, Z_array=None, plot_pat
     """
     t = np.asarray(t_grid, float)
     P = np.atleast_2d(np.asarray(params_array, float))
-    Z = np.zeros((P.shape[0], t.size)) if Z_array is None else np.atleast_2d(np.asarray(Z_array, float))
+    Z = (
+        np.zeros((P.shape[0], t.size))
+        if Z_array is None
+        else np.atleast_2d(np.asarray(Z_array, float))
+    )
     XI_exact = make_anchor_data(t, P, Z)
     rel = np.empty(P.shape[0])
     for k in range(P.shape[0]):
@@ -259,20 +263,30 @@ def solver_accuracy_report(predict, t_grid, params_array, Z_array=None, plot_pat
     kap = P[:, 0]
     edges = np.linspace(kap.min(), kap.max(), 6)
     idx = np.clip(np.searchsorted(edges, kap) - 1, 0, len(edges) - 2)
-    by_kappa = {f"[{edges[i]:.2f},{edges[i+1]:.2f}]": float(rel[idx == i].mean())
-                for i in range(len(edges) - 1) if np.any(idx == i)}
+    by_kappa = {
+        f"[{edges[i]:.2f},{edges[i + 1]:.2f}]": float(rel[idx == i].mean())
+        for i in range(len(edges) - 1)
+        if np.any(idx == i)
+    }
     if plot_path is not None:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+
         fig, ax = plt.subplots(figsize=(7, 4.5))
         ax.scatter(kap, rel, s=12, alpha=0.6)
-        ax.set_xlabel(r"$\kappa$ (branching ratio)"); ax.set_ylabel("relative L2 error")
+        ax.set_xlabel(r"$\kappa$ (branching ratio)")
+        ax.set_ylabel("relative L2 error")
         ax.set_title("Neural-solver accuracy vs. the exact MBPP")
-        ax.set_yscale("log"); ax.grid(alpha=0.3)
-        fig.tight_layout(); fig.savefig(plot_path, dpi=140); plt.close(fig)
-    return dict(rel_l2=rel, params=P, by_kappa=by_kappa,
-                mean=float(rel.mean()), max=float(rel.max()))
+        ax.set_yscale("log")
+        ax.grid(alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(plot_path, dpi=140)
+        plt.close(fig)
+    return dict(
+        rel_l2=rel, params=P, by_kappa=by_kappa, mean=float(rel.mean()), max=float(rel.max())
+    )
 
 
 def mbpp_ode_residual(xi, dxi, t_grid, forcing, kappa, theta):
@@ -319,14 +333,18 @@ def make_neural_solver(backend="jax", mode="pinn", **kwargs):
     if backend == "jax":
         if mode == "pino":
             from .neural_solver_jax import JAXDeepONetPINO
+
             return JAXDeepONetPINO(**kwargs)
         from .neural_solver_jax import JAXNeuralMBPP
+
         return JAXNeuralMBPP(mode=mode, **kwargs)
     if backend in ("tensorflow", "tf"):
         if mode == "pino":
             from .neural_solver_tf import TFDeepONetPINO
+
             return TFDeepONetPINO(**kwargs)
         from .neural_solver_tf import TFNeuralMBPP
+
         return TFNeuralMBPP(mode=mode, **kwargs)
     if backend == "numpy":
         return NumpyReferenceSolver(**kwargs)
@@ -345,7 +363,7 @@ class NumpyReferenceSolver:
         self.kwargs = kwargs
 
     def train(self, *a, **k):
-        return self                                  # nothing to train
+        return self  # nothing to train
 
     def _kernel_forcing(self, params):
         mu = params.get("mu", 1.0)
@@ -367,9 +385,14 @@ class NumpyReferenceSolver:
 
     def solve(self, params, t_grid):
         from .linear import solve_mbpp_volterra
+
         forcing, kernel = self._kernel_forcing(params)
-        return solve_mbpp_volterra(lambda t: np.array([forcing(t)]),
-                                   lambda t, u: kernel(t, u), np.asarray(t_grid, float), M=1)[:, 0]
+        return solve_mbpp_volterra(
+            lambda t: np.array([forcing(t)]),
+            lambda t, u: kernel(t, u),
+            np.asarray(t_grid, float),
+            M=1,
+        )[:, 0]
 
     def compensator(self, params, t_grid):
         t = np.asarray(t_grid, float)

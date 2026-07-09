@@ -22,20 +22,24 @@ cross-validates them, so one can pick whichever suits a problem:
 Output: results/exp9_functional_operators.png and .json.
 """
 
-import os
 import json
+import os
 
-import numpy as np
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from hawkes_calibration.mbpp import MBPP, ExponentialKernel
-from hawkes_calibration.mbpp.exogenous import PiecewiseConstant, Sine, Constant
-from hawkes_calibration.operators import FunctionalMBPP, SpectralOperator, kernel_exponentials
-from hawkes_calibration.operators.nn import DeepONetOperator, AmortizedInference
-from hawkes_calibration.mbpp.ic_simulate import simulate_separable_hawkes, interval_censor, uniform_obs_times
+from hawkes_calibration.mbpp.exogenous import Constant, PiecewiseConstant, Sine
+from hawkes_calibration.mbpp.ic_simulate import (
+    interval_censor,
+    simulate_separable_hawkes,
+    uniform_obs_times,
+)
+from hawkes_calibration.operators import FunctionalMBPP, SpectralOperator
+from hawkes_calibration.operators.nn import AmortizedInference, DeepONetOperator
 
 
 def run(seed=0, out_dir="results"):
@@ -65,7 +69,9 @@ def run(seed=0, out_dir="results"):
     ax.plot(t, xi_closed, "k-", lw=3, alpha=0.5, label="closed form")
     ax.plot(t, xi_ode, "b--", lw=1.5, label=f"ODE (err {err_ode:.1e})")
     ax.plot(t, xi_spec, "r:", lw=1.8, label=f"spectral (err {err_spec:.1e})")
-    ax.set_xlim(0, T); ax.set_xlabel("time"); ax.set_ylabel(r"$\xi(t)$")
+    ax.set_xlim(0, T)
+    ax.set_xlabel("time")
+    ax.set_ylabel(r"$\xi(t)$")
     ax.set_title("(a) exact backends agree: closed = ODE = spectral")
     ax.legend(fontsize=8)
 
@@ -91,16 +97,21 @@ def run(seed=0, out_dir="results"):
     tt, phi_rec = spec.recover_kernel()
     phi_true = ker(tt)
     br_rec = float(np.trapezoid(np.maximum(phi_rec, 0)[tt < 20], tt[tt < 20]))
-    summary["spectral_learned"] = dict(operator_gen_rel_err=gen_err,
-                                       recovered_branching=br_rec, true_branching=kappa)
+    summary["spectral_learned"] = dict(
+        operator_gen_rel_err=gen_err, recovered_branching=br_rec, true_branching=kappa
+    )
     ax = axes[0, 1]
     ax.plot(tt, phi_true, "k-", lw=2, label=r"true $\phi(t)=\kappa\theta e^{-\theta t}$")
     ax.plot(tt, phi_rec, "m--", lw=1.5, label="recovered from data")
     ax.axhline(0, color="0.8", lw=0.5)
-    ax.set_xlim(0, 10); ax.set_ylim(-0.12, max(0.6, float(phi_true.max()) * 1.15))
-    ax.set_xlabel("time"); ax.set_ylabel(r"$\phi(t)$")
-    ax.set_title(f"(b) learned operator: kernel recovered\n"
-                 f"(gen. err {gen_err:.1%}, branching {br_rec:.2f} vs {kappa})")
+    ax.set_xlim(0, 10)
+    ax.set_ylim(-0.12, max(0.6, float(phi_true.max()) * 1.15))
+    ax.set_xlabel("time")
+    ax.set_ylabel(r"$\phi(t)$")
+    ax.set_title(
+        f"(b) learned operator: kernel recovered\n"
+        f"(gen. err {gen_err:.1%}, branching {br_rec:.2f} vs {kappa})"
+    )
     ax.legend(fontsize=8)
 
     # ---------------------------------------------------------------
@@ -130,8 +141,10 @@ def run(seed=0, out_dir="results"):
     for k in range(3):
         ax.plot(td, Yte[k], "-", color=f"C{k}", lw=2, alpha=0.7)
         ax.plot(td, Pte[k], "--", color=f"C{k}", lw=1.5)
-    ax.plot([], [], "k-", label="true $\\xi$"); ax.plot([], [], "k--", label="DeepONet")
-    ax.set_xlabel("time"); ax.set_ylabel(r"$\xi(t)$")
+    ax.plot([], [], "k-", label="true $\\xi$")
+    ax.plot([], [], "k--", label="DeepONet")
+    ax.set_xlabel("time")
+    ax.set_ylabel(r"$\xi(t)$")
     ax.set_title(f"(c) DeepONet operator surrogate (test rel. L2 {don_rel:.1%})")
     ax.legend(fontsize=8)
 
@@ -145,7 +158,8 @@ def run(seed=0, out_dir="results"):
     def make_amort(K):
         X, Y = [], []
         for _ in range(K):
-            ka = rng.uniform(0.2, 0.85); th = rng.uniform(0.4, 2.0)
+            ka = rng.uniform(0.2, 0.85)
+            th = rng.uniform(0.4, 2.0)
             imm, off = simulate_separable_hawkes(exo_a, ka, th, Ta, seed=int(rng.integers(1e9)))
             X.append(interval_censor(np.sort(np.concatenate([imm, off])), obs))
             Y.append([ka, th])
@@ -161,15 +175,21 @@ def run(seed=0, out_dir="results"):
     summary["amortized"] = dict(kappa_corr=corr_k, theta_corr=corr_t, kappa_mae=mae_k)
     ax = axes[1, 1]
     ax.scatter(Yte2[:, 0], P[:, 0], s=10, alpha=0.5, label=f"$\\kappa$ (corr {corr_k:.2f})")
-    ax.scatter(Yte2[:, 1], P[:, 1], s=10, alpha=0.5, color="C3", label=f"$\\theta$ (corr {corr_t:.2f})")
+    ax.scatter(
+        Yte2[:, 1], P[:, 1], s=10, alpha=0.5, color="C3", label=f"$\\theta$ (corr {corr_t:.2f})"
+    )
     lims = [0, 2.1]
     ax.plot(lims, lims, "k--", alpha=0.5)
-    ax.set_xlim(lims); ax.set_ylim(lims)
-    ax.set_xlabel("true parameter"); ax.set_ylabel("amortized prediction (1 forward pass)")
+    ax.set_xlim(lims)
+    ax.set_ylim(lims)
+    ax.set_xlabel("true parameter")
+    ax.set_ylabel("amortized prediction (1 forward pass)")
     ax.set_title("(d) amortized inference: counts $\\to(\\kappa,\\theta)$")
     ax.legend(fontsize=8)
 
-    fig.suptitle("Functional / operator views of the MBPP (exact ODE & spectral, learned spectral, DeepONet, amortized)")
+    fig.suptitle(
+        "Functional / operator views of the MBPP (exact ODE & spectral, learned spectral, DeepONet, amortized)"
+    )
     fig.tight_layout()
     path = os.path.join(out_dir, "exp9_functional_operators.png")
     fig.savefig(path, dpi=140)
@@ -177,9 +197,13 @@ def run(seed=0, out_dir="results"):
 
     print("=== Functional / operator backends ===")
     print(f"(a) exact agreement:  ODE err={err_ode:.2e},  spectral err={err_spec:.2e}")
-    print(f"(b) learned spectral: operator gen. err={gen_err:.1%}, branching {br_rec:.3f} (true {kappa})")
+    print(
+        f"(b) learned spectral: operator gen. err={gen_err:.1%}, branching {br_rec:.3f} (true {kappa})"
+    )
     print(f"(c) DeepONet:         test rel. L2 = {don_rel:.1%}")
-    print(f"(d) amortized:        kappa corr={corr_k:.2f} (MAE {mae_k:.3f}), theta corr={corr_t:.2f}")
+    print(
+        f"(d) amortized:        kappa corr={corr_k:.2f} (MAE {mae_k:.3f}), theta corr={corr_t:.2f}"
+    )
     print("    -> exploit known structure (ODE/spectral) when you have it; the learned")
     print("       operators are for the unknown-kernel / nonlinear / amortized regimes.")
     with open(os.path.join(out_dir, "exp9_functional_operators.json"), "w") as f:

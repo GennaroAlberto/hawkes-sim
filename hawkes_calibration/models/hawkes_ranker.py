@@ -69,8 +69,8 @@ def _link(eta, kind):
         lam = np.exp(eta)
         return lam, lam
     # "linear" == rectified-additive intensity, smoothed by softplus (>0, differentiable)
-    lam = np.logaddexp(0.0, eta)                     # softplus
-    dlam = 1.0 / (1.0 + np.exp(-eta))                # sigmoid
+    lam = np.logaddexp(0.0, eta)  # softplus
+    dlam = 1.0 / (1.0 + np.exp(-eta))  # sigmoid
     return lam, dlam
 
 
@@ -86,7 +86,8 @@ def _recency_fields(startup_counts, startup_sector, n_sectors, decay_self, decay
     T, N = C.shape
     sec = np.asarray(startup_sector, int)
     M = int(n_sectors)
-    own = np.zeros((T, N)); cross = np.zeros((T, N))
+    own = np.zeros((T, N))
+    cross = np.zeros((T, N))
     ds, dc = float(decay_self), float(decay_cross)
     for t in range(1, T):
         own[t] = ds * (own[t - 1] + C[t - 1])
@@ -106,11 +107,11 @@ def _recency_fields(startup_counts, startup_sector, n_sectors, decay_self, decay
 # ---------------------------------------------------------------------------
 @dataclass
 class HawkesRankerResult:
-    link: str                        # "linear" | "exp"
-    weights: np.ndarray              # (p,)  global covariate weights w
-    sector_baseline: np.ndarray      # (M,)  b0_s
-    sector_excite: np.ndarray        # (M,)  a_s   (>= 0, peer excitation)
-    sector_inhibit: np.ndarray       # (M,)  rho_s (>= 0, own-recency cooldown)
+    link: str  # "linear" | "exp"
+    weights: np.ndarray  # (p,)  global covariate weights w
+    sector_baseline: np.ndarray  # (M,)  b0_s
+    sector_excite: np.ndarray  # (M,)  a_s   (>= 0, peer excitation)
+    sector_inhibit: np.ndarray  # (M,)  rho_s (>= 0, own-recency cooldown)
     decay_self: float
     decay_cross: float
     drop_last_funded: bool
@@ -121,9 +122,12 @@ class HawkesRankerResult:
 
     def eta(self, Z, peer, own, sector):
         s = int(sector)
-        return (self.sector_baseline[s] + np.asarray(Z) @ self.weights
-                + self.sector_excite[s] * np.asarray(peer)
-                - self.sector_inhibit[s] * np.asarray(own))
+        return (
+            self.sector_baseline[s]
+            + np.asarray(Z) @ self.weights
+            + self.sector_excite[s] * np.asarray(peer)
+            - self.sector_inhibit[s] * np.asarray(own)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -165,29 +169,34 @@ def _prepare(events, Z, startup_sector, active, own, peer, train_end, drop_last_
 # ---------------------------------------------------------------------------
 def _unpack(theta, p, M):
     w = theta[:p]
-    b0 = theta[p:p + M]
-    a = theta[p + M:p + 2 * M]
-    rho = theta[p + 2 * M:p + 3 * M]
+    b0 = theta[p : p + M]
+    a = theta[p + M : p + 2 * M]
+    rho = theta[p + 2 * M : p + 3 * M]
     return w, b0, a, rho
 
 
 def _objective(theta, prepared, p, M, link, l2):
     w, b0, a, rho = _unpack(theta, p, M)
     loss = 0.0
-    gw = np.zeros(p); gb0 = np.zeros(M); ga = np.zeros(M); grho = np.zeros(M)
+    gw = np.zeros(p)
+    gb0 = np.zeros(M)
+    ga = np.zeros(M)
+    grho = np.zeros(M)
     for s, Z, peer, own, pos in prepared:
         eta = b0[s] + Z @ w + a[s] * peer - rho[s] * own
         lam, dlam = _link(eta, link)
         S = lam.sum()
         loss += float(np.log(S) - np.log(lam[pos]))
-        g = dlam / S                                    # d(-logP)/deta_k
+        g = dlam / S  # d(-logP)/deta_k
         g[pos] -= dlam[pos] / lam[pos]
         gb0[s] += g.sum()
         gw += g @ Z
         ga[s] += float(g @ peer)
         grho[s] += -float(g @ own)
     loss += 0.5 * l2 * (float(w @ w) + float(a @ a) + float(rho @ rho))
-    gw += l2 * w; ga += l2 * a; grho += l2 * rho
+    gw += l2 * w
+    ga += l2 * a
+    grho += l2 * rho
     return loss, np.concatenate([gw, gb0, ga, grho])
 
 
@@ -195,9 +204,19 @@ def _objective(theta, prepared, p, M, link, l2):
 # Fit
 # ---------------------------------------------------------------------------
 def fit_hawkes_ranker(
-    events, startup_features, startup_sector, active, startup_counts,
-    *, link="exp", train_end=None, decay_self=0.6, decay_cross=0.6,
-    drop_last_funded=True, l2=1e-2, max_iter=300,
+    events,
+    startup_features,
+    startup_sector,
+    active,
+    startup_counts,
+    *,
+    link="exp",
+    train_end=None,
+    decay_self=0.6,
+    decay_cross=0.6,
+    drop_last_funded=True,
+    l2=1e-2,
+    max_iter=300,
 ):
     r"""Fit the within-sector 1-D Hawkes ranker by conditional maximum partial likelihood.
 
@@ -216,29 +235,43 @@ def fit_hawkes_ranker(
     if train_end is None:
         train_end = T
     own, peer = _recency_fields(startup_counts, startup_sector, M, decay_self, decay_cross)
-    prepared = _prepare(events, Z, startup_sector, active, own, peer,
-                        int(train_end), drop_last_funded)
+    prepared = _prepare(
+        events, Z, startup_sector, active, own, peer, int(train_end), drop_last_funded
+    )
     if not prepared:
         raise ValueError("no usable training events")
 
     n = p + 3 * M
     x0 = np.zeros(n)
-    x0[p + M:p + 2 * M] = 0.1                            # a start
-    x0[p + 2 * M:p + 3 * M] = 0.1                        # rho start
+    x0[p + M : p + 2 * M] = 0.1  # a start
+    x0[p + 2 * M : p + 3 * M] = 0.1  # rho start
     bounds = [(None, None)] * n
-    for j in range(M):                                   # a_s >= 0, rho_s >= 0
+    for j in range(M):  # a_s >= 0, rho_s >= 0
         bounds[p + M + j] = (0.0, None)
         bounds[p + 2 * M + j] = (0.0, None)
 
-    opt = minimize(lambda th: _objective(th, prepared, p, M, link, l2),
-                   x0, jac=True, method="L-BFGS-B", bounds=bounds,
-                   options={"maxiter": int(max_iter), "ftol": 1e-9})
+    opt = minimize(
+        lambda th: _objective(th, prepared, p, M, link, l2),
+        x0,
+        jac=True,
+        method="L-BFGS-B",
+        bounds=bounds,
+        options={"maxiter": int(max_iter), "ftol": 1e-9},
+    )
     w, b0, a, rho = _unpack(opt.x, p, M)
     return HawkesRankerResult(
-        link=link, weights=w, sector_baseline=b0, sector_excite=a, sector_inhibit=rho,
-        decay_self=float(decay_self), decay_cross=float(decay_cross),
-        drop_last_funded=bool(drop_last_funded), loss=float(opt.fun),
-        success=bool(opt.success), message=str(opt.message), n_events=len(prepared),
+        link=link,
+        weights=w,
+        sector_baseline=b0,
+        sector_excite=a,
+        sector_inhibit=rho,
+        decay_self=float(decay_self),
+        decay_cross=float(decay_cross),
+        drop_last_funded=bool(drop_last_funded),
+        loss=float(opt.fun),
+        success=bool(opt.success),
+        message=str(opt.message),
+        n_events=len(prepared),
     )
 
 
@@ -246,18 +279,28 @@ def fit_hawkes_ranker(
 # Predict / evaluate
 # ---------------------------------------------------------------------------
 def _fields_for(result, startup_counts, startup_sector, M):
-    return _recency_fields(startup_counts, startup_sector, M,
-                           result.decay_self, result.decay_cross)
+    return _recency_fields(startup_counts, startup_sector, M, result.decay_self, result.decay_cross)
 
 
-def hawkes_ranker_intensity(result, startup_features, startup_sector, active,
-                            startup_counts, *, week, sector, events=None, _fields=None):
+def hawkes_ranker_intensity(
+    result,
+    startup_features,
+    startup_sector,
+    active,
+    startup_counts,
+    *,
+    week,
+    sector,
+    events=None,
+    _fields=None,
+):
     """Return ``(candidate_indices, intensities)`` for one sector event."""
     Z = np.asarray(startup_features, dtype=float)
     startup_sector = np.asarray(startup_sector, int)
     M = int(startup_sector.max()) + 1
-    own, peer = _fields if _fields is not None else _fields_for(
-        result, startup_counts, startup_sector, M)
+    own, peer = (
+        _fields if _fields is not None else _fields_for(result, startup_counts, startup_sector, M)
+    )
     lf = None
     if result.drop_last_funded and events is not None:
         lf = _last_funded_before(np.asarray(events, int), sector, week)
@@ -267,19 +310,47 @@ def hawkes_ranker_intensity(result, startup_features, startup_sector, active,
     return cand, lam
 
 
-def hawkes_ranker_predict_proba(result, startup_features, startup_sector, active,
-                                startup_counts, *, week, sector, events=None, _fields=None):
+def hawkes_ranker_predict_proba(
+    result,
+    startup_features,
+    startup_sector,
+    active,
+    startup_counts,
+    *,
+    week,
+    sector,
+    events=None,
+    _fields=None,
+):
     """Return ``(candidate_indices, probabilities)`` = normalized intensities."""
     cand, lam = hawkes_ranker_intensity(
-        result, startup_features, startup_sector, active, startup_counts,
-        week=week, sector=sector, events=events, _fields=_fields)
+        result,
+        startup_features,
+        startup_sector,
+        active,
+        startup_counts,
+        week=week,
+        sector=sector,
+        events=events,
+        _fields=_fields,
+    )
     tot = lam.sum()
     pr = lam / tot if tot > 0 else np.full(lam.shape, 1.0 / max(lam.size, 1))
     return cand, pr
 
 
-def evaluate_hawkes_ranker(result, events, startup_features, startup_sector, active,
-                           startup_counts, *, start_week=0, end_week=None, topk=(1, 5, 10)):
+def evaluate_hawkes_ranker(
+    result,
+    events,
+    startup_features,
+    startup_sector,
+    active,
+    startup_counts,
+    *,
+    start_week=0,
+    end_week=None,
+    topk=(1, 5, 10),
+):
     """Held-out NLL, top-k hit rate, and MRR over the reduced risk set."""
     events = np.asarray(events, dtype=int)
     Z = np.asarray(startup_features, dtype=float)
@@ -294,8 +365,16 @@ def evaluate_hawkes_ranker(result, events, startup_features, startup_sector, act
     n = 0
     for week, s, chosen in use:
         cand, pr = hawkes_ranker_predict_proba(
-            result, Z, startup_sector, active, startup_counts,
-            week=int(week), sector=int(s), events=events, _fields=fields)
+            result,
+            Z,
+            startup_sector,
+            active,
+            startup_counts,
+            week=int(week),
+            sector=int(s),
+            events=events,
+            _fields=fields,
+        )
         if int(chosen) not in set(cand.tolist()):
             continue
         pos = int(np.where(cand == int(chosen))[0][0])

@@ -76,12 +76,14 @@ class MLP:
     def adam_step(self, lr=1e-3, b1=0.9, b2=0.999, eps=1e-8):
         self.t += 1
         for i in range(len(self.W)):
-            for g, p, m, v in ((self.gW[i], self.W[i], self.mW[i], self.vW[i]),
-                               (self.gb[i], self.b[i], self.mb[i], self.vb[i])):
+            for g, p, m, v in (
+                (self.gW[i], self.W[i], self.mW[i], self.vW[i]),
+                (self.gb[i], self.b[i], self.mb[i], self.vb[i]),
+            ):
                 m[...] = b1 * m + (1 - b1) * g
                 v[...] = b2 * v + (1 - b2) * g * g
-                mhat = m / (1 - b1 ** self.t)
-                vhat = v / (1 - b2 ** self.t)
+                mhat = m / (1 - b1**self.t)
+                vhat = v / (1 - b2**self.t)
                 p -= lr * mhat / (np.sqrt(vhat) + eps)
 
 
@@ -112,7 +114,8 @@ class DeepONetOperator:
         t_query : (N,) query times.
         Y : (K, N) target intensities xi.
         """
-        F = np.asarray(F, float); Y = np.asarray(Y, float)
+        F = np.asarray(F, float)
+        Y = np.asarray(Y, float)
         tq = np.asarray(t_query, float).reshape(-1, 1)
         # standardize
         self.x_mean, self.x_std = F.mean(), F.std() + 1e-8
@@ -124,23 +127,29 @@ class DeepONetOperator:
 
         K, N = Y.shape
         for ep in range(epochs):
-            B = self.branch.forward(Fs)               # (K, p)
-            Tr = self.trunk.forward(tqs)              # (N, p)
-            pred = B @ Tr.T + self.b0                  # (K, N)
+            B = self.branch.forward(Fs)  # (K, p)
+            Tr = self.trunk.forward(tqs)  # (N, p)
+            pred = B @ Tr.T + self.b0  # (K, N)
             err = pred - Ys
-            loss = np.mean(err ** 2)
+            loss = np.mean(err**2)
             dpred = (2.0 / (K * N)) * err
             # grads to branch and trunk via the bilinear form
-            dB = dpred @ Tr                            # (K, p)
-            dTr = dpred.T @ B                          # (N, p)
+            dB = dpred @ Tr  # (K, p)
+            dTr = dpred.T @ B  # (N, p)
             gb0 = dpred.sum()
-            self.branch.backward(dB); self.branch.adam_step(lr)
-            self.trunk.backward(dTr); self.trunk.adam_step(lr)
+            self.branch.backward(dB)
+            self.branch.adam_step(lr)
+            self.trunk.backward(dTr)
+            self.trunk.adam_step(lr)
             # adam for scalar bias
             self._t += 1
             self._mb0 = 0.9 * self._mb0 + 0.1 * gb0
             self._vb0 = 0.999 * self._vb0 + 0.001 * gb0 * gb0
-            self.b0 -= lr * (self._mb0 / (1 - 0.9 ** self._t)) / (np.sqrt(self._vb0 / (1 - 0.999 ** self._t)) + 1e-8)
+            self.b0 -= (
+                lr
+                * (self._mb0 / (1 - 0.9**self._t))
+                / (np.sqrt(self._vb0 / (1 - 0.999**self._t)) + 1e-8)
+            )
             if verbose and ep % 100 == 0:
                 print(f"  epoch {ep:4d}  mse={loss:.5f}")
         return self
@@ -174,26 +183,29 @@ class AmortizedInference:
     @staticmethod
     def _squash(raw):
         kappa = 1.0 / (1.0 + np.exp(-raw[:, 0:1]))
-        theta = np.log1p(np.exp(raw[:, 1:2]))         # softplus > 0
+        theta = np.log1p(np.exp(raw[:, 1:2]))  # softplus > 0
         return np.concatenate([kappa, theta], axis=1)
 
     def fit(self, X, Y, epochs=600, lr=2e-3, verbose=False):
         """X : (K, n_features) count features.  Y : (K, 2) true (kappa, theta)."""
-        X = np.asarray(X, float); Y = np.asarray(Y, float)
+        X = np.asarray(X, float)
+        Y = np.asarray(Y, float)
         self.x_mean, self.x_std = X.mean(0), X.std(0) + 1e-8
         Xs = (X - self.x_mean) / self.x_std
         for ep in range(epochs):
             raw = self.net.forward(Xs)
             pred = self._squash(raw)
             err = pred - Y
-            loss = np.mean(err ** 2)
+            loss = np.mean(err**2)
             # d(pred)/d(raw): kappa'=k(1-k); theta'=sigmoid(raw2)
             k = pred[:, 0:1]
             dk = k * (1 - k)
             dth = 1.0 / (1.0 + np.exp(-raw[:, 1:2]))
-            draw = np.concatenate([(2.0 / len(Y)) * err[:, 0:1] * dk,
-                                   (2.0 / len(Y)) * err[:, 1:2] * dth], axis=1)
-            self.net.backward(draw); self.net.adam_step(lr)
+            draw = np.concatenate(
+                [(2.0 / len(Y)) * err[:, 0:1] * dk, (2.0 / len(Y)) * err[:, 1:2] * dth], axis=1
+            )
+            self.net.backward(draw)
+            self.net.adam_step(lr)
             if verbose and ep % 150 == 0:
                 print(f"  epoch {ep:4d}  mse={loss:.5f}")
         return self

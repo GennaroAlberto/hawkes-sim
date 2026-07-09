@@ -54,14 +54,15 @@ from __future__ import annotations
 
 import numpy as np
 
-from .exogenous import Exogenous, Dassios, _quadrature_compensator
+from .exogenous import Dassios
 
 
 # ---------------------------------------------------------------------------
 # Parameter conversions between (kappa, theta) and (alpha, beta).
 # ---------------------------------------------------------------------------
 def kappa_theta_to_alpha_beta(kappa, theta):
-    """phi(t) = kappa*theta*e^{-theta t}  ==  alpha*e^{-beta t} with alpha=kappa*theta, beta=theta."""
+    """phi(t) = kappa*theta*e^{-theta t}, i.e. alpha*e^{-beta t} with
+    alpha=kappa*theta and beta=theta."""
     return kappa * theta, theta
 
 
@@ -153,8 +154,9 @@ class MBPP:
         Maximum number of convolution powers in h ~ sum_{n=1}^{N} phi^{*n}.
     """
 
-    def __init__(self, kernel, exogenous, method="auto", grid_dt=0.01,
-                 grid_T=None, n_conv_terms=200):
+    def __init__(
+        self, kernel, exogenous, method="auto", grid_dt=0.01, grid_T=None, n_conv_terms=200
+    ):
         self.kernel = kernel
         self.exo = exogenous
         self.grid_dt = float(grid_dt)
@@ -299,15 +301,17 @@ class MBPP:
         S_grid = self.exo.cumulative(grid) if not self.exo.is_impulse else self.exo.cumulative(grid)
         Xi = S_grid + Xi_endo
 
-        self._grid = dict(grid=grid, phi=phi, h=h, s=s_grid, endo=endo,
-                          xi=xi, Xi=Xi, Xi_endo=Xi_endo, dt=dt)
+        self._grid = dict(
+            grid=grid, phi=phi, h=h, s=s_grid, endo=endo, xi=xi, Xi=Xi, Xi_endo=Xi_endo, dt=dt
+        )
         return self._grid
 
     def _numeric_eval(self, t, which):
         g = self._build_numeric()
         grid = g["grid"]
-        key = dict(intensity="xi", endo_intensity="endo",
-                   compensator="Xi", endo_compensator="Xi_endo")[which]
+        key = dict(
+            intensity="xi", endo_intensity="endo", compensator="Xi", endo_compensator="Xi_endo"
+        )[which]
         return np.interp(t, grid, g[key])
 
     # =====================================================================
@@ -319,7 +323,8 @@ class MBPP:
         per-interval expected counts E[M(d_{j-1}, d_j]] = ``interval_counts`` over
         the approximation grid ``approx_times`` = [d_0, ..., d_D]:
 
-            Xi^-(t) = S(t) + sum_{j: d_j < t} E[M(d_{j-1}, d_j]] * \int_{d_j}^{min(t,d_D)} phi(y) dy.
+            Xi^-(t) = S(t)
+                + sum_{j: d_j < t} E[M(d_{j-1}, d_j]] * \int_{d_j}^{min(t,d_D)} phi(y) dy.
 
         When the expected counts are replaced by *observed* interval counts this
         is exactly the forecasting recursion used on the ACTIVE data (Eq. 55).
@@ -351,7 +356,10 @@ class MBPP:
             return k.kappa * (np.exp(-k.theta * lo) - np.exp(-k.theta * hi))
         if isinstance(k, PowerLawKernel):
             th, c, ka = k.theta, k.c, k.kappa
-            F = lambda y: -ka * c**th * (y + c) ** (-th)
+
+            def F(y):
+                return -ka * c**th * (y + c) ** (-th)
+
             return F(hi) - F(lo)
         # generic fallback: fine quadrature
         ys = np.linspace(lo, hi, 256)

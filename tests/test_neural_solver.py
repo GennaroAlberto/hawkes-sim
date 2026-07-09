@@ -12,9 +12,15 @@ import numpy as np
 from hawkes_calibration import PiecewiseConstantCovariate
 from hawkes_calibration.operators import solve_mbpp_volterra
 from hawkes_calibration.operators.neural_solver import (
-    mbpp_volterra_residual, solve_mbpp_residual_linear, make_neural_solver,
-    sample_covariate_paths, excitation_kernel_matrix, family_residual, trapezoid_weight_matrix,
-    make_anchor_data, solver_accuracy_report,
+    excitation_kernel_matrix,
+    family_residual,
+    make_anchor_data,
+    make_neural_solver,
+    mbpp_volterra_residual,
+    sample_covariate_paths,
+    solve_mbpp_residual_linear,
+    solver_accuracy_report,
+    trapezoid_weight_matrix,
 )
 
 
@@ -38,8 +44,10 @@ def test_residual_zero_at_solution_large_elsewhere():
     t, forcing, kernel, _ = _excitation_problem()
     xi = solve_mbpp_volterra(lambda tt: np.array([forcing(tt)]), kernel, t, M=1)[:, 0]
     R = mbpp_volterra_residual(xi, t, forcing, kernel)
-    assert np.max(np.abs(R)) < 1e-9                        # exact solution -> residual 0
-    assert np.max(np.abs(mbpp_volterra_residual(1.5 * xi, t, forcing, kernel))) > 0.1  # wrong -> nonzero
+    assert np.max(np.abs(R)) < 1e-9  # exact solution -> residual 0
+    assert (
+        np.max(np.abs(mbpp_volterra_residual(1.5 * xi, t, forcing, kernel))) > 0.1
+    )  # wrong -> nonzero
 
 
 def test_pinn_objective_minimizer_is_the_solution():
@@ -55,11 +63,17 @@ def test_numpy_backend_dispatch():
     t, _, _, params = _excitation_problem()
     solver = make_neural_solver(backend="numpy")
     xi = solver.solve(params, t)
-    xi_ref = solve_mbpp_volterra(lambda tt: np.array([params["mu"]]),
-                                 lambda tt, uu: params["kappa"] * params["theta"]
-                                 * np.exp(params["delta"][0] * np.atleast_1d(params["Z"](tt)).reshape(-1)[0])
-                                 * np.exp(-params["theta"] * (tt - uu)),
-                                 t, M=1)[:, 0]
+    xi_ref = solve_mbpp_volterra(
+        lambda tt: np.array([params["mu"]]),
+        lambda tt, uu: (
+            params["kappa"]
+            * params["theta"]
+            * np.exp(params["delta"][0] * np.atleast_1d(params["Z"](tt)).reshape(-1)[0])
+            * np.exp(-params["theta"] * (tt - uu))
+        ),
+        t,
+        M=1,
+    )[:, 0]
     assert np.allclose(xi, xi_ref)
     # compensator is the cumulative integral
     Xi = solver.compensator(params, t)
@@ -73,16 +87,26 @@ def test_pino_family_residual_well_posed():
     t = np.linspace(0, 30, 121)
     B = 10
     Z = sample_covariate_paths(t, B, n_steps=5, seed=3)
-    P = np.column_stack([rng.uniform(0.2, 0.7, B), rng.uniform(0.5, 2.0, B),
-                         rng.uniform(1.0, 3.0, B), rng.uniform(-1.5, 1.5, B)])
+    P = np.column_stack(
+        [
+            rng.uniform(0.2, 0.7, B),
+            rng.uniform(0.5, 2.0, B),
+            rng.uniform(1.0, 3.0, B),
+            rng.uniform(-1.5, 1.5, B),
+        ]
+    )
     W = trapezoid_weight_matrix(t)
-    xi = np.stack([
-        np.linalg.solve(np.eye(t.size) - W * excitation_kernel_matrix(t, Z[b], P[b, 0], P[b, 1], P[b, 3]),
-                        np.full(t.size, P[b, 2]))
-        for b in range(B)
-    ])
+    xi = np.stack(
+        [
+            np.linalg.solve(
+                np.eye(t.size) - W * excitation_kernel_matrix(t, Z[b], P[b, 0], P[b, 1], P[b, 3]),
+                np.full(t.size, P[b, 2]),
+            )
+            for b in range(B)
+        ]
+    )
     R = family_residual(xi, t, Z, P)
-    assert np.max(np.abs(R)) < 1e-9                       # zero across the whole family
+    assert np.max(np.abs(R)) < 1e-9  # zero across the whole family
 
 
 def test_anchor_data_satisfies_equation():
@@ -90,8 +114,14 @@ def test_anchor_data_satisfies_equation():
     rng = np.random.default_rng(0)
     t = np.linspace(0, 30, 121)
     Z = sample_covariate_paths(t, 6, seed=4)
-    P = np.column_stack([rng.uniform(0.2, 0.8, 6), rng.uniform(0.5, 2, 6),
-                         rng.uniform(1, 3, 6), rng.uniform(-1.5, 1.5, 6)])
+    P = np.column_stack(
+        [
+            rng.uniform(0.2, 0.8, 6),
+            rng.uniform(0.5, 2, 6),
+            rng.uniform(1, 3, 6),
+            rng.uniform(-1.5, 1.5, 6),
+        ]
+    )
     XI = make_anchor_data(t, P, Z)
     assert np.max(np.abs(family_residual(XI, t, Z, P))) < 1e-9
 
@@ -99,15 +129,27 @@ def test_anchor_data_satisfies_equation():
 def test_accuracy_report_on_exact_and_perturbed():
     rng = np.random.default_rng(0)
     t = np.linspace(0, 30, 121)
-    P = np.column_stack([rng.uniform(0.2, 0.8, 12), rng.uniform(0.5, 2, 12),
-                         rng.uniform(1, 3, 12), rng.uniform(-1, 1, 12)])
+    P = np.column_stack(
+        [
+            rng.uniform(0.2, 0.8, 12),
+            rng.uniform(0.5, 2, 12),
+            rng.uniform(1, 3, 12),
+            rng.uniform(-1, 1, 12),
+        ]
+    )
     Z = sample_covariate_paths(t, 12, seed=5)
-    XI = make_anchor_data(t, P, Z)
+    make_anchor_data(t, P, Z)
+
     # a perfect predictor -> ~0 error; a perturbed one -> larger, with by-kappa bins
-    exact_predict = lambda p, z: make_anchor_data(t, p[None, :], z[None, :])[0]
+    def exact_predict(p, z):
+        return make_anchor_data(t, p[None, :], z[None, :])[0]
+
     rep_ok = solver_accuracy_report(exact_predict, t, P, Z)
     assert rep_ok["mean"] < 1e-9
-    perturbed = lambda p, z: 1.2 * exact_predict(p, z)
+
+    def perturbed(p, z):
+        return 1.2 * exact_predict(p, z)
+
     rep_bad = solver_accuracy_report(perturbed, t, P, Z)
     assert rep_bad["mean"] > 0.05 and len(rep_bad["by_kappa"]) >= 1
 
@@ -133,5 +175,6 @@ def test_neural_backends_optional():
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
-        fn(); print(f"PASS  {fn.__name__}")
+        fn()
+        print(f"PASS  {fn.__name__}")
     print(f"\nAll {len(fns)} neural-solver tests passed.")

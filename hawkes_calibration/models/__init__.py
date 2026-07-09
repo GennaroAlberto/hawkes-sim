@@ -19,15 +19,14 @@ distinct, self-contained modules:
       from hawkes_calibration.models import fit_block_hawkes, fit_startup_survival
 """
 
-from .event_block_hawkes import *  # noqa: F401,F403
-from .event_block_hawkes import __all__ as _block_all
-from .hawkes_ranker import *  # noqa: F401,F403
-from .hawkes_ranker import __all__ as _ranker_all
-
 # Re-export the existing application models so this is one logical home
 # (the implementations stay in their original modules; nothing is moved).
 from .. import sector_ranker as _sr
 from .. import sector_survival as _ss
+from .event_block_hawkes import *  # noqa: F401,F403
+from .event_block_hawkes import __all__ as _block_all
+from .hawkes_ranker import *  # noqa: F401,F403
+from .hawkes_ranker import __all__ as _ranker_all
 
 _reexport = list(getattr(_sr, "__all__", [])) + list(getattr(_ss, "__all__", []))
 for _name in _reexport:

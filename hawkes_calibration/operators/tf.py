@@ -78,29 +78,35 @@ class SpectralConv1D(layers.Layer):
         self.out_channels = int(out_channels)
         self.seq_len = int(seq_len)
         self.full = self.seq_len // 2 + 1
-        self.modes = min(int(modes), self.full)   # cannot keep more modes than exist
+        self.modes = min(int(modes), self.full)  # cannot keep more modes than exist
 
     def build(self, input_shape):
         in_ch = int(input_shape[-1])
         scale = 1.0 / (in_ch * self.out_channels)
         init = tf.random_normal_initializer(stddev=scale)
         self.w_real = self.add_weight(
-            name="w_real", shape=(in_ch, self.out_channels, self.modes),
-            initializer=init, trainable=True)
+            name="w_real",
+            shape=(in_ch, self.out_channels, self.modes),
+            initializer=init,
+            trainable=True,
+        )
         self.w_imag = self.add_weight(
-            name="w_imag", shape=(in_ch, self.out_channels, self.modes),
-            initializer=init, trainable=True)
+            name="w_imag",
+            shape=(in_ch, self.out_channels, self.modes),
+            initializer=init,
+            trainable=True,
+        )
 
     def call(self, x):
-        x_t = tf.transpose(x, [0, 2, 1])                  # (B, C_in, T)
-        x_ft = tf.signal.rfft(x_t)                        # (B, C_in, full) complex64
-        x_ft_modes = x_ft[..., : self.modes]              # (B, C_in, modes)
-        w = tf.complex(self.w_real, self.w_imag)          # (C_in, C_out, modes)
-        out_modes = tf.einsum("bim,iom->bom", x_ft_modes, w)   # (B, C_out, modes)
+        x_t = tf.transpose(x, [0, 2, 1])  # (B, C_in, T)
+        x_ft = tf.signal.rfft(x_t)  # (B, C_in, full) complex64
+        x_ft_modes = x_ft[..., : self.modes]  # (B, C_in, modes)
+        w = tf.complex(self.w_real, self.w_imag)  # (C_in, C_out, modes)
+        out_modes = tf.einsum("bim,iom->bom", x_ft_modes, w)  # (B, C_out, modes)
         pad = self.full - self.modes
         out_ft = tf.pad(out_modes, [[0, 0], [0, 0], [0, pad]])  # (B, C_out, full)
         out = tf.signal.irfft(out_ft, fft_length=[self.seq_len])  # (B, C_out, T)
-        return tf.transpose(out, [0, 2, 1])               # (B, T, C_out)
+        return tf.transpose(out, [0, 2, 1])  # (B, T, C_out)
 
 
 class FourierNeuralOperator(tf.keras.Model):
@@ -121,7 +127,7 @@ class FourierNeuralOperator(tf.keras.Model):
         super().__init__(**kw)
         self.lift = layers.Dense(width)
         self.spectral = [SpectralConv1D(width, modes, seq_len) for _ in range(n_layers)]
-        self.pointwise = [layers.Dense(width) for _ in range(n_layers)]   # 1x1 conv
+        self.pointwise = [layers.Dense(width) for _ in range(n_layers)]  # 1x1 conv
         self.proj1 = layers.Dense(128, activation="gelu")
         self.proj2 = layers.Dense(n_channels)
 
@@ -148,25 +154,29 @@ class MBPPDeepONet(tf.keras.Model):
         super().__init__(**kw)
         self.M = int(n_channels)
         self.p = int(p)
-        self.branch = tf.keras.Sequential([
-            layers.Flatten(),
-            layers.Dense(width, activation="gelu"),
-            layers.Dense(width, activation="gelu"),
-            layers.Dense(self.M * self.p),
-        ])
-        self.trunk = tf.keras.Sequential([
-            layers.Dense(width, activation="gelu"),
-            layers.Dense(width, activation="gelu"),
-            layers.Dense(self.p, activation="gelu"),
-        ])
+        self.branch = tf.keras.Sequential(
+            [
+                layers.Flatten(),
+                layers.Dense(width, activation="gelu"),
+                layers.Dense(width, activation="gelu"),
+                layers.Dense(self.M * self.p),
+            ]
+        )
+        self.trunk = tf.keras.Sequential(
+            [
+                layers.Dense(width, activation="gelu"),
+                layers.Dense(width, activation="gelu"),
+                layers.Dense(self.p, activation="gelu"),
+            ]
+        )
         self.b0 = self.add_weight(name="b0", shape=(self.M,), initializer="zeros")
 
     def call(self, inputs, training=False):
         forcing, t_query = inputs
-        b = self.branch(forcing)                                   # (B, M*p)
-        b = tf.reshape(b, (-1, self.M, self.p))                    # (B, M, p)
-        tr = self.trunk(t_query)                                   # (T, p)
-        return tf.einsum("bmp,tp->btm", b, tr) + self.b0           # (B, T, M)
+        b = self.branch(forcing)  # (B, M*p)
+        b = tf.reshape(b, (-1, self.M, self.p))  # (B, M, p)
+        tr = self.trunk(t_query)  # (T, p)
+        return tf.einsum("bmp,tp->btm", b, tr) + self.b0  # (B, T, M)
 
 
 # ===========================================================================
@@ -198,14 +208,16 @@ class MBPPCell(layers.Layer):
         self.W_in = self.add_weight(name="W_in", shape=(M, H), initializer="glorot_uniform")
         self.W_rec = self.add_weight(name="W_rec", shape=(H, H), initializer="orthogonal")
         self.b = self.add_weight(name="b", shape=(H,), initializer="zeros")
-        self.raw_decay = self.add_weight(name="raw_decay", shape=(H,), initializer=tf.constant_initializer(0.5))
+        self.raw_decay = self.add_weight(
+            name="raw_decay", shape=(H,), initializer=tf.constant_initializer(0.5)
+        )
         self.C = self.add_weight(name="C", shape=(H, M), initializer="glorot_uniform")
         self.D = self.add_weight(name="D", shape=(M, M), initializer="zeros")
 
     def call(self, inputs, states):
-        s_t = inputs                                    # (B, M)
-        z = states[0]                                   # (B, H)
-        d = tf.nn.softplus(self.raw_decay)              # (H,) > 0  -> stable drift
+        s_t = inputs  # (B, M)
+        z = states[0]  # (B, H)
+        d = tf.nn.softplus(self.raw_decay)  # (H,) > 0  -> stable drift
         drift = -d * z + tf.tanh(tf.matmul(z, self.W_rec) + tf.matmul(s_t, self.W_in) + self.b)
         z_new = z + self.dt * drift
         xi = tf.matmul(z_new, self.C) + tf.matmul(s_t, self.D)
@@ -242,12 +254,14 @@ class AmortizedKernelInference(tf.keras.Model):
     def __init__(self, n_channels, hidden=128, **kw):
         super().__init__(**kw)
         self.M = int(n_channels)
-        self.body = tf.keras.Sequential([
-            layers.Conv1D(hidden, 5, padding="same", activation="gelu"),
-            layers.Conv1D(hidden, 5, padding="same", activation="gelu"),
-            layers.GlobalAveragePooling1D(),
-            layers.Dense(hidden, activation="gelu"),
-        ])
+        self.body = tf.keras.Sequential(
+            [
+                layers.Conv1D(hidden, 5, padding="same", activation="gelu"),
+                layers.Conv1D(hidden, 5, padding="same", activation="gelu"),
+                layers.GlobalAveragePooling1D(),
+                layers.Dense(hidden, activation="gelu"),
+            ]
+        )
         self.head = layers.Dense(self.M * self.M, activation="sigmoid")
 
     def call(self, counts, training=False):
@@ -278,8 +292,9 @@ def _random_forcing(M, seq_len, T, rng, n_steps=5):
     return t, s
 
 
-def generate_operator_dataset(n_samples, M, seq_len=128, T=30.0,
-                              theta=1.0, density=0.4, max_radius=0.8, seed=0):
+def generate_operator_dataset(
+    n_samples, M, seq_len=128, T=30.0, theta=1.0, density=0.4, max_radius=0.8, seed=0
+):
     r"""
     Build (forcing, intensity) pairs for operator learning, using the exact
     multivariate MBPP solver as ground truth.
@@ -294,18 +309,21 @@ def generate_operator_dataset(n_samples, M, seq_len=128, T=30.0,
     XI = np.empty((n_samples, seq_len, M), np.float32)
     for i in range(n_samples):
         G = _random_branching_matrix(M, density, max_radius, rng)
-        A = G * B                                  # a_{m,j} = G_{m,j} * b_{m,j}
+        A = G * B  # a_{m,j} = G_{m,j} * b_{m,j}
         t, s = _random_forcing(M, seq_len, T, rng)
-        forcing = lambda tt, t=t, s=s: s[min(int(np.searchsorted(t, tt, "right") - 1), seq_len - 1)]
+
+        def forcing(tt, t=t, s=s):
+            return s[min(int(np.searchsorted(t, tt, "right") - 1), seq_len - 1)]
+
         xi = solve_mbpp_ode_multivariate(forcing, A, B, t)
         S[i] = s
         XI[i] = xi
     return S, XI
 
 
-def generate_inference_dataset(n_samples, M, seq_len=128, T=30.0,
-                               theta=1.0, density=0.4, max_radius=0.8,
-                               baseline=0.5, seed=0):
+def generate_inference_dataset(
+    n_samples, M, seq_len=128, T=30.0, theta=1.0, density=0.4, max_radius=0.8, baseline=0.5, seed=0
+):
     r"""
     Build (counts, branching-matrix) pairs for amortised inference.  Counts are
     the MBPP expected counts per interval (Poisson means); for genuinely
@@ -325,8 +343,10 @@ def generate_inference_dataset(n_samples, M, seq_len=128, T=30.0,
         G = _random_branching_matrix(M, density, max_radius, rng)
         A = G * Bm
         mu = rng.uniform(0.2, 1.5, size=M)
-        xi, Xi = solve_mbpp_ode_multivariate(lambda tt: mu, A, Bm, t, return_compensator=True)
-        counts = np.diff(Xi, axis=0)               # expected counts per interval
+        xi, Xi = solve_mbpp_ode_multivariate(
+            lambda tt, mu=mu: mu, A, Bm, t, return_compensator=True
+        )
+        counts = np.diff(Xi, axis=0)  # expected counts per interval
         C[i] = rng.poisson(np.maximum(counts, 0)).astype(np.float32)
         Gs[i] = G
     return C, Gs

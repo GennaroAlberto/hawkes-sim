@@ -9,7 +9,8 @@ The optional learned backends are **not** imported here -- they pull in heavy
 dependencies (TensorFlow / JAX), so import them explicitly:
 
     from hawkes_calibration.operators.tf import FourierNeuralOperator        # needs tensorflow
-    from hawkes_calibration.operators.neural_solver import make_neural_solver  # needs jax / tensorflow
+    # needs jax / tensorflow:
+    from hawkes_calibration.operators.neural_solver import make_neural_solver
 
 Modules
 -------
@@ -25,23 +26,23 @@ neural_solver     physics-informed neural PDE solver (PINN / PINO) dispatcher +
 from .linear import (
     FunctionalMBPP,
     SpectralOperator,
-    solve_mbpp_ode,
-    solve_mbpp_ode_multivariate,
-    solve_mbpp_ltv,
-    solve_mbpp_volterra,
     kernel_exponentials,
     make_exp_sum_kernel,
+    solve_mbpp_ltv,
+    solve_mbpp_ode,
+    solve_mbpp_ode_multivariate,
+    solve_mbpp_volterra,
 )
 from .nn import (
     MLP,
-    DeepONetOperator,
     AmortizedInference,
+    DeepONetOperator,
 )
 from .pino import (
     MultivariateMBPPOperator,
-    sample_instances,
-    exact_solution,
     conv_matrix,
+    exact_solution,
+    sample_instances,
 )
 
 __all__ = [

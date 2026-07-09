@@ -10,7 +10,7 @@ posterior handles it correctly and usefully:
 * it stays **wide along the weakly-identified direction** and tight along the
   informative one, respecting uncertainty, by construction;
 * it lets you **inject prior knowledge on theta** (the weak direction) to tighten
-  it legitimately, advice is to run a covaraite free regression on the two moments 
+  it legitimately, advice is to run a covaraite free regression on the two moments
   of the process and use the estimated theta to set up a sensible prior;
 * it exposes the kappa--theta **ridge as a posterior correlation** rather than a
   scalar SE;
@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .core import MBPP, ExponentialKernel
-from .interval_censored import ic_ll, sse_loss, _sigmoid, _logit
+from .interval_censored import _logit, _sigmoid, ic_ll
 
 
 # ===========================================================================
@@ -66,27 +66,32 @@ class GaussianPrior:
 
     def log_prob(self, u):
         z = (np.asarray(u, float) - self.means) / self.sds
-        return float(-0.5 * np.sum(z ** 2) - np.sum(np.log(self.sds)) - 0.5 * len(z) * np.log(2 * np.pi))
+        return float(
+            -0.5 * np.sum(z**2) - np.sum(np.log(self.sds)) - 0.5 * len(z) * np.log(2 * np.pi)
+        )
 
     def sample(self, rng, n=1):
         return self.means + self.sds * rng.standard_normal((n, self.means.size))
 
 
-def default_prior(kappa0=0.5, theta0=1.0, with_mu=False, mu0=1.0,
-                  sd_kappa=1.5, sd_theta=1.0, sd_mu=1.0):
+def default_prior(
+    kappa0=0.5, theta0=1.0, with_mu=False, mu0=1.0, sd_kappa=1.5, sd_theta=1.0, sd_mu=1.0
+):
     r"""Weakly-informative default prior centred at ``(kappa0, theta0[, mu0])``."""
     means = [_logit(kappa0), np.log(theta0)]
     sds = [sd_kappa, sd_theta]
     if with_mu:
-        means.append(np.log(mu0)); sds.append(sd_mu)
+        means.append(np.log(mu0))
+        sds.append(sd_mu)
     return GaussianPrior(means, sds)
 
 
 # ===========================================================================
 # Samplers and the Laplace approximation.
 # ===========================================================================
-def adaptive_metropolis(log_post, x0, n_samples=8000, burn=2000, n_chains=4,
-                        init_scale=0.1, seed=0):
+def adaptive_metropolis(
+    log_post, x0, n_samples=8000, burn=2000, n_chains=4, init_scale=0.1, seed=0
+):
     r"""
     Haario adaptive random-walk Metropolis.
 
@@ -108,13 +113,13 @@ def adaptive_metropolis(log_post, x0, n_samples=8000, burn=2000, n_chains=4,
     for c in range(n_chains):
         x = x0 + init_scale * rng.standard_normal(d)
         lp = log_post(x)
-        cov = (init_scale ** 2) * np.eye(d)
+        cov = (init_scale**2) * np.eye(d)
         hist = np.empty((n_samples, d))
         n_acc = 0
         for s in range(n_samples):
-            if s > burn and s % 50 == 0:           # adapt from the chain so far
+            if s > burn and s % 50 == 0:  # adapt from the chain so far
                 emp = np.cov(hist[:s].T) + 1e-8 * np.eye(d)
-                cov = (2.38 ** 2 / d) * emp
+                cov = (2.38**2 / d) * emp
             prop = x + rng.multivariate_normal(np.zeros(d), cov)
             lp_prop = log_post(prop)
             if np.log(rng.uniform()) < lp_prop - lp:
@@ -132,16 +137,26 @@ def laplace_posterior(neg_log_post, x_map, eps=1e-4):
     inverse Hessian of the negative log-posterior.  Cheap, and exact in the
     large-sample limit (Bernstein--von Mises).
     """
-    x = np.asarray(x_map, float); d = x.size
+    x = np.asarray(x_map, float)
+    d = x.size
     H = np.zeros((d, d))
     for i in range(d):
         for j in range(i, d):
-            xpp = x.copy(); xpp[i] += eps; xpp[j] += eps
-            xpm = x.copy(); xpm[i] += eps; xpm[j] -= eps
-            xmp = x.copy(); xmp[i] -= eps; xmp[j] += eps
-            xmm = x.copy(); xmm[i] -= eps; xmm[j] -= eps
-            H[i, j] = H[j, i] = (neg_log_post(xpp) - neg_log_post(xpm)
-                                 - neg_log_post(xmp) + neg_log_post(xmm)) / (4 * eps * eps)
+            xpp = x.copy()
+            xpp[i] += eps
+            xpp[j] += eps
+            xpm = x.copy()
+            xpm[i] += eps
+            xpm[j] -= eps
+            xmp = x.copy()
+            xmp[i] -= eps
+            xmp[j] += eps
+            xmm = x.copy()
+            xmm[i] -= eps
+            xmm[j] -= eps
+            H[i, j] = H[j, i] = (
+                neg_log_post(xpp) - neg_log_post(xpm) - neg_log_post(xmp) + neg_log_post(xmm)
+            ) / (4 * eps * eps)
     cov = np.linalg.pinv(H)
     return x, cov
 
@@ -152,7 +167,7 @@ def laplace_posterior(neg_log_post, x_map, eps=1e-4):
 def rhat(chains):
     """Gelman--Rubin R-hat per dimension; ~1.0 indicates convergence."""
     m, n, d = chains.shape
-    means = chains.mean(axis=1)                     # (m, d)
+    means = chains.mean(axis=1)  # (m, d)
     B = n * means.var(axis=0, ddof=1)
     W = chains.var(axis=1, ddof=1).mean(axis=0)
     var = (n - 1) / n * W + B / n
@@ -164,19 +179,23 @@ def rhat(chains):
 # ===========================================================================
 @dataclass
 class BayesResult:
-    samples: dict                      # natural-parameter posterior samples
+    samples: dict  # natural-parameter posterior samples
     method: str
     accept: float = None
     rhat: dict = field(default_factory=dict)
 
     def summary(self):
-        lines = [f"  posterior via {self.method}"
-                 + (f"   accept={self.accept:.2f}" if self.accept is not None else "")]
+        lines = [
+            f"  posterior via {self.method}"
+            + (f"   accept={self.accept:.2f}" if self.accept is not None else "")
+        ]
         for name, x in self.samples.items():
             lo, hi = np.percentile(x, [2.5, 97.5])
             rh = f"  R-hat={self.rhat[name]:.3f}" if name in self.rhat else ""
-            lines.append(f"  {name:7s}: mean={x.mean():.4f}  median={np.median(x):.4f}"
-                         f"  95% CrI=[{lo:.4f}, {hi:.4f}]{rh}")
+            lines.append(
+                f"  {name:7s}: mean={x.mean():.4f}  median={np.median(x):.4f}"
+                f"  95% CrI=[{lo:.4f}, {hi:.4f}]{rh}"
+            )
         if "kappa" in self.samples and "theta" in self.samples:
             r = np.corrcoef(self.samples["kappa"], self.samples["theta"])[0, 1]
             lines.append(f"  posterior corr(kappa, theta) = {r:+.3f}   (the identifiability ridge)")
@@ -186,8 +205,19 @@ class BayesResult:
 # ===========================================================================
 # High-level Bayesian fit over (kappa, theta) for a fixed exogenous.
 # ===========================================================================
-def fit_mbpp_bayes(obs_times, counts, exogenous, *, endogenous=True, method="mcmc",
-                   prior=None, n_samples=8000, burn=2000, n_chains=4, seed=0):
+def fit_mbpp_bayes(
+    obs_times,
+    counts,
+    exogenous,
+    *,
+    endogenous=True,
+    method="mcmc",
+    prior=None,
+    n_samples=8000,
+    burn=2000,
+    n_chains=4,
+    seed=0,
+):
     r"""
     Posterior over (kappa, theta) for the MBPP given interval-censored ``counts``.
 
@@ -224,8 +254,10 @@ def fit_mbpp_bayes(obs_times, counts, exogenous, *, endogenous=True, method="mcm
 
     # MAP start (cheap optimisation of -log_post)
     from ..optim import minimize_bfgs
-    res = minimize_bfgs(lambda u: -log_post(u), np.array(prior.means, float),
-                        max_iter=200, ftol=1e-10, gtol=1e-6)
+
+    res = minimize_bfgs(
+        lambda u: -log_post(u), np.array(prior.means, float), max_iter=200, ftol=1e-10, gtol=1e-6
+    )
     u_map = res.x
 
     if method == "laplace":
@@ -236,8 +268,9 @@ def fit_mbpp_bayes(obs_times, counts, exogenous, *, endogenous=True, method="mcm
         accept = None
         rh = {}
     elif method == "mcmc":
-        chains, accept = adaptive_metropolis(log_post, u_map, n_samples=n_samples,
-                                             burn=burn, n_chains=n_chains, seed=seed)
+        chains, accept = adaptive_metropolis(
+            log_post, u_map, n_samples=n_samples, burn=burn, n_chains=n_chains, seed=seed
+        )
         rkv = rhat(chains)
         rh = {"kappa": float(rkv[0]), "theta": float(rkv[1])}
     else:
@@ -251,9 +284,20 @@ def fit_mbpp_bayes(obs_times, counts, exogenous, *, endogenous=True, method="mcm
 # ===========================================================================
 # Hierarchical (partial pooling) over many sequences.
 # ===========================================================================
-def fit_mbpp_bayes_hierarchical(obs_times, counts_list, exogenous_list, *,
-                                endogenous=True, theta=1.0, n_samples=6000, burn=2000,
-                                n_chains=3, pop_mean0=0.0, pop_sd_prior=1.0, seed=0):
+def fit_mbpp_bayes_hierarchical(
+    obs_times,
+    counts_list,
+    exogenous_list,
+    *,
+    endogenous=True,
+    theta=1.0,
+    n_samples=6000,
+    burn=2000,
+    n_chains=3,
+    pop_mean0=0.0,
+    pop_sd_prior=1.0,
+    seed=0,
+):
     r"""
     Partial pooling of the branching ratio across ``J`` sequences.
 
@@ -279,7 +323,7 @@ def fit_mbpp_bayes_hierarchical(obs_times, counts_list, exogenous_list, *,
         tau = np.exp(np.clip(log_tau, -10, 5))
         uk = u[2:]
         lp = -0.5 * ((mu_pop - pop_mean0) / 1.5) ** 2 - 0.5 * (log_tau / pop_sd_prior) ** 2
-        lp += np.sum(-0.5 * ((uk - mu_pop) / tau) ** 2 - np.log(tau))   # hierarchical prior
+        lp += np.sum(-0.5 * ((uk - mu_pop) / tau) ** 2 - np.log(tau))  # hierarchical prior
         ll = 0.0
         for j in range(J):
             kappa = float(np.clip(_sigmoid(uk[j]), 1e-4, 1 - 1e-4))
@@ -291,8 +335,9 @@ def fit_mbpp_bayes_hierarchical(obs_times, counts_list, exogenous_list, *,
         return lp + ll
 
     u0 = np.concatenate([[pop_mean0, 0.0], np.full(J, pop_mean0)])
-    chains, accept = adaptive_metropolis(log_post, u0, n_samples=n_samples, burn=burn,
-                                         n_chains=n_chains, init_scale=0.2, seed=seed)
+    chains, accept = adaptive_metropolis(
+        log_post, u0, n_samples=n_samples, burn=burn, n_chains=n_chains, init_scale=0.2, seed=seed
+    )
     U = chains.reshape(-1, chains.shape[-1])
     samples = {"kappa_pop": _sigmoid(U[:, 0]), "tau": np.exp(np.clip(U[:, 1], -10, 5))}
     return BayesResult(samples=samples, method="mcmc-hierarchical", accept=accept)

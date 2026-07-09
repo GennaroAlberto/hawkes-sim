@@ -76,9 +76,9 @@ class SyntheticStartupMarket:
 class SectorCountResult:
     """Fitted weekly sector Hawkes/Poisson-GLM model."""
 
-    intercept: np.ndarray          # (M,)
-    beta: np.ndarray               # (M, p_x)
-    excitation: np.ndarray         # (M, M, L), receiver, source, lag
+    intercept: np.ndarray  # (M,)
+    beta: np.ndarray  # (M, p_x)
+    excitation: np.ndarray  # (M, M, L), receiver, source, lag
     n_lags: int
     train_end: int
     loss: float
@@ -105,9 +105,9 @@ class SectorCountResult:
 class StartupRankerResult:
     """Fitted conditional risk-set ranker."""
 
-    global_weights: np.ndarray     # (p_z,)
+    global_weights: np.ndarray  # (p_z,)
     sector_deviations: np.ndarray  # (M, p_z)
-    cooldown_coef: np.ndarray      # (M,), constrained <= 0 by default
+    cooldown_coef: np.ndarray  # (M,), constrained <= 0 by default
     cooldown_weeks: int
     loss: float
     success: bool
@@ -230,7 +230,7 @@ def fit_sector_count_model(
     # small positive starting excitation on allowed entries
     b0 = np.zeros((M, M, L), dtype=float)
     b0[mask, :] = 0.01 / max(L, 1)
-    x0[n_intercept + n_beta:] = b0.ravel()
+    x0[n_intercept + n_beta :] = b0.ravel()
 
     bounds = [(None, None)] * n
     start_b = n_intercept + n_beta
@@ -248,7 +248,7 @@ def fit_sector_count_model(
 
     def unpack(theta):
         intercept = theta[:M]
-        beta = theta[M:M + n_beta].reshape(M, p) if p else np.zeros((M, 0))
+        beta = theta[M : M + n_beta].reshape(M, p) if p else np.zeros((M, 0))
         b = theta[start_b:].reshape(M, M, L)
         return intercept, beta, b
 
@@ -276,7 +276,7 @@ def fit_sector_count_model(
                 grad_b[:, :, lag - 1] += err[:, None] * y[t - lag][None, :]
 
         # L2 shrinkage, but do not penalize intercepts.
-        loss += 0.5 * l2 * (np.sum(beta ** 2) + np.sum(b ** 2))
+        loss += 0.5 * l2 * (np.sum(beta**2) + np.sum(b**2))
         grad_beta += l2 * beta
         grad_b += l2 * b
         grad_b[~mask, :] = 0.0
@@ -284,8 +284,14 @@ def fit_sector_count_model(
         grad = np.concatenate([grad_intercept, grad_beta.ravel(), grad_b.ravel()])
         return loss, grad
 
-    opt = minimize(lambda th: objective(th), x0, jac=True, method="L-BFGS-B",
-                   bounds=bounds, options={"maxiter": int(max_iter), "ftol": 1e-9})
+    opt = minimize(
+        lambda th: objective(th),
+        x0,
+        jac=True,
+        method="L-BFGS-B",
+        bounds=bounds,
+        options={"maxiter": int(max_iter), "ftol": 1e-9},
+    )
     intercept, beta, b = unpack(opt.x)
     b[~mask, :] = 0.0
     return SectorCountResult(
@@ -303,7 +309,7 @@ def fit_sector_count_model(
 def sector_baseline_rates(sector_counts, train_end, start, end):
     """Historical-mean baseline rates for held-out sector count scoring."""
     y = np.asarray(sector_counts, dtype=float)
-    mu = np.maximum(y[:int(train_end)].mean(axis=0), 1e-12)
+    mu = np.maximum(y[: int(train_end)].mean(axis=0), 1e-12)
     return np.repeat(mu[None, :], int(end) - int(start), axis=0)
 
 
@@ -395,7 +401,7 @@ def fit_startup_ranker(
     n_eta = M
     n = n_w0 + n_u + n_eta
     x0 = np.zeros(n, dtype=float)
-    x0[n_w0 + n_u:] = -0.5
+    x0[n_w0 + n_u :] = -0.5
 
     bounds = [(None, None)] * n
     if constrain_cooldown_negative:
@@ -413,12 +419,13 @@ def fit_startup_ranker(
         prepared.append((int(t), int(s), cand, chosen_pos, cd))
     if not prepared:
         raise ValueError(
-            "no training events had a non-empty risk set containing the funded startup")
+            "no training events had a non-empty risk set containing the funded startup"
+        )
 
     def unpack(theta):
         w0 = theta[:p]
-        u = theta[p:p + n_u].reshape(M, p) if p else np.zeros((M, 0))
-        eta = theta[p + n_u:p + n_u + M]
+        u = theta[p : p + n_u].reshape(M, p) if p else np.zeros((M, 0))
+        eta = theta[p + n_u : p + n_u + M]
         return w0, u, eta
 
     def objective(theta):
@@ -442,16 +449,22 @@ def fit_startup_ranker(
             gu[s] += diff_f
             geta[s] += diff_cd
 
-        loss += 0.5 * l2_global * np.sum(w0 ** 2)
-        loss += 0.5 * l2_sector * (np.sum(u ** 2) + np.sum(eta ** 2))
+        loss += 0.5 * l2_global * np.sum(w0**2)
+        loss += 0.5 * l2_sector * (np.sum(u**2) + np.sum(eta**2))
         gw0 += l2_global * w0
         gu += l2_sector * u
         geta += l2_sector * eta
         grad = np.concatenate([gw0, gu.ravel(), geta])
         return loss, grad
 
-    opt = minimize(lambda th: objective(th), x0, jac=True, method="L-BFGS-B",
-                   bounds=bounds, options={"maxiter": int(max_iter), "ftol": 1e-9})
+    opt = minimize(
+        lambda th: objective(th),
+        x0,
+        jac=True,
+        method="L-BFGS-B",
+        bounds=bounds,
+        options={"maxiter": int(max_iter), "ftol": 1e-9},
+    )
     w0, u, eta = unpack(opt.x)
     return StartupRankerResult(
         global_weights=w0,
@@ -494,8 +507,15 @@ def evaluate_ranker(
     used = 0
 
     for t, s, chosen in use:
-        cand, prob = ranker_predict_proba(result, startup_features, startup_sector, active,
-                                          startup_counts, week=int(t), sector=int(s))
+        cand, prob = ranker_predict_proba(
+            result,
+            startup_features,
+            startup_sector,
+            active,
+            startup_counts,
+            week=int(t),
+            sector=int(s),
+        )
         if cand.size == 0 or chosen not in set(cand.tolist()):
             continue
         pos = int(np.where(cand == chosen)[0][0])
@@ -600,7 +620,7 @@ def simulate_synthetic_startup_market(
     late = rng.random(N) < 0.25
     entry_week[~late] = 0
     for i in range(N):
-        active[:entry_week[i], i] = False
+        active[: entry_week[i], i] = False
 
     # True sector model: sparse positive excitation matrix with strong diagonals.
     intercept = rng.normal(float(base_log_rate), 0.25, size=M)
@@ -618,7 +638,7 @@ def simulate_synthetic_startup_market(
         for r in peers:
             excitation[s, r, :] = rng.uniform(0.015, 0.045) * decay
     if excitation_radius is not None:
-        agg = excitation.sum(axis=2)                      # branching matrix G = sum_l b_l
+        agg = excitation.sum(axis=2)  # branching matrix G = sum_l b_l
         rho = float(np.max(np.abs(np.linalg.eigvals(agg))))
         if rho > 0:
             excitation *= float(excitation_radius) / rho  # set the true aggregate radius
@@ -723,21 +743,21 @@ def simulate_marked_paths(
             rates = sector_rate_at(sector_model, sector_counts, covariates, t)
             y_t = rng.poisson(rates)
             if cap is not None:
-                y_t = np.minimum(y_t, cap)      # keep only the first K events per sector-week
+                y_t = np.minimum(y_t, cap)  # keep only the first K events per sector-week
             # Physical guard: a sector cannot fund more *distinct* startups than are
             # live in its risk set this week.  This also makes the simulation safe by
             # construction -- if the fitted sector model is near/over critical, the
             # rate can otherwise blow up and the inner event loop would run for an
             # astronomically large Poisson draw.
-            avail = np.array(
-                [candidate_set(startup_sector, active, s, t).size for s in range(M)])
+            avail = np.array([candidate_set(startup_sector, active, s, t).size for s in range(M)])
             y_t = np.minimum(y_t, avail)
             sector_counts[t] = y_t
             chosen_this_week: set[int] = set()
             for s in range(M):
                 for _ in range(int(y_t[s])):
-                    cand, prob = ranker_predict_proba(ranker, Z, startup_sector, active,
-                                                       startup_counts, week=t, sector=s)
+                    cand, prob = ranker_predict_proba(
+                        ranker, Z, startup_sector, active, startup_counts, week=t, sector=s
+                    )
                     if cand.size == 0:
                         continue
                     keep = np.array([i not in chosen_this_week for i in cand], dtype=bool)

@@ -10,14 +10,14 @@ import numpy as np
 # Prior box over the scalar parameters (used for PINN/PINO sampling and for the
 # amortised-inference training distribution).
 PARAM_BOX = {
-    "kappa": (0.10, 0.95),   # branching ratio (well identified)
-    "theta": (0.40, 2.50),   # decay (weakly identified)
-    "mu": (0.50, 3.00),      # constant baseline
+    "kappa": (0.10, 0.95),  # branching ratio (well identified)
+    "theta": (0.40, 2.50),  # decay (weakly identified)
+    "mu": (0.50, 3.00),  # constant baseline
     "delta": (-1.00, 1.50),  # covariate effect on excitation
 }
 PARAM_ORDER = ("kappa", "theta", "mu", "delta")
 
-KERNELS = ("exp", "sumexp3", "powerlaw")        # data-generating kernels to sweep
+KERNELS = ("exp", "sumexp3", "powerlaw")  # data-generating kernels to sweep
 COV_LEVELS = {"none": 0.0, "small": 0.35, "large": 0.8}
 
 T_DEFAULT = 60.0
@@ -63,6 +63,7 @@ def sample_params_stable(n, seed=0, zmax=0.5, cap=0.9):
 
 def results_dir():
     import os
+
     d = os.path.join("results", "learning")
     os.makedirs(d, exist_ok=True)
     return d

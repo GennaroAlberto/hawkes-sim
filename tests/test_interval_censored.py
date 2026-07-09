@@ -20,11 +20,24 @@ Run with:  python -m pytest tests/ -q     (or: python tests/test_interval_censor
 import numpy as np
 
 from hawkes_calibration import (
-    MBPP, ExponentialKernel, kappa_theta_to_alpha_beta, alpha_beta_to_kappa_theta,
-    Constant, Rectangle, LHPP, MultiImpulse,
-    simulate_separable_hawkes, interval_censor, uniform_obs_times,
-    fit_mbpp_ic_multi, forecast_counts, ic_ll, sse_loss,
-    PiecewiseConstantCovariate, CovariateExogenous, fit_mbpp_ic_covariates,
+    LHPP,
+    MBPP,
+    Constant,
+    CovariateExogenous,
+    ExponentialKernel,
+    MultiImpulse,
+    PiecewiseConstantCovariate,
+    Rectangle,
+    alpha_beta_to_kappa_theta,
+    fit_mbpp_ic_covariates,
+    fit_mbpp_ic_multi,
+    forecast_counts,
+    ic_ll,
+    interval_censor,
+    kappa_theta_to_alpha_beta,
+    simulate_separable_hawkes,
+    sse_loss,
+    uniform_obs_times,
 )
 
 
@@ -74,7 +87,9 @@ def test_mbpp_equals_mean_hawkes_intensity():
     acc = np.zeros_like(grid)
     N = 3000
     for _ in range(N):
-        imm, off = simulate_separable_hawkes(MultiImpulse([a]), kappa, theta, T, seed=int(rng.integers(1e9)))
+        imm, off = simulate_separable_hawkes(
+            MultiImpulse([a]), kappa, theta, T, seed=int(rng.integers(1e9))
+        )
         for ti in np.concatenate([imm, off]):
             mm = grid > ti
             acc[mm] += kappa * theta * np.exp(-theta * (grid[mm] - ti))
@@ -102,11 +117,13 @@ def test_ic_ll_recovers_branching_ratio():
     obs = uniform_obs_times(T, 30)
     counts_list, exo_list = [], []
     for _ in range(20):
-        imm, off = simulate_separable_hawkes(exo_gen, kappa_true, theta_true, T, seed=int(rng.integers(1e9)))
+        imm, off = simulate_separable_hawkes(
+            exo_gen, kappa_true, theta_true, T, seed=int(rng.integers(1e9))
+        )
         counts_list.append(interval_censor(off, obs))
         exo_list.append(LHPP(obs, interval_censor(imm, obs)))
     res = fit_mbpp_ic_multi(obs, counts_list, exo_list, loss="ic-ll", endogenous=True, n_restarts=2)
-    assert abs(res.kappa - kappa_true) < 0.05   # branching ratio recovered tightly
+    assert abs(res.kappa - kappa_true) < 0.05  # branching ratio recovered tightly
 
 
 def test_forecast_unbiased_at_truth():
@@ -119,9 +136,11 @@ def test_forecast_unbiased_at_truth():
     for _ in range(25):
         imm, off = simulate_separable_hawkes(exo, kappa, theta, Tfull, seed=int(rng.integers(1e9)))
         counts = interval_censor(np.sort(np.concatenate([imm, off])), obs_all)
-        pred = forecast_counts(kappa, theta, Constant(mu, Tfull), obs_all[:91], counts[:90], obs_all[90:])
+        pred = forecast_counts(
+            kappa, theta, Constant(mu, Tfull), obs_all[:91], counts[:90], obs_all[90:]
+        )
         rels.append((pred.sum() - counts[90:].sum()) / counts[90:].sum())
-    assert abs(np.mean(rels)) < 0.07   # mass-exact recursion -> <~MC noise
+    assert abs(np.mean(rels)) < 0.07  # mass-exact recursion -> <~MC noise
 
 
 def test_covariate_exogenous_loglinear_rates():
@@ -154,8 +173,8 @@ def test_covariate_fit_recovers_effect():
         imm, off = simulate_separable_hawkes(exo, kappa, theta, T, seed=int(rng.integers(1e9)))
         counts.append(interval_censor(np.sort(np.concatenate([imm, off])), obs))
     res = fit_mbpp_ic_covariates(obs, counts, cov, loss="ic-ll", endogenous=False, n_restarts=3)
-    assert abs(res.gamma[0] - g1) < 0.2          # covariate effect recovered
-    assert 0.25 < res.kappa < 0.85               # branching ratio in a sane range
+    assert abs(res.gamma[0] - g1) < 0.2  # covariate effect recovered
+    assert 0.25 < res.kappa < 0.85  # branching ratio in a sane range
 
 
 def test_losses_basic():

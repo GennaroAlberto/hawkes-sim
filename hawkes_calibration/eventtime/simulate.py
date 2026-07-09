@@ -12,7 +12,9 @@ set of "events" that need to refresh the upper bound.
 """
 
 from __future__ import annotations
+
 import numpy as np
+
 from .covariates import baseline_value
 
 
@@ -142,10 +144,7 @@ def simulate_multivariate_hawkes(
         # Decay S to t_candidate
         S_new = S * np.exp(-beta * (t_candidate - t))
         baseline_cand = np.array(
-            [
-                baseline_value(covariate, t_candidate, gamma0[m], gamma[m])
-                for m in range(M)
-            ]
+            [baseline_value(covariate, t_candidate, gamma0[m], gamma[m]) for m in range(M)]
         )
         lam_new = baseline_cand + (alpha * S_new).sum(axis=1)
         lam_new = np.maximum(lam_new, 0.0)

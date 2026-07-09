@@ -75,12 +75,13 @@ except ImportError:  # pragma: no cover
 @dataclass
 class BlockHawkesData:
     """An event-time panel for an open population of firms."""
-    events: np.ndarray          # (n, 2) columns [time, firm_index]
-    firm_sector: np.ndarray     # (N,) sector id per firm
-    entry: np.ndarray           # (N,) at-risk start time
-    exit: np.ndarray            # (N,) at-risk end time
-    X: np.ndarray               # (N, p) static firm covariates (may be (N,0))
-    T: float                    # observation horizon
+
+    events: np.ndarray  # (n, 2) columns [time, firm_index]
+    firm_sector: np.ndarray  # (N,) sector id per firm
+    entry: np.ndarray  # (N,) at-risk start time
+    exit: np.ndarray  # (N,) at-risk end time
+    X: np.ndarray  # (N, p) static firm covariates (may be (N,0))
+    T: float  # observation horizon
     n_sectors: int
 
     @property
@@ -94,13 +95,13 @@ class BlockHawkesData:
 
 @dataclass
 class BlockHawkesResult:
-    a: np.ndarray               # (M,) sector log-baselines
-    beta: np.ndarray            # (M, p) sector covariate coefficients
-    rho: np.ndarray             # (M,) self-inhibition (>=0 => inhibitory via exp link)
-    A: np.ndarray               # (M, M) block excitation matrix (masked)
-    w_self: float               # fixed self decay
-    w_cross: float              # fixed cross decay
-    mask: np.ndarray            # (M, M) bool, allowed excitation entries
+    a: np.ndarray  # (M,) sector log-baselines
+    beta: np.ndarray  # (M, p) sector covariate coefficients
+    rho: np.ndarray  # (M,) self-inhibition (>=0 => inhibitory via exp link)
+    A: np.ndarray  # (M, M) block excitation matrix (masked)
+    w_self: float  # fixed self decay
+    w_cross: float  # fixed cross decay
+    mask: np.ndarray  # (M, M) bool, allowed excitation entries
     loglik: float
     success: bool
     message: str
@@ -113,7 +114,8 @@ class BlockHawkesResult:
         lines = [
             f"  log-likelihood = {self.loglik:.3f}   (events={self.n_events}, grid={self.n_grid})",
             f"  sector baselines a      = {np.round(self.a, 3).tolist()}",
-            f"  self-inhibition rho     = {np.round(self.rho, 3).tolist()}   (>=0 => recent own funding lowers the rate)",
+            f"  self-inhibition rho     = {np.round(self.rho, 3).tolist()}   "
+            f"(>=0 => recent own funding lowers the rate)",
             f"  block excitation A diag = {np.round(np.diag(self.A), 3).tolist()}",
             f"  decays: w_self={self.w_self:.3f}  w_cross={self.w_cross:.3f}",
         ]
@@ -149,7 +151,7 @@ def _decay_field(dN, dt, w):
 
 def _at_risk(entry, exit, n_grid, dt):
     """``Y[i, g] = 1`` while firm i is at risk at the left edge of cell g."""
-    g = (np.arange(n_grid) + 0.5) * dt              # cell midpoints
+    g = (np.arange(n_grid) + 0.5) * dt  # cell midpoints
     Y = ((entry[:, None] <= g[None, :]) & (g[None, :] < exit[:, None])).astype(float)
     return Y
 
@@ -161,10 +163,10 @@ def _prepare_grid(data: BlockHawkesData, n_grid, w_self, w_cross):
     dt = T / n_grid
     dN = _bin_events(data.events, N, n_grid, dt)
     Y = _at_risk(np.asarray(data.entry, float), np.asarray(data.exit, float), n_grid, dt)
-    F_self = _decay_field(dN, dt, w_self)           # (N, G) -> R_i (own recency)
-    F_cross = _decay_field(dN, dt, w_cross)         # (N, G) own field at cross decay
+    F_self = _decay_field(dN, dt, w_self)  # (N, G) -> R_i (own recency)
+    F_cross = _decay_field(dN, dt, w_cross)  # (N, G) own field at cross decay
     sec = np.asarray(data.firm_sector, int)
-    nb = np.maximum(np.bincount(sec, minlength=M), 1)          # firms per sector
+    nb = np.maximum(np.bincount(sec, minlength=M), 1)  # firms per sector
     # sector aggregate, normalised by sector size so excitation responds to the
     # *average* recent activity (N-independent, keeps the process well-scaled):
     #   Sn[b, g] = (1/n_b) sum_{j in b} F_cross[j, g]
@@ -173,24 +175,36 @@ def _prepare_grid(data: BlockHawkesData, n_grid, w_self, w_cross):
         idx = np.flatnonzero(sec == b)
         if idx.size:
             Sn[b] = F_cross[idx].sum(axis=0) / nb[b]
-    Fc_norm = F_cross / nb[sec][:, None]            # own contribution, same 1/n_b scale
-    return dict(dt=dt, dN=dN, Y=Y, F_self=F_self, Fc_norm=Fc_norm, Sn=Sn,
-                sec=sec, nb=nb, N=N, M=M, G=n_grid, X=np.asarray(data.X, float))
+    Fc_norm = F_cross / nb[sec][:, None]  # own contribution, same 1/n_b scale
+    return dict(
+        dt=dt,
+        dN=dN,
+        Y=Y,
+        F_self=F_self,
+        Fc_norm=Fc_norm,
+        Sn=Sn,
+        sec=sec,
+        nb=nb,
+        N=N,
+        M=M,
+        G=n_grid,
+        X=np.asarray(data.X, float),
+    )
 
 
 # ---------------------------------------------------------------------------
 # Parameter packing
 # ---------------------------------------------------------------------------
 def _dims(M, p):
-    return M, M * p, M, M * M            # a, beta, rho, A
+    return M, M * p, M, M * M  # a, beta, rho, A
 
 
 def _unpack(theta, M, p):
     na, nb, nr, nA = _dims(M, p)
     a = theta[:na]
-    beta = theta[na:na + nb].reshape(M, p) if p else np.zeros((M, 0))
-    rho = theta[na + nb:na + nb + nr]
-    A = theta[na + nb + nr:na + nb + nr + nA].reshape(M, M)
+    beta = theta[na : na + nb].reshape(M, p) if p else np.zeros((M, 0))
+    rho = theta[na + nb : na + nb + nr]
+    A = theta[na + nb + nr : na + nb + nr + nA].reshape(M, M)
     return a, beta, rho, A
 
 
@@ -199,13 +213,11 @@ def _eta(prep, a, beta, rho, A):
     sec, X = prep["sec"], prep["X"]
     base = a[sec].astype(float)
     if X.shape[1]:
-        base = base + (X * beta[sec]).sum(axis=1)   # per-firm covariate baseline
+        base = base + (X * beta[sec]).sum(axis=1)  # per-firm covariate baseline
     # cross excitation: sum_b A[s(i), b] Sn[b]  minus the firm's own contribution at diag
-    cross = A[sec] @ prep["Sn"]                     # (N, G)
+    cross = A[sec] @ prep["Sn"]  # (N, G)
     self_in_cross = A[sec, sec][:, None] * prep["Fc_norm"]
-    eta = (base[:, None]
-           - rho[sec][:, None] * prep["F_self"]
-           + cross - self_in_cross)
+    eta = base[:, None] - rho[sec][:, None] * prep["F_self"] + cross - self_in_cross
     return eta
 
 
@@ -220,12 +232,12 @@ def _nll_and_grad(theta, prep, M, p, l2, mask_flat):
     eta = _eta(prep, a, beta, rho, A)
     np.clip(eta, -30.0, 20.0, out=eta)
     lam = np.exp(eta)
-    comp = Y * lam * dt                             # expected counts per cell
+    comp = Y * lam * dt  # expected counts per cell
     # log-likelihood: sum dN*eta - sum comp
     ll = float(np.sum(dN * eta) - np.sum(comp))
-    r = dN - comp                                   # (N, G) residual (observed - expected)
+    r = dN - comp  # (N, G) residual (observed - expected)
 
-    Rsum = r.sum(axis=1)                            # (N,)
+    Rsum = r.sum(axis=1)  # (N,)
     g_a = np.bincount(sec, weights=Rsum, minlength=M)
     if p:
         g_beta = np.zeros((M, p))
@@ -235,12 +247,12 @@ def _nll_and_grad(theta, prep, M, p, l2, mask_flat):
                 g_beta[s] = (X[idx] * Rsum[idx][:, None]).sum(axis=0)
     else:
         g_beta = np.zeros((M, 0))
-    rF_self = (r * prep["F_self"]).sum(axis=1)      # (N,)
+    rF_self = (r * prep["F_self"]).sum(axis=1)  # (N,)
     g_rho = -np.bincount(sec, weights=rF_self, minlength=M)
 
     # g_A[s, b] = sum_{i in s} ( r_i . Sn[b] )  - (b==s) sum_{i in s} r_i.Fc_norm_i
-    RS = r @ prep["Sn"].T                           # (N, M)
-    rF_cross = (r * prep["Fc_norm"]).sum(axis=1)    # (N,)
+    RS = r @ prep["Sn"].T  # (N, M)
+    rF_cross = (r * prep["Fc_norm"]).sum(axis=1)  # (N,)
     g_A = np.zeros((M, M))
     for s in range(M):
         idx = np.flatnonzero(sec == s)
@@ -249,17 +261,16 @@ def _nll_and_grad(theta, prep, M, p, l2, mask_flat):
             g_A[s, s] -= rF_cross[idx].sum()
 
     # ridge on beta and A (not on a, rho)
-    ll -= 0.5 * l2 * (float(np.sum(beta ** 2)) + float(np.sum(A ** 2)))
+    ll -= 0.5 * l2 * (float(np.sum(beta**2)) + float(np.sum(A**2)))
     g_beta -= l2 * beta
     g_A -= l2 * A
 
     grad = np.concatenate([g_a, g_beta.ravel(), g_rho, g_A.ravel()])
-    grad *= mask_flat                               # zero gradient on disallowed A entries
+    grad *= mask_flat  # zero gradient on disallowed A entries
     return -ll, -grad
 
 
-def block_hawkes_loglik(data, result_or_theta, *, n_grid=None, w_self=None, w_cross=None,
-                        l2=0.0):
+def block_hawkes_loglik(data, result_or_theta, *, n_grid=None, w_self=None, w_cross=None, l2=0.0):
     """Return ``(loglik, gradient)`` at a parameter point (a fitted result or a vector)."""
     if isinstance(result_or_theta, BlockHawkesResult):
         res = result_or_theta
@@ -279,7 +290,7 @@ def block_hawkes_loglik(data, result_or_theta, *, n_grid=None, w_self=None, w_cr
 def _mask_flat(mask, M, p):
     na, nb, nr, nA = _dims(M, p)
     mf = np.ones(na + nb + nr + nA)
-    mf[na + nb + nr:] = np.asarray(mask, float).ravel()
+    mf[na + nb + nr :] = np.asarray(mask, float).ravel()
     return mf
 
 
@@ -328,9 +339,10 @@ def fit_block_hawkes(
     rate0 = data.n_events / max(at_risk_time.sum(), 1e-6)
     x0 = np.zeros(n)
     x0[:na] = np.log(max(rate0, 1e-3))
-    x0[na + nb:na + nb + nr] = 0.2                  # rho start (>0)
-    A0 = np.zeros((M, M)); A0[mask] = 0.05
-    x0[na + nb + nr:] = A0.ravel()
+    x0[na + nb : na + nb + nr] = 0.2  # rho start (>0)
+    A0 = np.zeros((M, M))
+    A0[mask] = 0.05
+    x0[na + nb + nr :] = A0.ravel()
 
     bounds = [(None, None)] * n
     if nonneg_self_inhibition:
@@ -350,15 +362,31 @@ def fit_block_hawkes(
         hist.append(nll)
         return nll, ngrad
 
-    opt = minimize(fun, x0, jac=True, method="L-BFGS-B", bounds=bounds,
-                   options={"maxiter": int(max_iter), "ftol": 1e-9})
+    opt = minimize(
+        fun,
+        x0,
+        jac=True,
+        method="L-BFGS-B",
+        bounds=bounds,
+        options={"maxiter": int(max_iter), "ftol": 1e-9},
+    )
     a, beta, rho, A = _unpack(opt.x, M, p)
     A = A * mask
     return BlockHawkesResult(
-        a=a, beta=beta, rho=rho, A=A, w_self=float(w_self), w_cross=float(w_cross),
-        mask=mask, loglik=float(-opt.fun), success=bool(opt.success),
-        message=str(opt.message), n_events=int(data.n_events), n_grid=int(n_grid),
-        l2=float(l2), history=hist,
+        a=a,
+        beta=beta,
+        rho=rho,
+        A=A,
+        w_self=float(w_self),
+        w_cross=float(w_cross),
+        mask=mask,
+        loglik=float(-opt.fun),
+        success=bool(opt.success),
+        message=str(opt.message),
+        n_events=int(data.n_events),
+        n_grid=int(n_grid),
+        l2=float(l2),
+        history=hist,
     )
 
 
@@ -394,13 +422,14 @@ def evaluate_block_hawkes(data, result, *, n_grid=None):
     eta = _eta(prep, result.a, result.beta, result.rho, result.A)
     np.clip(eta, -30.0, 20.0, out=eta)
     lam = prep["Y"] * np.exp(eta)
-    Lam = np.cumsum(lam * prep["dt"], axis=1)        # (N, G)
+    Lam = np.cumsum(lam * prep["dt"], axis=1)  # (N, G)
     dt = prep["dt"]
     taus = []
     ev = data.events[np.argsort(data.events[:, 0])]
     last = {}
     for t, i in ev:
-        i = int(i); g = int(min(t / dt, n_grid - 1))
+        i = int(i)
+        g = int(min(t / dt, n_grid - 1))
         if i in last:
             taus.append(float(Lam[i, g] - last[i]))
         last[i] = float(Lam[i, g])
@@ -462,20 +491,20 @@ def simulate_block_hawkes(
 
     if mask is None:
         mask = np.eye(M, dtype=bool)
-        for s in range(M):                          # a couple of cross links
+        for s in range(M):  # a couple of cross links
             mask[s, (s + 1) % M] = True
     mask = np.asarray(mask, bool)
     if a is None:
         a = np.full(M, -3.2) + rng.normal(0, 0.1, M)
     if rho is None:
-        rho = rng.uniform(0.6, 1.1, M)              # genuine self-inhibition
+        rho = rng.uniform(0.6, 1.1, M)  # genuine self-inhibition
     if beta is None:
         beta = rng.normal(0.0, 0.3, size=(M, p_covariates)) if p_covariates else np.zeros((M, 0))
     if A is None:
         A = np.zeros((M, M))
-        A[np.arange(M), np.arange(M)] = rng.uniform(0.5, 0.9, M)   # within-sector
+        A[np.arange(M), np.arange(M)] = rng.uniform(0.5, 0.9, M)  # within-sector
         for s in range(M):
-            A[s, (s + 1) % M] = rng.uniform(0.1, 0.3)              # cross-sector
+            A[s, (s + 1) % M] = rng.uniform(0.1, 0.3)  # cross-sector
     A = A * mask
 
     dt = T / n_grid
@@ -488,8 +517,8 @@ def simulate_block_hawkes(
     early = rng.choice(N, size=n_early, replace=False)
     exit[early] = np.minimum(T, entry[early] + rng.uniform(0.2 * T, 0.6 * T, size=n_early))
 
-    nb = np.maximum(np.bincount(sec, minlength=M), 1)        # firms per sector
-    base = a[sec] + ((X * beta[sec]).sum(axis=1) if X.shape[1] else 0.0)   # (N,)
+    nb = np.maximum(np.bincount(sec, minlength=M), 1)  # firms per sector
+    base = a[sec] + ((X * beta[sec]).sum(axis=1) if X.shape[1] else 0.0)  # (N,)
     F_self = np.zeros(N)
     F_cross = np.zeros(N)
     decay_s = np.exp(-w_self * dt)
@@ -499,7 +528,7 @@ def simulate_block_hawkes(
         t = g * dt
         Sraw = np.zeros(M)
         np.add.at(Sraw, sec, F_cross)
-        Sn = Sraw / nb                                      # size-normalised sector field
+        Sn = Sraw / nb  # size-normalised sector field
         cross = A[sec] @ Sn - A[sec, sec] * (F_cross / nb[sec])
         eta = base - rho[sec] * F_self + cross
         at_risk = (entry <= t) & (t < exit)
@@ -515,8 +544,9 @@ def simulate_block_hawkes(
             F_self[i] += counts[i]
             F_cross[i] += counts[i]
     events = np.array(sorted(events), dtype=float) if events else np.zeros((0, 2))
-    data = BlockHawkesData(events=events, firm_sector=sec, entry=entry, exit=exit,
-                           X=X, T=float(T), n_sectors=M)
+    data = BlockHawkesData(
+        events=events, firm_sector=sec, entry=entry, exit=exit, X=X, T=float(T), n_sectors=M
+    )
     truth = dict(a=a, beta=beta, rho=rho, A=A, mask=mask, w_self=w_self, w_cross=w_cross)
     return data, truth
 

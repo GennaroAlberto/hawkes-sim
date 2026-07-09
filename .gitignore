@@ -25,3 +25,6 @@ htmlcov/
 *.toc
 *.log
 *.tmp
+
+# generated synthetic worlds (regenerate: python -m synthetic.generate)
+data/

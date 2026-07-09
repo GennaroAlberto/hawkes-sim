@@ -26,6 +26,7 @@ except ImportError:  # pragma: no cover - exercised only without SciPy
     def expit(x):
         return 1.0 / (1.0 + np.exp(-np.clip(np.asarray(x, float), -500.0, 500.0)))
 
+
 from .sector_ranker import candidate_set, cooldown_vector
 
 
@@ -166,11 +167,15 @@ def fit_discrete_hazard(
 
     def unpack(theta):
         k = 0
-        intercept = float(theta[k]); k += 1
-        sector_intercept = theta[k:k + M]; k += M
-        w0 = theta[k:k + p]; k += p
-        u = theta[k:k + M * p].reshape(M, p) if p else np.zeros((M, 0)); k += M * p
-        eta = theta[k:k + M]
+        intercept = float(theta[k])
+        k += 1
+        sector_intercept = theta[k : k + M]
+        k += M
+        w0 = theta[k : k + p]
+        k += p
+        u = theta[k : k + M * p].reshape(M, p) if p else np.zeros((M, 0))
+        k += M * p
+        eta = theta[k : k + M]
         return intercept, sector_intercept, w0, u, eta
 
     def objective(theta):
@@ -179,10 +184,12 @@ def fit_discrete_hazard(
         linear += np.sum(F * (w0[None, :] + u[sectors]), axis=1)
         linear += eta[sectors] * cd
         prob = expit(np.clip(linear, -40.0, 40.0))
-        loss = -float(np.sum(
-            y * np.log(np.maximum(prob, 1e-12))
-            + (1.0 - y) * np.log(np.maximum(1.0 - prob, 1e-12))
-        ))
+        loss = -float(
+            np.sum(
+                y * np.log(np.maximum(prob, 1e-12))
+                + (1.0 - y) * np.log(np.maximum(1.0 - prob, 1e-12))
+            )
+        )
         err = prob - y
 
         g_intercept = np.array([err.sum()])
@@ -197,10 +204,8 @@ def fit_discrete_hazard(
         g_eta = np.zeros(M)
         np.add.at(g_eta, sectors, err * cd)
 
-        loss += 0.5 * l2_global * np.sum(w0 ** 2)
-        loss += 0.5 * l2_sector * (
-            np.sum(sector_intercept ** 2) + np.sum(u ** 2) + np.sum(eta ** 2)
-        )
+        loss += 0.5 * l2_global * np.sum(w0**2)
+        loss += 0.5 * l2_sector * (np.sum(sector_intercept**2) + np.sum(u**2) + np.sum(eta**2))
         g_w0 += l2_global * w0
         g_sector_intercept += l2_sector * sector_intercept
         g_u += l2_sector * u

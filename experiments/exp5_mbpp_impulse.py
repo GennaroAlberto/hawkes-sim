@@ -13,22 +13,21 @@ Panels (b-d): rectangle, Dassios-Zhao, and sinusoidal exogenous functions (Fig. 
 Output: results/exp5_mbpp_impulse.png and results/exp5_mbpp_impulse.json.
 """
 
-import os
 import json
+import os
 
-import numpy as np
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from hawkes_calibration.mbpp import MBPP, ExponentialKernel
-from hawkes_calibration.mbpp.exogenous import MultiImpulse, Rectangle, Dassios, Sine
+from hawkes_calibration.mbpp.exogenous import Dassios, MultiImpulse, Rectangle, Sine
 from hawkes_calibration.mbpp.ic_simulate import simulate_separable_hawkes
 
 
-def _hawkes_mean_intensity(exo, kappa, theta, T, grid, n_real, seed,
-                           include_exo_curve=None):
+def _hawkes_mean_intensity(exo, kappa, theta, T, grid, n_real, seed, include_exo_curve=None):
     """Monte-Carlo mean of the Hawkes intensity on `grid` over `n_real` runs."""
     rng = np.random.default_rng(seed)
     acc = np.zeros_like(grid)
@@ -43,9 +42,9 @@ def _hawkes_mean_intensity(exo, kappa, theta, T, grid, n_real, seed,
             m = grid > ti
             lam[m] += kappa * theta * np.exp(-theta * (grid[m] - ti))
         acc += lam
-        acc_sq += lam ** 2
+        acc_sq += lam**2
     mean = acc / n_real
-    var = np.maximum(acc_sq / n_real - mean ** 2, 0.0)
+    var = np.maximum(acc_sq / n_real - mean**2, 0.0)
     return mean, np.sqrt(var)
 
 
@@ -65,19 +64,35 @@ def run(seed=0, out_dir="results", n_real=4000):
     xi = MBPP(ExponentialKernel(kappa, theta), exo, method="closed").intensity(grid)
     ax = axes[0, 0]
     ax.plot(grid, mean, "k-", lw=1.5, label="Hawkes mean (MC)")
-    ax.fill_between(grid, np.maximum(mean - 1.96 * sd, 0.0), mean + 1.96 * sd, color="grey", alpha=0.25,
-                    label="Hawkes 95% band")
+    ax.fill_between(
+        grid,
+        np.maximum(mean - 1.96 * sd, 0.0),
+        mean + 1.96 * sd,
+        color="grey",
+        alpha=0.25,
+        label="Hawkes 95% band",
+    )
     ax.plot(grid, xi, "b--", lw=2, label="MBPP $\\xi(t)$ (closed form)")
     ax.axvline(a, color="r", lw=1, alpha=0.7, label="exogenous impulse")
     ax.set_title(f"(a) single impulse  $\\kappa$={kappa}, $\\theta$={theta}")
-    ax.set_xlabel("time"); ax.set_ylabel("intensity"); ax.legend(fontsize=8)
-    summary["impulse"] = dict(kappa=kappa, theta=theta,
-                              max_abs_err=float(np.max(np.abs(mean[grid > a + 0.2] - xi[grid > a + 0.2]))))
+    ax.set_xlabel("time")
+    ax.set_ylabel("intensity")
+    ax.legend(fontsize=8)
+    summary["impulse"] = dict(
+        kappa=kappa,
+        theta=theta,
+        max_abs_err=float(np.max(np.abs(mean[grid > a + 0.2] - xi[grid > a + 0.2]))),
+    )
 
     # ---- (b-d) rectangle, Dassios, sine: Fig. 3 (subcritical) ------------
     kappa, theta = 0.6, 0.8
     panels = [
-        ("(b) rectangle", Rectangle(5.0, 12.0, 2.0), axes[0, 1], lambda g: Rectangle(5.0, 12.0, 2.0).intensity(g)),
+        (
+            "(b) rectangle",
+            Rectangle(5.0, 12.0, 2.0),
+            axes[0, 1],
+            lambda g: Rectangle(5.0, 12.0, 2.0).intensity(g),
+        ),
         ("(c) Dassios-Zhao", Dassios(u0=4.0, kappa=kappa, theta=theta), axes[1, 0], None),
         ("(d) sine", Sine(alpha=2.0), axes[1, 1], lambda g: Sine(alpha=2.0).intensity(g)),
     ]
@@ -86,18 +101,23 @@ def run(seed=0, out_dir="results", n_real=4000):
         # exogenous curve for the Monte-Carlo intensity (Dassios depends on kappa,theta)
         if isinstance(exo, Dassios):
             exo_curve = lambda g, e=exo: e.s_of(g, kappa, theta)
-        mean, sd = _hawkes_mean_intensity(exo, kappa, theta, T, grid, n_real,
-                                          seed + 1, include_exo_curve=exo_curve)
+        mean, sd = _hawkes_mean_intensity(
+            exo, kappa, theta, T, grid, n_real, seed + 1, include_exo_curve=exo_curve
+        )
         xi = m.intensity(grid)
         if exo_curve is not None:
             xi = xi  # closed-form already includes s(t) for rate-type exogenous
         ax.plot(grid, mean, "k-", lw=1.5, label="Hawkes mean (MC)")
-        ax.fill_between(grid, np.maximum(mean - 1.96 * sd, 0.0), mean + 1.96 * sd, color="grey", alpha=0.25)
+        ax.fill_between(
+            grid, np.maximum(mean - 1.96 * sd, 0.0), mean + 1.96 * sd, color="grey", alpha=0.25
+        )
         ax.plot(grid, xi, "b--", lw=2, label="MBPP $\\xi(t)$")
         if exo_curve is not None:
             ax.plot(grid, exo_curve(grid), "r:", lw=1.3, label="exogenous $s(t)$")
         ax.set_title(f"{title}  $\\kappa$={kappa}, $\\theta$={theta}")
-        ax.set_xlabel("time"); ax.set_ylabel("intensity"); ax.legend(fontsize=8)
+        ax.set_xlabel("time")
+        ax.set_ylabel("intensity")
+        ax.legend(fontsize=8)
         key = title.split()[1]
         summary[key] = dict(max_abs_err=float(np.max(np.abs(mean - xi))))
 

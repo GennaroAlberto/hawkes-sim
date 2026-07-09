@@ -9,17 +9,17 @@ We check that MLE jointly recovers (gamma0, gamma, A).
 """
 
 import os
-import json
-import numpy as np
+
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from hawkes_calibration import (
-    simulate_multivariate_hawkes,
-    fit_multivariate_with_covariates,
     PiecewiseConstantCovariate,
+    fit_multivariate_with_covariates,
+    simulate_multivariate_hawkes,
 )
 
 
@@ -45,8 +45,10 @@ def run(seed=3, T=5000.0, out_dir="results"):
     B = np.ones((2, 2))
 
     print(
-        "True baselines (regime X=0):", np.exp(gamma0_true).round(4).tolist(),
-        " (regime X=1):", (np.exp(gamma0_true + gamma_true[:, 0])).round(4).tolist(),
+        "True baselines (regime X=0):",
+        np.exp(gamma0_true).round(4).tolist(),
+        " (regime X=1):",
+        (np.exp(gamma0_true + gamma_true[:, 0])).round(4).tolist(),
     )
 
     events = simulate_multivariate_hawkes(
@@ -69,7 +71,9 @@ def run(seed=3, T=5000.0, out_dir="results"):
     print()
     print("Recovery summary:")
     print(f"  gamma0:  true {gamma0_true.round(3).tolist()}   hat {res.gamma0.round(3).tolist()}")
-    print(f"  gamma :  true {gamma_true.ravel().round(3).tolist()}   hat {res.gamma.ravel().round(3).tolist()}")
+    print(
+        f"  gamma :  true {gamma_true.ravel().round(3).tolist()}   hat {res.gamma.ravel().round(3).tolist()}"
+    )
     print(f"  alpha :  true\n{A_true}\n  hat\n{res.alpha.round(3)}")
 
     # Bar charts of parameters
@@ -79,15 +83,21 @@ def run(seed=3, T=5000.0, out_dir="results"):
     x = np.arange(2)
     axes[0].bar(x - width / 2, np.exp(gamma0_true), width, label="true baseline (X=0)")
     axes[0].bar(x + width / 2, np.exp(res.gamma0), width, label="estimated baseline")
-    axes[0].set_xticks(x); axes[0].set_xticklabels(["m=0", "m=1"])
-    axes[0].set_title("Baseline $\\mu$ (regime X=0)"); axes[0].legend(); axes[0].grid(alpha=0.3)
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels(["m=0", "m=1"])
+    axes[0].set_title("Baseline $\\mu$ (regime X=0)")
+    axes[0].legend()
+    axes[0].grid(alpha=0.3)
 
     # covariate effects
     axes[1].bar(x - width / 2, gamma_true.ravel(), width, label="true $\\gamma$")
     axes[1].bar(x + width / 2, res.gamma.ravel(), width, label="estimated $\\gamma$")
     axes[1].axhline(0, color="black", linewidth=0.5)
-    axes[1].set_xticks(x); axes[1].set_xticklabels(["m=0", "m=1"])
-    axes[1].set_title("Covariate effect $\\gamma$"); axes[1].legend(); axes[1].grid(alpha=0.3)
+    axes[1].set_xticks(x)
+    axes[1].set_xticklabels(["m=0", "m=1"])
+    axes[1].set_title("Covariate effect $\\gamma$")
+    axes[1].legend()
+    axes[1].grid(alpha=0.3)
 
     # alpha
     se_A = res.se_alpha if res.se_alpha is not None else np.full_like(res.alpha, np.nan)

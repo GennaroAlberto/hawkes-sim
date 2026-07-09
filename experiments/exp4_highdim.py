@@ -14,19 +14,20 @@ We then fit the unregularized MLE and ask two questions:
        point estimates and by a hard threshold at, say, 2 standard errors?
 """
 
-import os
 import json
+import os
 import time
-import numpy as np
+
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from hawkes_calibration import (
-    simulate_multivariate_hawkes,
     fit_multivariate,
     fit_multivariate_lasso,
+    simulate_multivariate_hawkes,
 )
 
 
@@ -55,7 +56,7 @@ def run(seed=4, M=12, T=2500.0, out_dir="results"):
     rho = float(np.max(np.abs(np.linalg.eigvals(G))))
     print(f"M = {M}, spectral radius of branching matrix = {rho:.3f} (stationarity ok: {rho < 1})")
     nnz = int(np.count_nonzero(A_true))
-    print(f"True A has {nnz} non-zero entries out of {M*M} ({nnz / (M*M):.1%} density)")
+    print(f"True A has {nnz} non-zero entries out of {M * M} ({nnz / (M * M):.1%} density)")
 
     # Simulate
     t0 = time.time()
@@ -65,13 +66,17 @@ def run(seed=4, M=12, T=2500.0, out_dir="results"):
     t1 = time.time()
     counts = [len(e) for e in events]
     total = sum(counts)
-    print(f"Simulated {total} events on [0, {T}] in {t1 - t0:.1f}s. min count = {min(counts)}, max = {max(counts)}")
+    print(
+        f"Simulated {total} events on [0, {T}] in {t1 - t0:.1f}s. min count = {min(counts)}, max = {max(counts)}"
+    )
 
     # Fit (unregularized MLE)
     t0 = time.time()
     res = fit_multivariate(events, T=T, beta=B, se=True)
     t1 = time.time()
-    print(f"MLE fit ({M + M * M} params) took {t1 - t0:.1f}s, loglik = {res.loglik:.1f}, ok = {res.success}")
+    print(
+        f"MLE fit ({M + M * M} params) took {t1 - t0:.1f}s, loglik = {res.loglik:.1f}, ok = {res.success}"
+    )
 
     # Fit a lasso-regularized version using BIC to pick lambda from a grid
     lambdas = [10.0, 30.0, 50.0, 80.0, 120.0, 180.0, 250.0]
@@ -84,7 +89,9 @@ def run(seed=4, M=12, T=2500.0, out_dir="results"):
         k = M + r.nnz  # baseline + non-zero alpha entries (no covariate here)
         bic = -2 * r.loglik + k * np.log(total)
         lasso_results.append((lam, r, bic, t1 - t0))
-        print(f"  lasso lam = {lam:6.1f}: nnz = {r.nnz:3d}, ll = {r.loglik:.1f}, BIC = {bic:.1f}, time = {t1 - t0:.1f}s")
+        print(
+            f"  lasso lam = {lam:6.1f}: nnz = {r.nnz:3d}, ll = {r.loglik:.1f}, BIC = {bic:.1f}, time = {t1 - t0:.1f}s"
+        )
 
     best = min(lasso_results, key=lambda x: x[2])
     lam_best, lasso_best, bic_best, _ = best
@@ -97,8 +104,12 @@ def run(seed=4, M=12, T=2500.0, out_dir="results"):
     abs_err_A = np.abs(A_hat - A_true)
     nonzero_mask = A_true > 0
     print()
-    print(f"  [MLE] Baseline rate mean abs error: {abs_err_mu.mean():.4f}  max: {abs_err_mu.max():.4f}")
-    print(f"  [MLE] Elicitation mean abs error  : {abs_err_A.mean():.4f}  max: {abs_err_A.max():.4f}")
+    print(
+        f"  [MLE] Baseline rate mean abs error: {abs_err_mu.mean():.4f}  max: {abs_err_mu.max():.4f}"
+    )
+    print(
+        f"  [MLE] Elicitation mean abs error  : {abs_err_A.mean():.4f}  max: {abs_err_A.max():.4f}"
+    )
     print(f"           ... on non-zero entries  : {abs_err_A[nonzero_mask].mean():.4f}")
     print(f"           ... on zero entries      : {abs_err_A[~nonzero_mask].mean():.4f}")
 
@@ -123,8 +134,12 @@ def run(seed=4, M=12, T=2500.0, out_dir="results"):
     prec_l = tp_l / max(tp_l + fp_l, 1)
     rec_l = tp_l / max(tp_l + fn_l, 1)
     abs_err_A_lasso = np.abs(A_lasso - A_true)
-    print(f"  [LASSO] nz_mae = {abs_err_A_lasso[nonzero_mask].mean():.4f}, z_mae = {abs_err_A_lasso[~nonzero_mask].mean():.4f}")
-    print(f"  [LASSO BIC]  TP={tp_l} FP={fp_l} FN={fn_l} TN={tn_l}  prec={prec_l:.3f}  rec={rec_l:.3f}")
+    print(
+        f"  [LASSO] nz_mae = {abs_err_A_lasso[nonzero_mask].mean():.4f}, z_mae = {abs_err_A_lasso[~nonzero_mask].mean():.4f}"
+    )
+    print(
+        f"  [LASSO BIC]  TP={tp_l} FP={fp_l} FN={fn_l} TN={tn_l}  prec={prec_l:.3f}  rec={rec_l:.3f}"
+    )
 
     # ---- Plots: comparison of true, MLE, lasso
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
@@ -151,22 +166,58 @@ def run(seed=4, M=12, T=2500.0, out_dir="results"):
     fig2, (axA, axB) = plt.subplots(1, 2, figsize=(11, 5))
     for ax, A_est, se, title, sub in [
         (axA, A_hat, se_A, "unpenalized MLE", f"prec={precision:.2f}, rec={recall:.2f} @ 2SE"),
-        (axB, A_lasso, None, f"lasso ($\\lambda$={lam_best})", f"prec={prec_l:.2f}, rec={rec_l:.2f}"),
+        (
+            axB,
+            A_lasso,
+            None,
+            f"lasso ($\\lambda$={lam_best})",
+            f"prec={prec_l:.2f}, rec={rec_l:.2f}",
+        ),
     ]:
         jit = np.random.uniform(-0.002, 0.002, (~nonzero_mask).sum())
         if se is not None:
-            ax.errorbar(A_true[nonzero_mask].ravel(), A_est[nonzero_mask].ravel(),
-                        yerr=se[nonzero_mask].ravel(), fmt="o", capsize=3, color="C0", label="true non-zero")
-            ax.errorbar(A_true[~nonzero_mask].ravel() + jit, A_est[~nonzero_mask].ravel(),
-                        yerr=se[~nonzero_mask].ravel(), fmt="o", capsize=2, alpha=0.5, color="C3", label="true zero")
+            ax.errorbar(
+                A_true[nonzero_mask].ravel(),
+                A_est[nonzero_mask].ravel(),
+                yerr=se[nonzero_mask].ravel(),
+                fmt="o",
+                capsize=3,
+                color="C0",
+                label="true non-zero",
+            )
+            ax.errorbar(
+                A_true[~nonzero_mask].ravel() + jit,
+                A_est[~nonzero_mask].ravel(),
+                yerr=se[~nonzero_mask].ravel(),
+                fmt="o",
+                capsize=2,
+                alpha=0.5,
+                color="C3",
+                label="true zero",
+            )
         else:
-            ax.plot(A_true[nonzero_mask].ravel(), A_est[nonzero_mask].ravel(), "o", color="C0", label="true non-zero")
-            ax.plot(A_true[~nonzero_mask].ravel() + jit, A_est[~nonzero_mask].ravel(), "o", color="C3", alpha=0.5, label="true zero")
+            ax.plot(
+                A_true[nonzero_mask].ravel(),
+                A_est[nonzero_mask].ravel(),
+                "o",
+                color="C0",
+                label="true non-zero",
+            )
+            ax.plot(
+                A_true[~nonzero_mask].ravel() + jit,
+                A_est[~nonzero_mask].ravel(),
+                "o",
+                color="C3",
+                alpha=0.5,
+                label="true zero",
+            )
         lim = vmax * 1.15
         ax.plot([0, lim], [0, lim], "k--", alpha=0.5)
-        ax.set_xlabel("true $\\alpha_{m,j}$"); ax.set_ylabel("estimated $\\hat\\alpha_{m,j}$")
+        ax.set_xlabel("true $\\alpha_{m,j}$")
+        ax.set_ylabel("estimated $\\hat\\alpha_{m,j}$")
         ax.set_title(f"{title}\n{sub}")
-        ax.grid(alpha=0.3); ax.legend()
+        ax.grid(alpha=0.3)
+        ax.legend()
     fig2.suptitle(f"M={M} elicitation recovery: unpenalized MLE vs lasso")
     fig2.tight_layout()
     fig2_path = os.path.join(out_dir, "exp4_highdim_scatter.png")
@@ -197,27 +248,44 @@ def run(seed=4, M=12, T=2500.0, out_dir="results"):
 
     np.savez(
         os.path.join(out_dir, "exp4_highdim.npz"),
-        mu_true=mu_true, A_true=A_true, mu_hat=mu_hat, A_hat=A_hat,
-        A_lasso=A_lasso, se_A=se_A, T=T, M=M, counts=np.array(counts),
+        mu_true=mu_true,
+        A_true=A_true,
+        mu_hat=mu_hat,
+        A_hat=A_hat,
+        A_lasso=A_lasso,
+        se_A=se_A,
+        T=T,
+        M=M,
+        counts=np.array(counts),
         lam_best=lam_best,
     )
     with open(os.path.join(out_dir, "exp4_highdim.json"), "w") as f:
-        json.dump({
-            "M": M, "T": T, "rho": rho, "n_events": int(total),
-            "mu_mae": float(abs_err_mu.mean()),
-            "mle": dict(
-                A_mae_overall=float(abs_err_A.mean()),
-                A_mae_nonzero=float(abs_err_A[nonzero_mask].mean()),
-                A_mae_zero=float(abs_err_A[~nonzero_mask].mean()),
-                precision_2SE=precision, recall_2SE=recall,
-            ),
-            "lasso": dict(
-                lambda_best=lam_best, nnz=int(lasso_best.nnz),
-                A_mae_nonzero=float(abs_err_A_lasso[nonzero_mask].mean()),
-                A_mae_zero=float(abs_err_A_lasso[~nonzero_mask].mean()),
-                precision=prec_l, recall=rec_l,
-            ),
-        }, f, indent=2)
+        json.dump(
+            {
+                "M": M,
+                "T": T,
+                "rho": rho,
+                "n_events": int(total),
+                "mu_mae": float(abs_err_mu.mean()),
+                "mle": dict(
+                    A_mae_overall=float(abs_err_A.mean()),
+                    A_mae_nonzero=float(abs_err_A[nonzero_mask].mean()),
+                    A_mae_zero=float(abs_err_A[~nonzero_mask].mean()),
+                    precision_2SE=precision,
+                    recall_2SE=recall,
+                ),
+                "lasso": dict(
+                    lambda_best=lam_best,
+                    nnz=int(lasso_best.nnz),
+                    A_mae_nonzero=float(abs_err_A_lasso[nonzero_mask].mean()),
+                    A_mae_zero=float(abs_err_A_lasso[~nonzero_mask].mean()),
+                    precision=prec_l,
+                    recall=rec_l,
+                ),
+            },
+            f,
+            indent=2,
+        )
     return res
 
 

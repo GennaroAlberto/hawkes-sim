@@ -1,4 +1,5 @@
 """Render docs/package_guide.md -> a self-contained HTML (base64 figures) for PDF export."""
+
 import base64
 import os
 import re
@@ -9,6 +10,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # Source note; may be absent (the standalone result notes were folded into
 # paper/complete_account.pdf and the archive removed). Pass a path as argv[1] to override.
 import sys
+
 MD = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs/package_guide.md")
 HTML = os.path.join(ROOT, "package_guide.html")
 
@@ -28,10 +30,10 @@ def embed(m):
     if not os.path.exists(path):
         return m.group(0)
     b64 = base64.b64encode(open(path, "rb").read()).decode()
-    return f'![{m.group(1)}](data:image/png;base64,{b64})'
+    return f"![{m.group(1)}](data:image/png;base64,{b64})"
 
 
-text = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', embed, text)
+text = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", embed, text)
 body = markdown.markdown(text, extensions=["tables", "fenced_code", "toc"])
 
 CSS = """

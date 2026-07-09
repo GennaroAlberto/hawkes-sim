@@ -29,11 +29,11 @@ Outputs: results/exp12_investments.png and results/exp12_investments.json.
 Run:  PYTHONPATH=. python -m experiments.exp12_investments
 """
 
-import os
 import json
+import os
 
-import numpy as np
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -41,11 +41,11 @@ import matplotlib.pyplot as plt
 from hawkes_calibration import (
     Constant,
     PiecewiseConstantCovariate,
-    uniform_obs_times,
+    dispersion,
+    fit_mbpp_ic_excitation,
     interval_censor,
     simulate_hawkes_excitation,
-    fit_mbpp_ic_excitation,
-    dispersion,
+    uniform_obs_times,
 )
 from hawkes_calibration.mbpp.interval_censored import _excitation_compensator_fast, ic_ll
 
@@ -58,7 +58,7 @@ def popularity_covariate(T, n_regimes=8, seed=0):
     rng = np.random.default_rng(seed)
     bks = np.linspace(0.0, T, n_regimes + 1)
     vals = rng.normal(0.0, 0.6, size=n_regimes)
-    vals = (vals - vals.mean())                       # centre -> exp(0)=1 on average
+    vals = vals - vals.mean()  # centre -> exp(0)=1 on average
     return PiecewiseConstantCovariate(bks, vals[:, None]), bks
 
 
@@ -68,7 +68,7 @@ def two_covariates(T, n_regimes=8, seed=0):
     bks = np.linspace(0.0, T, n_regimes + 1)
     pop = rng.normal(0.0, 0.8, size=n_regimes)
     pop = pop - pop.mean()
-    cool = (rng.uniform(size=n_regimes) < 0.35).astype(float)   # ~35% of regimes are quiet
+    cool = (rng.uniform(size=n_regimes) < 0.35).astype(float)  # ~35% of regimes are quiet
     return PiecewiseConstantCovariate(bks, np.column_stack([pop, cool]))
 
 
@@ -86,8 +86,7 @@ def powerlaw_phi(s, c, eta):
     return (1.0 + s / c) ** (-(1.0 + eta))
 
 
-def simulate_powerlaw_investments(T, A, baseline, c, eta, Zpop, delta_pop, seed,
-                                  max_events=20000):
+def simulate_powerlaw_investments(T, A, baseline, c, eta, Zpop, delta_pop, seed, max_events=20000):
     r"""
     Multivariate nonlinear Hawkes with power-law kernel and covariate-modulated
     excitation:
@@ -105,7 +104,7 @@ def simulate_powerlaw_investments(T, A, baseline, c, eta, Zpop, delta_pop, seed,
     """
     rng = np.random.default_rng(seed)
     M = A.shape[0]
-    Apos = np.clip(A, 0.0, None)                       # positive part for the envelope
+    Apos = np.clip(A, 0.0, None)  # positive part for the envelope
     baseline = np.asarray(baseline, dtype=float)
     bks = np.asarray(Zpop.breakpoints, dtype=float)
     ev = [np.empty(0) for _ in range(M)]
@@ -125,13 +124,13 @@ def simulate_powerlaw_investments(T, A, baseline, c, eta, Zpop, delta_pop, seed,
 
     t, n = 0.0, 0
     while t < T and n < max_events:
-        lam_bar = intensity(t, positive=True).sum()     # valid upper envelope on [t, .)
+        lam_bar = intensity(t, positive=True).sum()  # valid upper envelope on [t, .)
         if lam_bar <= 1e-12:
             nb = bks[bks > t]
             t = float(nb[0]) if nb.size else T
             continue
         t_new = t + rng.exponential(1.0 / lam_bar)
-        nb = bks[(bks > t) & (bks < t_new)]              # stop at covariate breakpoints
+        nb = bks[(bks > t) & (bks < t_new)]  # stop at covariate breakpoints
         if nb.size:
             t = float(nb[0])
             continue
@@ -139,7 +138,7 @@ def simulate_powerlaw_investments(T, A, baseline, c, eta, Zpop, delta_pop, seed,
             break
         lam_vec = intensity(t_new, positive=False)
         lam_tot = lam_vec.sum()
-        if rng.uniform() < lam_tot / lam_bar:            # thinning acceptance
+        if rng.uniform() < lam_tot / lam_bar:  # thinning acceptance
             m = int(rng.choice(M, p=lam_vec / lam_tot))
             ev[m] = np.append(ev[m], t_new)
             n += 1
@@ -151,8 +150,9 @@ def simulate_powerlaw_investments(T, A, baseline, c, eta, Zpop, delta_pop, seed,
 # Helpers: rebuild interval compensator for a fitted excitation model + score.
 # ---------------------------------------------------------------------------
 def interval_compensator(fit, Z, obs_times):
-    Xi = _excitation_compensator_fast(fit.baseline, fit.kappa, fit.theta, Z,
-                                      np.atleast_1d(fit.delta), obs_times)
+    Xi = _excitation_compensator_fast(
+        fit.baseline, fit.kappa, fit.theta, Z, np.atleast_1d(fit.delta), obs_times
+    )
     return np.diff(Xi)
 
 
@@ -176,21 +176,24 @@ def run_misspecified(out, T=60.0, n_int=30, n_seq=48, n_train=36, seed=0):
     # negative diagonal = self-inhibition.  Baseline kept low so that a large
     # share of sector-0 events are *excitation*-driven -- which is what the
     # popularity covariate modulates, hence what makes delta identifiable.
-    A = np.array([
-        [-0.10, 0.40, 0.05],
-        [0.35, -0.10, 0.05],
-        [0.05, 0.05, -0.08],
-    ])
+    A = np.array(
+        [
+            [-0.10, 0.40, 0.05],
+            [0.35, -0.10, 0.05],
+            [0.05, 0.05, -0.08],
+        ]
+    )
     baseline = np.array([0.8, 0.9, 0.8])
-    c, eta = 1.0, 2.0                                   # power-law (tail ~ t^-3); integral c/eta = 0.5
+    c, eta = 1.0, 2.0  # power-law (tail ~ t^-3); integral c/eta = 0.5
     delta_pop_true = 0.7
 
     # simulate n_seq i.i.d. investment histories sharing the SAME popularity path
     counts_sec0, tot_events = [], []
-    for s in range(n_seq):
-        ev = simulate_powerlaw_investments(T, A, baseline, c, eta, Zpop, delta_pop_true,
-                                           seed=int(rng.integers(1e9)))
-        counts_sec0.append(interval_censor(ev[0], obs))    # focus on sector 0
+    for _s in range(n_seq):
+        ev = simulate_powerlaw_investments(
+            T, A, baseline, c, eta, Zpop, delta_pop_true, seed=int(rng.integers(1e9))
+        )
+        counts_sec0.append(interval_censor(ev[0], obs))  # focus on sector 0
         tot_events.append(sum(e.size for e in ev))
     train, test = counts_sec0[:n_train], counts_sec0[n_train:]
 
@@ -209,12 +212,15 @@ def run_misspecified(out, T=60.0, n_int=30, n_seq=48, n_train=36, seed=0):
         regime="misspecified (power-law + self-inhibition + cross-excitation)",
         avg_total_events=float(np.mean(tot_events)),
         delta_pop_true=delta_pop_true,
-        delta_pop_hat_nocov=0.0,   # this model omits the covariate (modulation == 1 by construction)
+        delta_pop_hat_nocov=0.0,  # this model omits the covariate (modulation == 1 by construction)
         delta_pop_hat_cov=float(np.atleast_1d(fitc.delta)[0]),
-        kappa_hat_nocov=float(fit0.kappa), kappa_hat_cov=float(fitc.kappa),
-        heldout_ic_ll_nocov=ll0, heldout_ic_ll_cov=llc,
+        kappa_hat_nocov=float(fit0.kappa),
+        kappa_hat_cov=float(fitc.kappa),
+        heldout_ic_ll_nocov=ll0,
+        heldout_ic_ll_cov=llc,
         heldout_ic_ll_improvement=ll0 - llc,
-        dispersion_nocov=disp0, dispersion_cov=dispc,
+        dispersion_nocov=disp0,
+        dispersion_cov=dispc,
     )
     _plot_misspecified(out, res, obs, Zpop, test, Xi0, Xic)
     return res
@@ -226,22 +232,43 @@ def _plot_misspecified(out, res, obs, Zpop, test, Xi0, Xic):
     mean_counts = np.mean(test, axis=0)
     pop = np.array([float(Zpop(t)[0, 0]) for t in mids])
     ax[0].bar(mids, mean_counts, width=(obs[1] - obs[0]) * 0.9, alpha=0.5, label="mean test counts")
-    axt = ax[0].twinx(); axt.plot(mids, pop, "C3-o", ms=3, label="popularity"); axt.set_ylabel("popularity")
+    axt = ax[0].twinx()
+    axt.plot(mids, pop, "C3-o", ms=3, label="popularity")
+    axt.set_ylabel("popularity")
     ax[0].plot(mids, Xi0, "C1--", label="MBPP no-cov $\\Xi$")
     ax[0].plot(mids, Xic, "C2-", label="MBPP cov $\\Xi$")
-    ax[0].set_title("(a) counts vs popularity & fits"); ax[0].set_xlabel("t"); ax[0].legend(loc="upper left", fontsize=7)
+    ax[0].set_title("(a) counts vs popularity & fits")
+    ax[0].set_xlabel("t")
+    ax[0].legend(loc="upper left", fontsize=7)
 
-    ax[1].bar(["no-cov", "cov"], [res["heldout_ic_ll_nocov"], res["heldout_ic_ll_cov"]],
-              color=["C1", "C2"])
-    ax[1].set_title("(b) held-out IC-LL (lower better)"); ax[1].set_ylabel("mean IC-LL / sequence")
+    ax[1].bar(
+        ["no-cov", "cov"],
+        [res["heldout_ic_ll_nocov"], res["heldout_ic_ll_cov"]],
+        color=["C1", "C2"],
+    )
+    ax[1].set_title("(b) held-out IC-LL (lower better)")
+    ax[1].set_ylabel("mean IC-LL / sequence")
 
-    ax[2].axhline(res["delta_pop_true"], color="r", ls="--", label="true $\\delta_{pop}$=%.2f" % res["delta_pop_true"])
-    ax[2].bar(["no-cov", "cov"], [res["delta_pop_hat_nocov"], res["delta_pop_hat_cov"]], color=["C1", "C2"])
-    ax[2].set_title("(c) recovered $\\delta_{pop}$ (misspecified)"); ax[2].legend(fontsize=8)
-    fig.suptitle("Experiment A -- misspecified (power-law, self-inhibition, cross-excitation): "
-                 "the covariate still helps")
+    ax[2].axhline(
+        res["delta_pop_true"],
+        color="r",
+        ls="--",
+        label="true $\\delta_{pop}$=%.2f" % res["delta_pop_true"],
+    )
+    ax[2].bar(
+        ["no-cov", "cov"],
+        [res["delta_pop_hat_nocov"], res["delta_pop_hat_cov"]],
+        color=["C1", "C2"],
+    )
+    ax[2].set_title("(c) recovered $\\delta_{pop}$ (misspecified)")
+    ax[2].legend(fontsize=8)
+    fig.suptitle(
+        "Experiment A -- misspecified (power-law, self-inhibition, cross-excitation): "
+        "the covariate still helps"
+    )
     fig.tight_layout()
-    fig.savefig(os.path.join(out, "exp12_investments_A.png"), dpi=140); plt.close(fig)
+    fig.savefig(os.path.join(out, "exp12_investments_A.png"), dpi=140)
+    plt.close(fig)
 
 
 # ---------------------------------------------------------------------------
@@ -250,14 +277,15 @@ def _plot_misspecified(out, res, obs, Zpop, test, Xi0, Xic):
 def run_correct(out, T=45.0, n_int=30, n_seq=44, seed=0):
     rng = np.random.default_rng(seed)
     obs = uniform_obs_times(T, n_int)
-    Z = two_covariates(T, n_regimes=9, seed=2)                 # [popularity, cooldown]
+    Z = two_covariates(T, n_regimes=9, seed=2)  # [popularity, cooldown]
     kappa, theta, mu = 0.40, 1.0, 2.2
-    delta = np.array([0.6, -0.5])                              # pop excites, cooldown suppresses
+    delta = np.array([0.6, -0.5])  # pop excites, cooldown suppresses
 
     counts = []
-    for s in range(n_seq):
-        ev = simulate_hawkes_excitation(Constant(mu, T), kappa, theta, Z, delta, T,
-                                        seed=int(rng.integers(1e9)))
+    for _s in range(n_seq):
+        ev = simulate_hawkes_excitation(
+            Constant(mu, T), kappa, theta, Z, delta, T, seed=int(rng.integers(1e9))
+        )
         counts.append(interval_censor(ev, obs))
     train, test = counts[:34], counts[34:]
 
@@ -267,9 +295,13 @@ def run_correct(out, T=45.0, n_int=30, n_seq=44, seed=0):
 
     res = dict(
         regime="correctly specified (exponential kernel, covariate excitation)",
-        kappa_true=kappa, theta_true=theta, mu_true=mu,
+        kappa_true=kappa,
+        theta_true=theta,
+        mu_true=mu,
         delta_true=[float(x) for x in delta],
-        kappa_hat=float(fit.kappa), theta_hat=float(fit.theta), mu_hat=float(fit.baseline),
+        kappa_hat=float(fit.kappa),
+        theta_hat=float(fit.theta),
+        mu_hat=float(fit.baseline),
         delta_hat=[float(x) for x in np.atleast_1d(fit.delta)],
         dispersion=disp,
     )
@@ -285,19 +317,25 @@ def _plot_correct(out, res):
     x = np.arange(len(names))
     ax[0].bar(x - 0.18, true, width=0.36, label="true", color="0.6")
     ax[0].bar(x + 0.18, hat, width=0.36, label="estimated", color="C2")
-    ax[0].set_xticks(x); ax[0].set_xticklabels(names); ax[0].axhline(0, color="k", lw=0.6)
-    ax[0].set_title("(a) parameter recovery (correctly specified)"); ax[0].legend()
+    ax[0].set_xticks(x)
+    ax[0].set_xticklabels(names)
+    ax[0].axhline(0, color="k", lw=0.6)
+    ax[0].set_title("(a) parameter recovery (correctly specified)")
+    ax[0].legend()
 
     ax[1].plot(true, hat, "o", color="C2", ms=9)
     lo, hi = min(true) - 0.3, max(true) + 0.3
     ax[1].plot([lo, hi], [lo, hi], "r--", label="identity")
     for n, a, b in zip(names, true, hat):
         ax[1].annotate(n, (a, b), textcoords="offset points", xytext=(5, 4), fontsize=9)
-    ax[1].set_xlabel("true"); ax[1].set_ylabel("estimated")
-    ax[1].set_title("(b) estimated vs true"); ax[1].legend()
+    ax[1].set_xlabel("true")
+    ax[1].set_ylabel("estimated")
+    ax[1].set_title("(b) estimated vs true")
+    ax[1].legend()
     fig.suptitle("Experiment B -- correctly specified: the augmented MBPP recovers every parameter")
     fig.tight_layout()
-    fig.savefig(os.path.join(out, "exp12_investments_B.png"), dpi=140); plt.close(fig)
+    fig.savefig(os.path.join(out, "exp12_investments_B.png"), dpi=140)
+    plt.close(fig)
 
 
 def run(out_dir="results", seed=0):
@@ -306,16 +344,31 @@ def run(out_dir="results", seed=0):
     print("[A] misspecified (power-law + self-inhibition + cross-excitation) ...")
     A = run_misspecified(out_dir, seed=seed)
     print("    avg events/history     : %.0f" % A["avg_total_events"])
-    print("    delta_pop  true=%.2f  no-cov=%.3f  cov=%.3f"
-          % (A["delta_pop_true"], A["delta_pop_hat_nocov"], A["delta_pop_hat_cov"]))
-    print("    held-out IC-LL  no-cov=%.3f  cov=%.3f  (improvement %.3f)"
-          % (A["heldout_ic_ll_nocov"], A["heldout_ic_ll_cov"], A["heldout_ic_ll_improvement"]))
-    print("    dispersion      no-cov=%.2f  cov=%.2f" % (A["dispersion_nocov"], A["dispersion_cov"]))
+    print(
+        "    delta_pop  true=%.2f  no-cov=%.3f  cov=%.3f"
+        % (A["delta_pop_true"], A["delta_pop_hat_nocov"], A["delta_pop_hat_cov"])
+    )
+    print(
+        "    held-out IC-LL  no-cov=%.3f  cov=%.3f  (improvement %.3f)"
+        % (A["heldout_ic_ll_nocov"], A["heldout_ic_ll_cov"], A["heldout_ic_ll_improvement"])
+    )
+    print(
+        "    dispersion      no-cov=%.2f  cov=%.2f" % (A["dispersion_nocov"], A["dispersion_cov"])
+    )
 
     print("[B] correctly specified (exponential kernel, covariate excitation) ...")
     B = run_correct(out_dir, seed=seed)
-    print("    kappa  true=%.2f hat=%.3f | theta true=%.2f hat=%.3f | mu true=%.2f hat=%.3f"
-          % (B["kappa_true"], B["kappa_hat"], B["theta_true"], B["theta_hat"], B["mu_true"], B["mu_hat"]))
+    print(
+        "    kappa  true=%.2f hat=%.3f | theta true=%.2f hat=%.3f | mu true=%.2f hat=%.3f"
+        % (
+            B["kappa_true"],
+            B["kappa_hat"],
+            B["theta_true"],
+            B["theta_hat"],
+            B["mu_true"],
+            B["mu_hat"],
+        )
+    )
     print("    delta  true=%s hat=%s" % (B["delta_true"], [round(x, 3) for x in B["delta_hat"]]))
     print("    dispersion=%.2f" % B["dispersion"])
 

@@ -46,9 +46,13 @@ def _print_stage(name, metrics):
     print(f"    MRR   = {metrics.get('mrr', float('nan')):.4f}")
     print(f"    top@5 = {metrics.get('top5', float('nan')):.4f}")
     if "random_nll" in metrics:
-        print(f"    random NLL/top@5 = {metrics.get('random_nll', float('nan')):.4f} / {metrics.get('random_top5', float('nan')):.4f}")
+        print(
+            f"    random NLL/top@5 = {metrics.get('random_nll', float('nan')):.4f} / {metrics.get('random_top5', float('nan')):.4f}"
+        )
     if "outside_rate" in metrics:
-        print(f"    outside rate/pred/AUC = {metrics.get('outside_rate', float('nan')):.4f} / {metrics.get('outside_pred_mean', float('nan')):.4f} / {metrics.get('outside_auc', float('nan')):.4f}")
+        print(
+            f"    outside rate/pred/AUC = {metrics.get('outside_rate', float('nan')):.4f} / {metrics.get('outside_pred_mean', float('nan')):.4f} / {metrics.get('outside_auc', float('nan')):.4f}"
+        )
 
 
 def main():
@@ -78,7 +82,9 @@ def main():
         json.dump(_jsonify(payload), f, indent=2)
 
     print("Experiment 14: sector count model + startup second-stage models")
-    print(f"  total events: {metrics['n_events_total']}  train/test: {metrics['n_events_train']}/{metrics['n_events_test']}")
+    print(
+        f"  total events: {metrics['n_events_total']}  train/test: {metrics['n_events_train']}/{metrics['n_events_test']}"
+    )
     print("  sector NLL per cell:")
     print(f"    model    = {metrics['sector_model_nll_per_cell']:.4f}")
     print(f"    baseline = {metrics['sector_baseline_nll_per_cell']:.4f}")

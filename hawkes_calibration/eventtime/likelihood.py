@@ -7,7 +7,9 @@ regime"), so this scales fine to tens of thousands of events.
 """
 
 from __future__ import annotations
+
 import numpy as np
+
 from .covariates import baseline_value
 
 
@@ -62,10 +64,7 @@ def log_likelihood(
         baseline_int = np.array([np.exp(gamma0[m]) * T for m in range(M)])
     else:
         baseline_int = np.array(
-            [
-                covariate.integrate_exp_gamma(gamma0[m], gamma[m], T)
-                for m in range(M)
-            ]
+            [covariate.integrate_exp_gamma(gamma0[m], gamma[m], T) for m in range(M)]
         )
 
     # 2) Excitation compensator: sum_j (alpha/beta) * sum_k (1 - exp(-beta(T - t_jk)))
@@ -278,17 +277,20 @@ def neg_log_likelihood(theta_packed, packer, events, T, beta, covariate=None):
     """
     gamma0, gamma, alpha = packer.unpack(theta_packed)
     ll = log_likelihood(
-        events, T, gamma0=gamma0, alpha=alpha, beta=beta,
-        gamma=gamma, covariate=covariate,
+        events,
+        T,
+        gamma0=gamma0,
+        alpha=alpha,
+        beta=beta,
+        gamma=gamma,
+        covariate=covariate,
     )
     if not np.isfinite(ll):
         return 1e12
     return -ll
 
 
-def neg_log_likelihood_and_grad(
-    theta_packed, packer, events, T, beta, covariate=None
-):
+def neg_log_likelihood_and_grad(theta_packed, packer, events, T, beta, covariate=None):
     """
     Negative log-likelihood and packed gradient for the optimizer.
 
@@ -297,16 +299,23 @@ def neg_log_likelihood_and_grad(
     """
     gamma0, gamma, alpha = packer.unpack(theta_packed)
     ll, (g_g0, g_gam, g_alpha) = log_likelihood_and_grad(
-        events, T, gamma0=gamma0, alpha=alpha, beta=beta,
-        gamma=gamma, covariate=covariate,
+        events,
+        T,
+        gamma0=gamma0,
+        alpha=alpha,
+        beta=beta,
+        gamma=gamma,
+        covariate=covariate,
     )
     if not np.isfinite(ll):
         return 1e12, np.zeros_like(theta_packed)
     g_a = alpha * g_alpha  # since alpha = exp(a)
     # Pack gradient in the same layout as the parameter vector
-    grad = np.concatenate([
-        g_g0.ravel(),
-        g_gam.ravel(),
-        g_a.ravel(),
-    ])
+    grad = np.concatenate(
+        [
+            g_g0.ravel(),
+            g_gam.ravel(),
+            g_a.ravel(),
+        ]
+    )
     return -ll, -grad

@@ -46,11 +46,11 @@ from .sector_ranker import candidate_set, cooldown_vector
 
 @dataclass
 class StartupSurvivalResult:
-    global_weights: np.ndarray      # (p,)   firm-feature weights w0
-    sector_deviations: np.ndarray   # (M, p) sector-specific deviations u_s
-    cooldown_coef: np.ndarray       # (M,)   recency / cooldown coefficient eta_s (<= 0)
-    outside_intercept: float        # b0
-    outside_weights: np.ndarray     # (g,)   sector-feature weights for the outside option
+    global_weights: np.ndarray  # (p,)   firm-feature weights w0
+    sector_deviations: np.ndarray  # (M, p) sector-specific deviations u_s
+    cooldown_coef: np.ndarray  # (M,)   recency / cooldown coefficient eta_s (<= 0)
+    outside_intercept: float  # b0
+    outside_weights: np.ndarray  # (g,)   sector-feature weights for the outside option
     cooldown_weeks: int
     loss: float
     success: bool
@@ -97,8 +97,18 @@ def _sector_features(secw, week, sector, cand_size, mom_weeks):
     return np.array([np.log1p(cand_size), momentum], dtype=float)
 
 
-def _prepare(events, Z, startup_sector, active, startup_counts, tracked, secw,
-             train_end, cooldown_weeks, momentum_weeks):
+def _prepare(
+    events,
+    Z,
+    startup_sector,
+    active,
+    startup_counts,
+    tracked,
+    secw,
+    train_end,
+    cooldown_weeks,
+    momentum_weeks,
+):
     """Per training event: (sector, candidate features, cooldown, outside features,
     chosen position) with position 0 reserved for the outside option."""
     p = Z.shape[2]
@@ -109,10 +119,14 @@ def _prepare(events, Z, startup_sector, active, startup_counts, tracked, secw,
         if int(chosen) in set(cand.tolist()):
             pos = int(np.where(cand == int(chosen))[0][0]) + 1
         else:
-            pos = 0                                              # outside event
+            pos = 0  # outside event
         if cand.size == 0 and pos != 0:
             continue
-        cd = cooldown_vector(startup_counts, int(t), cand, cooldown_weeks) if cand.size else np.zeros(0)
+        cd = (
+            cooldown_vector(startup_counts, int(t), cand, cooldown_weeks)
+            if cand.size
+            else np.zeros(0)
+        )
         F = Z[int(t), cand] if cand.size else np.zeros((0, p))
         prepared.append((int(s), F, cd, g, pos))
     return prepared
@@ -123,10 +137,10 @@ def _unpack(theta, dims):
     n_u = M * p
     base = p + n_u + M
     w0 = theta[:p]
-    u = theta[p:p + n_u].reshape(M, p) if p else np.zeros((M, 0))
-    eta = theta[p + n_u:p + n_u + M]
+    u = theta[p : p + n_u].reshape(M, p) if p else np.zeros((M, 0))
+    eta = theta[p + n_u : p + n_u + M]
     b0 = theta[base]
-    gamma = theta[base + 1:base + 1 + g_dim]
+    gamma = theta[base + 1 : base + 1 + g_dim]
     return w0, u, eta, b0, gamma
 
 
@@ -134,8 +148,11 @@ def _objective(theta, prepared, dims, l2_global, l2_sector, l2_outside):
     """Partial-likelihood loss + analytic gradient (softmax over candidates + outside)."""
     w0, u, eta, b0, gamma = _unpack(theta, dims)
     loss = 0.0
-    gw0 = np.zeros_like(w0); gu = np.zeros_like(u); geta = np.zeros_like(eta)
-    gb0 = 0.0; ggamma = np.zeros_like(gamma)
+    gw0 = np.zeros_like(w0)
+    gu = np.zeros_like(u)
+    geta = np.zeros_like(eta)
+    gb0 = 0.0
+    ggamma = np.zeros_like(gamma)
     for s, F, cd, g, pos in prepared:
         q0 = b0 + gamma @ g
         if F.shape[0]:
@@ -144,16 +161,20 @@ def _objective(theta, prepared, dims, l2_global, l2_sector, l2_outside):
             full = np.array([q0])
         lse = logsumexp(full)
         loss += lse - full[pos]
-        d = np.exp(full - lse); d[pos] -= 1.0          # dNLL/d(full scores)
-        gb0 += d[0]; ggamma += d[0] * g
+        d = np.exp(full - lse)
+        d[pos] -= 1.0  # dNLL/d(full scores)
+        gb0 += d[0]
+        ggamma += d[0] * g
         if F.shape[0]:
             dc = d[1:]
             gw0 += dc @ F
             gu[s] += dc @ F
             geta[s] += float(dc @ cd)
-    loss += 0.5 * (l2_global * np.sum(w0 ** 2)
-                   + l2_sector * (np.sum(u ** 2) + np.sum(eta ** 2))
-                   + l2_outside * np.sum(gamma ** 2))
+    loss += 0.5 * (
+        l2_global * np.sum(w0**2)
+        + l2_sector * (np.sum(u**2) + np.sum(eta**2))
+        + l2_outside * np.sum(gamma**2)
+    )
     gw0 += l2_global * w0
     gu += l2_sector * u
     geta += l2_sector * eta
@@ -207,17 +228,27 @@ def fit_startup_survival(
     secw = sector_week_counts(startup_counts, startup_sector, M)
     g_dim = 2
 
-    prepared = _prepare(events, Z, startup_sector, active, startup_counts, tracked,
-                        secw, train_end, cooldown_weeks, momentum_weeks)
+    prepared = _prepare(
+        events,
+        Z,
+        startup_sector,
+        active,
+        startup_counts,
+        tracked,
+        secw,
+        train_end,
+        cooldown_weeks,
+        momentum_weeks,
+    )
     if not prepared:
         raise ValueError("no usable training events")
 
     n_u = M * p
-    base = p + n_u + M                       # end of (w0, u, eta) block
-    n = base + 1 + g_dim                      # + outside intercept + outside weights
+    base = p + n_u + M  # end of (w0, u, eta) block
+    n = base + 1 + g_dim  # + outside intercept + outside weights
     x0 = np.zeros(n)
-    x0[p + n_u:p + n_u + M] = -0.5           # cooldown start (negative)
-    x0[base] = -1.0                          # outside intercept (rarely chosen a priori)
+    x0[p + n_u : p + n_u + M] = -0.5  # cooldown start (negative)
+    x0[base] = -1.0  # outside intercept (rarely chosen a priori)
 
     bounds = [(None, None)] * n
     if constrain_cooldown_negative:
@@ -225,24 +256,44 @@ def fit_startup_survival(
             bounds[p + n_u + j] = (None, 0.0)
 
     dims = (p, M, g_dim)
-    opt = minimize(lambda th: _objective(th, prepared, dims, l2_global, l2_sector, l2_outside),
-                   x0, jac=True, method="L-BFGS-B", bounds=bounds,
-                   options={"maxiter": int(max_iter), "ftol": 1e-9})
+    opt = minimize(
+        lambda th: _objective(th, prepared, dims, l2_global, l2_sector, l2_outside),
+        x0,
+        jac=True,
+        method="L-BFGS-B",
+        bounds=bounds,
+        options={"maxiter": int(max_iter), "ftol": 1e-9},
+    )
     w0, u, eta, b0, gamma = _unpack(opt.x, dims)
     return StartupSurvivalResult(
-        global_weights=w0, sector_deviations=u, cooldown_coef=eta,
-        outside_intercept=float(b0), outside_weights=gamma,
-        cooldown_weeks=int(cooldown_weeks), loss=float(opt.fun),
-        success=bool(opt.success), message=str(opt.message),
+        global_weights=w0,
+        sector_deviations=u,
+        cooldown_coef=eta,
+        outside_intercept=float(b0),
+        outside_weights=gamma,
+        cooldown_weeks=int(cooldown_weeks),
+        loss=float(opt.fun),
+        success=bool(opt.success),
+        message=str(opt.message),
     )
 
 
 # ---------------------------------------------------------------------------
 # Predict / evaluate
 # ---------------------------------------------------------------------------
-def survival_predict_proba(result, startup_features, startup_sector, active,
-                           startup_counts, *, week, sector, tracked=None,
-                           momentum_weeks=8, n_sectors=None):
+def survival_predict_proba(
+    result,
+    startup_features,
+    startup_sector,
+    active,
+    startup_counts,
+    *,
+    week,
+    sector,
+    tracked=None,
+    momentum_weeks=8,
+    n_sectors=None,
+):
     """Return ``(cand_indices, p_candidates, p_outside)`` for one sector event."""
     Z = np.asarray(startup_features, dtype=float)
     startup_sector = np.asarray(startup_sector, dtype=int)
@@ -266,9 +317,20 @@ def survival_predict_proba(result, startup_features, startup_sector, active,
     return cand, pr[1:], float(pr[0])
 
 
-def evaluate_survival(result, events, startup_features, startup_sector, active,
-                      startup_counts, *, tracked=None, start_week=0, end_week=None,
-                      momentum_weeks=8, topk=(1, 5, 10)):
+def evaluate_survival(
+    result,
+    events,
+    startup_features,
+    startup_sector,
+    active,
+    startup_counts,
+    *,
+    tracked=None,
+    start_week=0,
+    end_week=None,
+    momentum_weeks=8,
+    topk=(1, 5, 10),
+):
     """Held-out metrics: NLL, top-k / MRR over tracked candidates (for in-universe
     events), and the outside option's calibration and discrimination (AUC) for the
     'next funder is outside the tracked set' event."""
@@ -287,10 +349,19 @@ def evaluate_survival(result, events, startup_features, startup_sector, active,
     p_out_list, y_out_list = [], []
     for t, s, chosen in use:
         cand, pr, p_out = survival_predict_proba(
-            result, startup_features, startup_sector, active, startup_counts,
-            week=int(t), sector=int(s), tracked=tracked, momentum_weeks=momentum_weeks)
+            result,
+            startup_features,
+            startup_sector,
+            active,
+            startup_counts,
+            week=int(t),
+            sector=int(s),
+            tracked=tracked,
+            momentum_weeks=momentum_weeks,
+        )
         is_outside = int(chosen) not in set(cand.tolist())
-        p_out_list.append(p_out); y_out_list.append(1.0 if is_outside else 0.0)
+        p_out_list.append(p_out)
+        y_out_list.append(1.0 if is_outside else 0.0)
         if is_outside:
             nll -= np.log(max(p_out, 1e-12))
             continue
@@ -301,7 +372,8 @@ def evaluate_survival(result, events, startup_features, startup_sector, active,
         for k in topk:
             hits[int(k)] += int(rank <= int(k))
         n_in += 1
-    p_out_arr = np.asarray(p_out_list); y_out_arr = np.asarray(y_out_list)
+    p_out_arr = np.asarray(p_out_list)
+    y_out_arr = np.asarray(y_out_list)
     out = {
         "n_events": int(use.shape[0]),
         "n_in_universe": int(n_in),
@@ -318,12 +390,15 @@ def evaluate_survival(result, events, startup_features, startup_sector, active,
 
 def _auc(y, score):
     """Area under the ROC curve (Mann-Whitney form); nan if one class is absent."""
-    y = np.asarray(y); score = np.asarray(score)
-    pos = score[y == 1]; neg = score[y == 0]
+    y = np.asarray(y)
+    score = np.asarray(score)
+    pos = score[y == 1]
+    neg = score[y == 0]
     if pos.size == 0 or neg.size == 0:
         return float("nan")
     order = np.argsort(score)
-    ranks = np.empty(score.size); ranks[order] = np.arange(1, score.size + 1)
+    ranks = np.empty(score.size)
+    ranks[order] = np.arange(1, score.size + 1)
     r_pos = ranks[y == 1].sum()
     return float((r_pos - pos.size * (pos.size + 1) / 2) / (pos.size * neg.size))
 

@@ -10,14 +10,16 @@ optimizer is unconstrained. We use scipy.optimize.minimize with L-BFGS-B.
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 import numpy as np
+
+from ..optim import minimize_bfgs
 from .likelihood import (
-    log_likelihood,
     neg_log_likelihood,
     neg_log_likelihood_and_grad,
 )
-from ..optim import minimize_bfgs
 
 
 @dataclass
@@ -37,13 +39,9 @@ class FitResult:
         lines = []
         lines.append(f"  log-likelihood = {self.loglik:.3f}")
         lines.append(f"  events per component: {self.n_events.tolist()}")
-        lines.append(f"  gamma0 (baseline log-rate intercept):")
+        lines.append("  gamma0 (baseline log-rate intercept):")
         for m, g in enumerate(self.gamma0):
-            se = (
-                f" ± {self.se_gamma0[m]:.4f}"
-                if self.se_gamma0 is not None
-                else ""
-            )
+            se = f" ± {self.se_gamma0[m]:.4f}" if self.se_gamma0 is not None else ""
             lines.append(f"    [{m}] {g:.4f}{se}    (mu={np.exp(g):.4f})")
         if self.gamma.size and self.gamma.shape[1] > 0:
             lines.append("  gamma (covariate effects):")
@@ -97,8 +95,10 @@ def _numerical_hessian(f, x, eps=1e-4, fg=None):
     H = np.zeros((n, n))
     if fg is not None:
         for i in range(n):
-            xp = x.copy(); xp[i] += eps
-            xm = x.copy(); xm[i] -= eps
+            xp = x.copy()
+            xp[i] += eps
+            xm = x.copy()
+            xm[i] -= eps
             _, gp = fg(xp)
             _, gm = fg(xm)
             H[:, i] = (gp - gm) / (2 * eps)
@@ -107,10 +107,18 @@ def _numerical_hessian(f, x, eps=1e-4, fg=None):
         return H
     for i in range(n):
         for j in range(i, n):
-            xpp = x.copy(); xpp[i] += eps; xpp[j] += eps
-            xpm = x.copy(); xpm[i] += eps; xpm[j] -= eps
-            xmp = x.copy(); xmp[i] -= eps; xmp[j] += eps
-            xmm = x.copy(); xmm[i] -= eps; xmm[j] -= eps
+            xpp = x.copy()
+            xpp[i] += eps
+            xpp[j] += eps
+            xpm = x.copy()
+            xpm[i] += eps
+            xpm[j] -= eps
+            xmp = x.copy()
+            xmp[i] -= eps
+            xmp[j] += eps
+            xmm = x.copy()
+            xmm[i] -= eps
+            xmm[j] -= eps
             H[i, j] = (f(xpp) - f(xpm) - f(xmp) + f(xmm)) / (4 * eps * eps)
             H[j, i] = H[i, j]
     return H
@@ -151,7 +159,7 @@ def _fit_general(events, T, beta, covariate=None, p_cov=0, init=None, se=True):
             # Inverse of observed information (= Hessian of negative log-lik)
             Cov = np.linalg.pinv(H)
             std = np.sqrt(np.clip(np.diag(Cov), 0, None))
-            se_gamma0 = std[: M]
+            se_gamma0 = std[:M]
             # alpha is exp(a) so SE of alpha = alpha * SE(a) by delta method
             a_part_std = std[M + M * p_cov :].reshape(M, M)
             se_alpha = alpha_hat * a_part_std
@@ -166,7 +174,6 @@ def _fit_general(events, T, beta, covariate=None, p_cov=0, init=None, se=True):
         loglik=-res.fun,
         success=bool(res.success),
         message=str(res.message),
-
         n_events=n_events,
         se_gamma0=se_gamma0,
         se_alpha=se_alpha,
@@ -201,6 +208,10 @@ def fit_multivariate_with_covariates(events, T, beta, covariate, se=True):
     """
     p_cov = covariate.p
     return _fit_general(
-        events, T, beta=np.asarray(beta, dtype=float),
-        covariate=covariate, p_cov=p_cov, se=se,
+        events,
+        T,
+        beta=np.asarray(beta, dtype=float),
+        covariate=covariate,
+        p_cov=p_cov,
+        se=se,
     )

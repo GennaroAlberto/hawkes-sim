@@ -64,24 +64,29 @@ def kernel_exponentials(kernel):
 
 def _powerlaw_to_exponentials(kernel, Q=12, t_max=None):
     """Least-squares fit phi_pl(t) ~ sum_q a_q exp(-b_q t) on a time grid."""
-    th, c, ka = kernel.theta, kernel.c, kernel.kappa
+    _th, c, _ka = kernel.theta, kernel.c, kernel.kappa
     t_max = t_max or 50.0 * c
     t = np.linspace(1e-3, t_max, 4000)
     target = kernel(t)
     b = np.logspace(np.log10(1.0 / t_max), np.log10(50.0 / c), Q)
-    B = np.exp(-np.outer(t, b))               # (T, Q)
+    B = np.exp(-np.outer(t, b))  # (T, Q)
     a, *_ = np.linalg.lstsq(B, target, rcond=None)
-    a = np.maximum(a, 0.0)                      # keep the kernel non-negative
+    a = np.maximum(a, 0.0)  # keep the kernel non-negative
     return a, b
 
 
 def make_exp_sum_kernel(a, b):
     """A callable phi(t)=sum_q a_q e^{-b_q t} with branching ratio sum a_q/b_q."""
-    a = np.asarray(a, float); b = np.asarray(b, float)
+    a = np.asarray(a, float)
+    b = np.asarray(b, float)
 
     def phi(t):
         t = np.asarray(t, float)
-        return np.where(t > 0, (a[:, None] * np.exp(-np.outer(b, np.maximum(t, 0)))).sum(0).reshape(np.shape(t)), 0.0)
+        return np.where(
+            t > 0,
+            (a[:, None] * np.exp(-np.outer(b, np.maximum(t, 0)))).sum(0).reshape(np.shape(t)),
+            0.0,
+        )
 
     phi.a, phi.b = a, b
     phi.branching_ratio = float(np.sum(a / b))
@@ -115,7 +120,7 @@ def solve_mbpp_ode(forcing, a, b, t_grid, return_compensator=False):
     a = np.asarray(a, float)
     b = np.asarray(b, float)
     Q = a.size
-    A = np.outer(a, np.ones(Q)) - np.diag(b)        # A_{qp} = a_q - b_q [q==p]
+    A = np.outer(a, np.ones(Q)) - np.diag(b)  # A_{qp} = a_q - b_q [q==p]
     t_grid = np.asarray(t_grid, float)
     N = t_grid.size
 
@@ -178,8 +183,8 @@ def solve_mbpp_ode_multivariate(forcing, A, B, t_grid, return_compensator=False)
         return np.asarray(forcing(t), float).reshape(M)
 
     def deriv(Y, s):
-        xi = s + Y.sum(axis=1)               # (M,)
-        return A * xi[None, :] - B * Y        # (M, M)
+        xi = s + Y.sum(axis=1)  # (M,)
+        return A * xi[None, :] - B * Y  # (M, M)
 
     Y = np.zeros((M, M))
     xi_out = np.empty((N, M))
@@ -195,8 +200,12 @@ def solve_mbpp_ode_multivariate(forcing, A, B, t_grid, return_compensator=False)
         Y = Y + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
         xi_out[n] = s1 + Y.sum(axis=1)
     if return_compensator:
-        Xi = np.concatenate([[np.zeros(M)],
-                             np.cumsum(0.5 * (xi_out[1:] + xi_out[:-1]) * np.diff(t_grid)[:, None], axis=0)])
+        Xi = np.concatenate(
+            [
+                [np.zeros(M)],
+                np.cumsum(0.5 * (xi_out[1:] + xi_out[:-1]) * np.diff(t_grid)[:, None], axis=0),
+            ]
+        )
         return xi_out, Xi
     return xi_out
 
@@ -234,22 +243,25 @@ def solve_mbpp_ltv(forcing, A0, B, t_grid, modulation=None, return_compensator=F
     -------
     xi : (N, M)  (and Xi : (N, M) if requested).
     """
-    A0 = np.asarray(A0, float); B = np.asarray(B, float)
+    A0 = np.asarray(A0, float)
+    B = np.asarray(B, float)
     M = A0.shape[0]
     t_grid = np.asarray(t_grid, float)
     N = t_grid.size
     if modulation is None:
-        modulation = lambda t: np.ones((M, M))
+
+        def modulation(t):
+            return np.ones((M, M))
 
     def s_at(t):
         return np.asarray(forcing(t), float).reshape(M)
 
     def xi_of(Y, s, mod):
-        return s + (A0 * mod * Y).sum(axis=1)          # (M,)
+        return s + (A0 * mod * Y).sum(axis=1)  # (M,)
 
     def deriv(Y, s, mod):
-        xi = xi_of(Y, s, mod)                          # (M,)
-        return xi[None, :] - B * Y                     # (M,M): y'_{mj}=xi_j-B_{mj}y_{mj}
+        xi = xi_of(Y, s, mod)  # (M,)
+        return xi[None, :] - B * Y  # (M,M): y'_{mj}=xi_j-B_{mj}y_{mj}
 
     Y = np.zeros((M, M))
     xi_out = np.empty((N, M))
@@ -267,8 +279,12 @@ def solve_mbpp_ltv(forcing, A0, B, t_grid, modulation=None, return_compensator=F
         Y = Y + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
         xi_out[n] = xi_of(Y, s1, m1)
     if return_compensator:
-        Xi = np.concatenate([[np.zeros(M)],
-                             np.cumsum(0.5 * (xi_out[1:] + xi_out[:-1]) * np.diff(t_grid)[:, None], axis=0)])
+        Xi = np.concatenate(
+            [
+                [np.zeros(M)],
+                np.cumsum(0.5 * (xi_out[1:] + xi_out[:-1]) * np.diff(t_grid)[:, None], axis=0),
+            ]
+        )
         return xi_out, Xi
     return xi_out
 
@@ -314,7 +330,7 @@ def solve_mbpp_volterra(forcing, kernel, t_grid, M=1, return_compensator=False):
         return np.asarray(kernel(tt, uu), float).reshape(M, M)
 
     xi = np.zeros((N, M))
-    xi[0] = s_at(t[0])                       # integral over [0,0] is zero
+    xi[0] = s_at(t[0])  # integral over [0,0] is zero
     for i in range(1, N):
         ti = t[i]
         # trapezoid sum of K(ti, t_k) xi_k over panels [t_{k-1}, t_k], k=1..i,
@@ -329,8 +345,9 @@ def solve_mbpp_volterra(forcing, kernel, t_grid, M=1, return_compensator=False):
         Kii = K_at(ti, ti)
         xi[i] = np.linalg.solve(I - 0.5 * h_i * Kii, acc)
     if return_compensator:
-        Xi = np.concatenate([[np.zeros(M)],
-                             np.cumsum(0.5 * (xi[1:] + xi[:-1]) * np.diff(t)[:, None], axis=0)])
+        Xi = np.concatenate(
+            [[np.zeros(M)], np.cumsum(0.5 * (xi[1:] + xi[:-1]) * np.diff(t)[:, None], axis=0)]
+        )
         return xi, Xi
     return xi
 
@@ -360,7 +377,7 @@ class SpectralOperator:
         self.dt = float(self.t[1] - self.t[0])
         self.N = self.t.size
         self.M = int(pad) * self.N
-        self.R = None           # learned/!constructed transfer function (length M//2+1)
+        self.R = None  # learned/!constructed transfer function (length M//2+1)
 
     # -- exact construction from a known kernel --------------------------
     def from_kernel(self, kernel):
@@ -383,7 +400,7 @@ class SpectralOperator:
             K example forcings and the corresponding MBPP intensities, sampled on
             ``t_grid``.
         """
-        Sf = np.fft.rfft(S, n=self.M, axis=1)        # (K, F)
+        Sf = np.fft.rfft(S, n=self.M, axis=1)  # (K, F)
         Xf = np.fft.rfft(XI, n=self.M, axis=1)
         num = np.sum(Xf * np.conj(Sf), axis=0)
         den = np.sum(np.abs(Sf) ** 2, axis=0) + ridge
@@ -442,8 +459,9 @@ class FunctionalMBPP:
         t_grid = np.asarray(t_grid, float)
         s_samples = np.asarray(forcing(t_grid), float)
         if self.method == "ode":
-            return solve_mbpp_ode(forcing, self.a, self.b, t_grid,
-                                  return_compensator=return_compensator)
+            return solve_mbpp_ode(
+                forcing, self.a, self.b, t_grid, return_compensator=return_compensator
+            )
         if self.method == "spectral":
             op = self.operator
             if op is None:
