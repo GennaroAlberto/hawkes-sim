@@ -29,6 +29,8 @@ def backtest_synthetic_pipeline(
     n_paths=100,
     max_events_per_week=None,
     tracked_fraction=0.8,
+    sector_l1_excitation=0.0,
+    sector_adjacency=None,
 ):
     """Run an end-to-end synthetic backtest for the two-layer architecture.
 
@@ -41,6 +43,12 @@ def backtest_synthetic_pipeline(
     first ``K`` (forwarded to :func:`simulate_marked_paths`) -- both the business
     question ("next K firms to raise") and a guard against a near/over-critical fitted
     sector model exploding the simulation.
+
+    ``sector_l1_excitation`` and ``sector_adjacency`` are forwarded to
+    :func:`fit_sector_count_model`.  With sparse weekly counts the dense
+    ``M x M x L`` excitation overfits (row sums pinned at the stability bound);
+    an L1 penalty and/or a diagonal adjacency brings the sector model to
+    near-parity with the historical-mean baseline.
     """
     data = simulate_synthetic_startup_market(
         T=T,
@@ -56,6 +64,8 @@ def backtest_synthetic_pipeline(
         n_lags=n_lags,
         train_end=train_end,
         l2=1e-3,
+        l1_excitation=sector_l1_excitation,
+        adjacency=sector_adjacency,
         max_excitation_radius=0.95,
     )
     ranker_fit = fit_startup_ranker(

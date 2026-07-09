@@ -21,6 +21,19 @@ from hawkes_calibration import (
 )
 
 
+def test_public_api_binds_canonical_implementations():
+    # Names that exist in more than one module must resolve to the canonical
+    # implementation regardless of star-import order in __init__ (an
+    # import-sorter once flipped the shadowing silently -- see the explicit
+    # assignment block in hawkes_calibration/__init__.py).
+    import hawkes_calibration as h
+
+    assert h.fit_sector_count_model.__module__ == "hawkes_calibration.sector_stability"
+    assert h.sector_rate_at.__module__ == "hawkes_calibration.sector_stability"
+    assert h.backtest_synthetic_pipeline.__module__ == "hawkes_calibration.sector_backtest"
+    assert len(h.__all__) == len(set(h.__all__))
+
+
 def test_synthetic_market_shapes_and_dynamic_risk_sets():
     data = simulate_synthetic_startup_market(
         T=70,
@@ -66,7 +79,7 @@ def test_sector_model_and_ranker_fit_on_synthetic_data():
     assert np.all(sector_fit.excitation >= -1e-12)
     assert sector_fit.excitation.shape == (4, 4, 2)
     assert excitation_spectral_radius(sector_fit.excitation) <= 0.95000001
-    assert getattr(sector_fit, "spectral_radius") <= 0.95000001
+    assert sector_fit.spectral_radius <= 0.95000001
 
     ranker_fit = fit_startup_ranker(
         data.events,
@@ -108,6 +121,38 @@ def test_sector_model_and_ranker_fit_on_synthetic_data():
     assert metrics["n_events"] > 0
     assert np.isfinite(metrics["nll"])
     assert metrics["nll"] < metrics["random_nll"]
+
+
+def test_sector_one_step_rates_bounded_under_covariate_extrapolation():
+    # Held-out covariates outside the training support must not blow up the
+    # exp baseline (the historical failure mode: exp(a + beta'x) hitting the
+    # rate clip ~4.85e8 and producing million-scale one-step NLL).
+    data = simulate_synthetic_startup_market(
+        T=90,
+        n_sectors=4,
+        startups_per_sector=12,
+        n_lags=2,
+        cooldown_weeks=8,
+        seed=5,
+    )
+    fit = fit_sector_count_model(
+        data.sector_counts,
+        data.covariates,
+        n_lags=2,
+        train_end=60,
+        max_excitation_radius=0.95,
+        max_iter=150,
+    )
+    # Score at an artificially extreme covariate vector (way outside training).
+    from hawkes_calibration.sector_stability import sector_rate_at
+
+    extreme = np.array(data.covariates, copy=True)
+    extreme[70] = 50.0
+    rates = sector_rate_at(fit, data.sector_counts, extreme, 70)
+    margin = fit.baseline_clip_margin
+    max_excitation = fit.excitation.sum(axis=(1, 2)) * data.sector_counts.max()
+    assert np.all(rates <= fit.baseline_high * margin + max_excitation + 1e-9)
+    assert np.all(np.isfinite(rates))
 
 
 def test_survival_and_hazard_second_stages_fit_and_score():

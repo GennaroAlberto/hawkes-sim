@@ -72,6 +72,16 @@ def sector_rate_at(result: SectorCountResult, counts_history, covariates, week: 
     if link == "additive":
         baseline_eta = result.intercept + result.beta @ x
         baseline = np.exp(np.clip(baseline_eta, -30.0, 20.0))
+        # Guard against exp-baseline extrapolation: a held-out covariate vector
+        # outside the training support can otherwise drive exp(a + beta'x) to the
+        # rate clip (~4.85e8) and produce catastrophic one-step NLL.  Predictions
+        # are winsorized to the envelope of fitted *training* baselines (times a
+        # margin), which is the most the training data can justify.
+        lo = getattr(result, "baseline_low", None)
+        hi = getattr(result, "baseline_high", None)
+        if lo is not None and hi is not None:
+            margin = float(getattr(result, "baseline_clip_margin", 2.0))
+            baseline = np.clip(baseline, np.asarray(lo) / margin, np.asarray(hi) * margin)
         lam = baseline.copy()
         for lag in range(1, result.n_lags + 1):
             lam += result.excitation[:, :, lag - 1] @ counts_history[int(week) - lag]
@@ -90,11 +100,14 @@ def fit_sector_count_model(
     n_lags=4,
     train_end=None,
     l2=1e-3,
+    l2_beta=None,
+    l1_excitation=0.0,
     adjacency=None,
     nonnegative_excitation=True,
     max_excitation_radius=0.95,
     stability_method="row_sum",
     project_if_unstable=True,
+    baseline_clip_margin=2.0,
     max_iter=500,
 ):
     r"""Fit a stable additive sector Hawkes/count model.
@@ -124,6 +137,22 @@ def fit_sector_count_model(
     ``adjacency`` may be an ``(M, M)`` hard mask; entries with ``False`` are forced
     to zero for every lag.
 
+    ``l2_beta`` is the ridge on the covariate coefficients only (defaults to
+    ``max(l2, 0.05)``): with sparse weekly counts, a nearly unpenalized ``beta``
+    can grow large enough that ``exp(a + beta'x)`` explodes on held-out
+    covariates outside the training support.  For the same reason, one-step
+    *predicted* baselines are winsorized to the envelope of the fitted training
+    baselines times ``baseline_clip_margin`` (set ``baseline_clip_margin=None``
+    to disable).
+
+    ``l1_excitation`` adds an L1 penalty ``lambda * sum(b)`` on the (nonnegative)
+    lag coefficients.  In sparse weekly data the additive likelihood is happy to
+    attribute any two events in adjacent weeks to excitation, so the unpenalized
+    fit drives row sums to the stability bound and overfits badly out of sample;
+    because ``b >= 0`` the penalty is linear and smooth, and it produces exact
+    zeros.  A value around ``1.0`` is a good default for sparse (<~0.5
+    events/sector-week) data; ``0.0`` reproduces the old behaviour.
+
     If SciPy is unavailable, the function falls back to the unconstrained box fit
     and then projects the aggregate excitation back to ``max_excitation_radius``.
     """
@@ -151,6 +180,8 @@ def fit_sector_count_model(
             raise ValueError("max_excitation_radius must be positive")
         if not nonnegative_excitation:
             raise ValueError("the row-sum stability constraint requires nonnegative excitation")
+    if l1_excitation and not nonnegative_excitation:
+        raise ValueError("l1_excitation requires nonnegative_excitation=True")
 
     if adjacency is None:
         mask = np.ones((M, M), dtype=bool)
@@ -158,6 +189,10 @@ def fit_sector_count_model(
         mask = np.asarray(adjacency, dtype=bool)
         if mask.shape != (M, M):
             raise ValueError("adjacency must have shape (M, M)")
+
+    # Sparse weekly counts leave beta nearly unidentified along some directions;
+    # without a real ridge, exp(a + beta'x) can explode on held-out covariates.
+    l2_beta = max(float(l2), 0.05) if l2_beta is None else float(l2_beta)
 
     n_intercept = M
     n_beta = M * p
@@ -189,7 +224,7 @@ def fit_sector_count_model(
 
     def unpack(theta):
         intercept = theta[:M]
-        beta = theta[M:M + n_beta].reshape(M, p) if p else np.zeros((M, 0))
+        beta = theta[M : M + n_beta].reshape(M, p) if p else np.zeros((M, 0))
         b = theta[start_b:].reshape(M, M, L)
         return intercept, beta, b
 
@@ -220,9 +255,13 @@ def fit_sector_count_model(
             for lag in range(1, L + 1):
                 grad_b[:, :, lag - 1] += err[:, None] * y[t - lag][None, :]
 
-        loss += 0.5 * l2 * (np.sum(beta ** 2) + np.sum(b ** 2))
-        grad_beta += l2 * beta
+        loss += 0.5 * l2_beta * np.sum(beta**2) + 0.5 * l2 * np.sum(b**2)
+        grad_beta += l2_beta * beta
         grad_b += l2 * b
+        if l1_excitation:
+            # b >= 0 on allowed entries, so the L1 term is just a linear penalty.
+            loss += float(l1_excitation) * float(np.sum(b[mask, :]))
+            grad_b[mask, :] += float(l1_excitation)
         grad_b[~mask, :] = 0.0
         grad = np.concatenate([grad_intercept, grad_beta.ravel(), grad_b.ravel()])
         return loss, grad
@@ -234,6 +273,7 @@ def fit_sector_count_model(
         and _HAVE_SCIPY
     )
     if use_row_sum:
+
         def row_margin(theta):
             _, _, b = unpack(theta)
             return max_excitation_radius - b.sum(axis=(1, 2))
@@ -243,7 +283,7 @@ def fit_sector_count_model(
             jac = np.zeros((M, n), dtype=float)
             for s in range(M):
                 row_start = start_b + s * M * L
-                jac[s, row_start:row_start + M * L] = -1.0
+                jac[s, row_start : row_start + M * L] = -1.0
             return jac
 
         opt = minimize(
@@ -286,10 +326,7 @@ def fit_sector_count_model(
     row_sum_max = float(aggregate_excitation(b).sum(axis=1).max()) if M else 0.0
     message = str(opt.message)
     if projected:
-        message += (
-            f"; excitation projected from rho={rho_before_projection:.6g} "
-            f"to rho={rho:.6g}"
-        )
+        message += f"; excitation projected from rho={rho_before_projection:.6g} to rho={rho:.6g}"
     elif use_row_sum:
         message += f"; row-sum stability constraint <= {max_excitation_radius:g}"
 
@@ -300,7 +337,8 @@ def fit_sector_count_model(
         n_lags=L,
         train_end=train_end,
         loss=final_loss,
-        success=bool(opt.success) and (max_excitation_radius is None or rho <= max_excitation_radius + 1e-8),
+        success=bool(opt.success)
+        and (max_excitation_radius is None or rho <= max_excitation_radius + 1e-8),
         message=message,
     )
     # Backward-compatible dynamic attributes; SectorCountResult is intentionally not
@@ -310,6 +348,16 @@ def fit_sector_count_model(
     res.max_row_sum = row_sum_max
     res.stability_method = stability_method
     res.rate_link = "additive"
+    if baseline_clip_margin is not None:
+        # Envelope of the fitted baselines over the training weeks: one-step
+        # predictions are winsorized to this range (times the margin) so a
+        # held-out covariate outside the training support cannot blow up the
+        # exp baseline (see sector_rate_at).
+        train_eta = intercept[None, :] + (X[weeks] @ beta.T if p else 0.0)
+        train_base = np.exp(np.clip(train_eta, -30.0, 20.0))
+        res.baseline_low = train_base.min(axis=0)
+        res.baseline_high = train_base.max(axis=0)
+        res.baseline_clip_margin = float(baseline_clip_margin)
     return res
 
 
