@@ -139,3 +139,34 @@ MLE, within-bucket uniform imputation), resolutions {1d, 7d, 28d}:
 - E3: **done** (`exp23`) including the day-resolution block Hawkes (ρ rank corr 0.937).
 - E-noise (covariate noise ≤20 %): **done** (`exp22`).
 - E4 (PINO vs analytical), E5 (walk-forward backtest + covariate ablation): not started.
+
+## E-ladder — alternative predictors on identical data (`exp25`, audited)
+
+Three worlds (A, **A-strong** = `covariate_scale 1.5`, B), oracle pools, same split,
+same training events for every model, mid-rank ties, each model's own likelihood.
+The harness was adversarially audited (3 independent lenses, 21 findings, 3 critical
+— hazard silently training on 5× the events, Hawkes NLL double-exponentiated,
+cov-only GLM biased by fit-then-zero — all fixed before the final run).
+
+**Ranking (top-5, ~2000-candidate pools):** `logit ≈ survival ≈ oracle` (0.29 vs
+oracle 0.29 on A) > hazard (0.28) > Hawkes-ranker (0.21) > popularity (0.15) >
+recency (0.07, *worse than popularity* — momentum is anti-signal in a cooldown
+world) > random (0.05). **Within the discriminative feature-based family the model
+choice barely matters — all sit at the oracle ceiling; the philosophy choice
+(intensity-recency vs features) costs ~30 % of the achievable lift.** On regime B
+(misspecified, 6k-candidate pools) everything compresses to ~3× random and the
+Hawkes rankers become competitive (best NLL) — correct specification shows up in
+likelihood before it shows up in top-k.
+
+**Counts (held-out Poisson NLL/cell):** on A, `EWMA (1.84) ≈ GLM-full (1.84) ≈
+oracle (1.79)`; on A-strong the full GLM *degrades* (2.70 vs EWMA 1.45 vs oracle
+1.41) — the lag-feedback channel overfits the latent factor harder as signal grows —
+while covariates-only closes on the oracle (1.55). On B the unstructured **ridge-ML
+arm wins outright** (2.33 vs GLM-full 2.47 vs EWMA 2.42). **A 3-line adaptive
+level-tracker matches structural models wherever a persistent latent factor exists,
+structural excitation actively hurts under confounding, and plain ML wins under
+misspecification.**
+
+Reproduce: `PYTHONPATH=. python -m experiments.exp25_model_ladder` (generate
+`data/synthetic_A_strong` first via `simulate_world(regime='A', covariate_scale=1.5)`
+→ `emit_dataset`). Results: `results/exp25_model_ladder.{json,png}`.

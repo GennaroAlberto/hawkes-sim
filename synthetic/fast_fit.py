@@ -29,6 +29,7 @@ def fit_sector_glm_fast(
     """Per-sector vectorized Poisson GLM with lagged own/cross counts.
 
     Returns (intercept (M,), beta (M,p), excitation (M,M,L)).
+    ``n_lags=0`` fits a genuine covariates-only GLM (no lag columns in the design).
     """
     y = np.asarray(sector_counts, float)
     X = np.asarray(covariates, float)
@@ -37,7 +38,10 @@ def fit_sector_glm_fast(
     L = int(n_lags)
     train_end = T if train_end is None else int(train_end)
     w = np.arange(L, train_end)
-    lagmat = np.concatenate([y[w - l] for l in range(1, L + 1)], axis=1)  # (n, M*L)
+    if L:
+        lagmat = np.concatenate([y[w - l] for l in range(1, L + 1)], axis=1)  # (n, M*L)
+    else:
+        lagmat = np.zeros((len(w), 0))
     D = np.concatenate([np.ones((len(w), 1)), X[w], lagmat], axis=1)  # (n, 1+p+M*L)
 
     intercept = np.zeros(M)

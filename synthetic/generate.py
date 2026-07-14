@@ -35,7 +35,11 @@ def simulate_world(
     n_sectors=12,
     target_mean=8.0,
     target_total_events_b=55_000,
+    **regime_kwargs,
 ):
+    """``regime_kwargs`` are forwarded to the regime simulator -- e.g. regime A's
+    ``covariate_scale`` / ``latent_strength`` / ``effective_radius`` (the variant
+    knobs named in EXPERIMENTS.md), or regime B's ``quality_strength``."""
     macro, latent_full, week_full = generate_macro(weeks=weeks + BURNIN_WEEKS, seed=seed)
     week_index = week_full[BURNIN_WEEKS:]
     latent = latent_full[BURNIN_WEEKS:]
@@ -52,6 +56,7 @@ def simulate_world(
             n_sectors=n_sectors,
             target_mean=target_mean,
             seed=seed,
+            **regime_kwargs,
         )
     else:
         world = simulate_regime_b(
@@ -62,6 +67,7 @@ def simulate_world(
             n_sectors=n_sectors,
             target_total_events=target_total_events_b,
             seed=seed,
+            **regime_kwargs,
         )
     return dict(
         world=world,

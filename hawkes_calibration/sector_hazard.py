@@ -79,6 +79,7 @@ def fit_discrete_hazard(
     l2_sector=1e-2,
     constrain_cooldown_negative=True,
     max_iter=500,
+    label_counts=None,
 ):
     """Fit a discrete-time logistic hazard model from active firm-weeks.
 
@@ -98,12 +99,18 @@ def fit_discrete_hazard(
     negative_sampling_ratio : int or None
         Number of active negative firm-weeks sampled per positive row. If None,
         all active negative firm-weeks are used.
+    label_counts : (T, N) array or None
+        Optional counts matrix used ONLY for the positive labels (e.g. a
+        subsampled event set, so this model trains on the same events as other
+        second-stage models). ``startup_counts`` still drives the cooldown
+        covariate. Defaults to ``startup_counts``.
     """
-    _ = events  # labels are in startup_counts; keep argument for stable API.
+    _ = events  # labels are in label_counts/startup_counts; argument kept for stable API.
     Z = np.asarray(startup_features, dtype=float)
     startup_sector = np.asarray(startup_sector, dtype=int)
     active = np.asarray(active, dtype=bool)
     startup_counts = np.asarray(startup_counts, dtype=float)
+    label_counts = startup_counts if label_counts is None else np.asarray(label_counts, float)
     T, N, p = Z.shape
     M = _n_sectors(startup_sector)
     if train_end is None:
@@ -117,7 +124,7 @@ def fit_discrete_hazard(
         live = np.flatnonzero(active[t])
         if live.size == 0:
             continue
-        labels = (startup_counts[t, live] > 0).astype(int)
+        labels = (label_counts[t, live] > 0).astype(int)
         pos = live[labels == 1]
         neg = live[labels == 0]
         if pos.size:
