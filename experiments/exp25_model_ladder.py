@@ -96,8 +96,9 @@ def counts_ladder(ds, gt, has_oracle):
     out = {}
 
     mu = np.maximum(y[:TRAIN_END].mean(0), 1e-12)
-    out["mean"] = dict(nll=_poisson_nll(obs, np.tile(mu, (obs.shape[0], 1))),
-                       mae=float(np.abs(obs - mu).mean()))
+    out["mean"] = dict(
+        nll=_poisson_nll(obs, np.tile(mu, (obs.shape[0], 1))), mae=float(np.abs(obs - mu).mean())
+    )
 
     # EWMA (8-week half-life), strictly one-step-ahead
     lam = np.log(2) / 8.0
@@ -127,7 +128,9 @@ def counts_ladder(ds, gt, has_oracle):
         for s in range(M):
             onehot = np.zeros(M)
             onehot[s] = 1.0
-            rows.append(np.concatenate([[1.0], X[t], y[t - L:t, s][::-1], [np.log1p(mkt)], onehot]))
+            rows.append(
+                np.concatenate([[1.0], X[t], y[t - L : t, s][::-1], [np.log1p(mkt)], onehot])
+            )
             targets.append(np.log1p(y[t, s]))
             keys.append(t)
     F = np.asarray(rows)
@@ -145,8 +148,13 @@ def counts_ladder(ds, gt, has_oracle):
         Xg = (ds.covariates_raw - gt["cov_mean"]) / gt["cov_sd"]
         latent_eta = float(gt["latent_strength"]) * np.asarray(gt["latent_path"], float)
         rates = _glm_rates(
-            gt["sector_intercept"], gt["sector_beta"], gt["excitation"], Xg, y,
-            int(gt["n_lags"]), extra_eta=latent_eta[:, None] * np.ones((1, M)),
+            gt["sector_intercept"],
+            gt["sector_beta"],
+            gt["excitation"],
+            Xg,
+            y,
+            int(gt["n_lags"]),
+            extra_eta=latent_eta[:, None] * np.ones((1, M)),
         )
         pred = rates[TRAIN_END:]
         out["oracle"] = dict(nll=_poisson_nll(obs, pred), mae=float(np.abs(obs - pred).mean()))
@@ -195,25 +203,55 @@ def ranking_ladder(ds, gt, has_oracle, cooldown_weeks):
     # ---- fit the five model families on the SAME training events ----------
     t0 = time.time()
     w0, u, eta, _, _, _ = fit_ranker_fast(
-        ev_tr, Z, fs, act, cnt, train_end=TRAIN_END, cooldown_weeks=cooldown_weeks,
-        max_candidates=64, seed=0,
+        ev_tr,
+        Z,
+        fs,
+        act,
+        cnt,
+        train_end=TRAIN_END,
+        cooldown_weeks=cooldown_weeks,
+        max_candidates=64,
+        seed=0,
     )
     print(f"    [fit logit {time.time() - t0:.0f}s]", flush=True)
     hz = fit_discrete_hazard(
-        ev_tr, Z, fs, act, cnt, train_end=TRAIN_END, cooldown_weeks=cooldown_weeks,
-        negative_sampling_ratio=10, seed=0, max_iter=300, label_counts=cnt_lab,
+        ev_tr,
+        Z,
+        fs,
+        act,
+        cnt,
+        train_end=TRAIN_END,
+        cooldown_weeks=cooldown_weeks,
+        negative_sampling_ratio=10,
+        seed=0,
+        max_iter=300,
+        label_counts=cnt_lab,
     )
     print(f"    [fit hazard {time.time() - t0:.0f}s]", flush=True)
     sv = fit_startup_survival(
-        ev_tr, Z, fs, act, cnt, tracked=None, train_end=TRAIN_END,
-        cooldown_weeks=cooldown_weeks, max_iter=300,
+        ev_tr,
+        Z,
+        fs,
+        act,
+        cnt,
+        tracked=None,
+        train_end=TRAIN_END,
+        cooldown_weeks=cooldown_weeks,
+        max_iter=300,
     )
     print(f"    [fit survival {time.time() - t0:.0f}s]", flush=True)
     hks = {}
     for link in ("linear", "exp"):
         hks[link] = fit_hawkes_ranker(
-            ev_tr, Z, fs, act, cnt, link=link, train_end=TRAIN_END,
-            drop_last_funded=False, max_iter=300,
+            ev_tr,
+            Z,
+            fs,
+            act,
+            cnt,
+            link=link,
+            train_end=TRAIN_END,
+            drop_last_funded=False,
+            max_iter=300,
         )
         print(f"    [fit hawkes-{link} {time.time() - t0:.0f}s]", flush=True)
     hk_fields = {k: _fields_for(hks[k], cnt, fs, int(fs.max()) + 1) for k in hks}
@@ -260,8 +298,15 @@ def ranking_ladder(ds, gt, has_oracle, cooldown_weeks):
             return sc, sc
         raise ValueError(model)
 
-    models = ["popularity", "recency", "logit", "hazard", "survival",
-              "hawkes_linear", "hawkes_exp"] + (["oracle"] if has_oracle else [])
+    models = [
+        "popularity",
+        "recency",
+        "logit",
+        "hazard",
+        "survival",
+        "hawkes_linear",
+        "hawkes_exp",
+    ] + (["oracle"] if has_oracle else [])
     ranks = {m: [] for m in models}
     nlls = {m: 0.0 for m in models}
     sizes = []
@@ -302,8 +347,10 @@ def ranking_ladder(ds, gt, has_oracle, cooldown_weeks):
     for m in models:
         r = np.asarray(ranks[m])
         out[m] = dict(
-            top1=float(np.mean(r <= 1)), top5=float(np.mean(r <= 5)),
-            top10=float(np.mean(r <= 10)), mrr=float(np.mean(1 / r)),
+            top1=float(np.mean(r <= 1)),
+            top5=float(np.mean(r <= 5)),
+            top10=float(np.mean(r <= 10)),
+            mrr=float(np.mean(1 / r)),
         )
         if m not in ("popularity", "recency"):
             out[m]["nll"] = nlls[m] / used
@@ -341,17 +388,30 @@ def main(out_dir="results"):
         print("  COUNTS (held-out Poisson NLL/cell | MAE):")
         for m, v in r["counts"].items():
             print(f"    {m:14s} {v['nll']:7.3f} | {v['mae']:.3f}")
-        print(f"  RANKING ({r['ranking']['n_events']} test events, "
-              f"~{r['ranking']['mean_risk_set']:.0f} candidates/pool):")
+        print(
+            f"  RANKING ({r['ranking']['n_events']} test events, "
+            f"~{r['ranking']['mean_risk_set']:.0f} candidates/pool):"
+        )
         print("    model           top1    top5    top10   MRR     NLL")
-        for m in ("random", "popularity", "recency", "logit", "hazard", "survival",
-                  "hawkes_linear", "hawkes_exp", "oracle"):
+        for m in (
+            "random",
+            "popularity",
+            "recency",
+            "logit",
+            "hazard",
+            "survival",
+            "hawkes_linear",
+            "hawkes_exp",
+            "oracle",
+        ):
             if m not in r["ranking"]:
                 continue
             v = r["ranking"][m]
             nll = f"{v['nll']:.3f}" if "nll" in v else "  --"
-            print(f"    {m:14s} {v['top1']:.3f}   {v['top5']:.3f}   {v['top10']:.3f}"
-                  f"   {v['mrr']:.3f}   {nll}")
+            print(
+                f"    {m:14s} {v['top1']:.3f}   {v['top5']:.3f}   {v['top10']:.3f}"
+                f"   {v['mrr']:.3f}   {nll}"
+            )
     print("\nWrote results/exp25_model_ladder.json")
     return res
 

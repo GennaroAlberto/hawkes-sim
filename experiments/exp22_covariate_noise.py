@@ -75,7 +75,9 @@ def stage1(ds, gt):
 
     # reference: no-covariate fit (covariate lift baseline, fitted once)
     a0, _, e0 = fit_sector_glm_fast(y, X[:, :0], n_lags=L, train_end=TRAIN_END, l2=1e-3)
-    nll_nocov = _poisson_nll(obs, _rates(a0, np.zeros((y.shape[1], 0)), e0, X[:, :0], y, L)[TRAIN_END:])
+    nll_nocov = _poisson_nll(
+        obs, _rates(a0, np.zeros((y.shape[1], 0)), e0, X[:, :0], y, L)[TRAIN_END:]
+    )
 
     rows = []
     for sigma in NOISE_LEVELS:
@@ -113,9 +115,7 @@ def stage2(cs):
     real = msk & ~(F0[:, :, newcomer_col] > 0)
     cut = np.quantile(day, 0.8)
     tr_ev = day <= cut
-    col_sd = np.array(
-        [F0[tr_ev][msk[tr_ev]][:, j].std() for j in range(F0.shape[2])]
-    )
+    col_sd = np.array([F0[tr_ev][msk[tr_ev]][:, j].std() for j in range(F0.shape[2])])
 
     rows = []
     w_clean = None
@@ -178,7 +178,9 @@ def main(out_dir="results"):
         json.dump(res, fh, indent=2, default=float)
 
     # ---- report ----
-    print("\n=== exp22: covariate measurement noise on the benign case (regime A, oracle pools) ===")
+    print(
+        "\n=== exp22: covariate measurement noise on the benign case (regime A, oracle pools) ==="
+    )
     print("\nSTAGE 1 -- weekly sector GLM (macro covariates)")
     print(f"  no-covariate held-out NLL/cell: {nll_nocov:.3f}")
     print("  sigma   beta corr        beta scale       held-out NLL     covariate lift")
@@ -213,7 +215,10 @@ def _plot(out_dir, s1_rows, s2_rows, nll_nocov):
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.2))
 
     ax = axes[0]
-    for key, label, style in (("beta_corr", "beta correlation", "o-"), ("beta_scale", "beta scale (attenuation)", "s--")):
+    for key, label, style in (
+        ("beta_corr", "beta correlation", "o-"),
+        ("beta_scale", "beta scale (attenuation)", "s--"),
+    ):
         m = [_agg(s1_rows, key)[s][0] for s in NOISE_LEVELS]
         e = [_agg(s1_rows, key)[s][1] for s in NOISE_LEVELS]
         ax.errorbar(x, m, yerr=e, fmt=style, capsize=3, label=label)
@@ -240,8 +245,13 @@ def _plot(out_dir, s1_rows, s2_rows, nll_nocov):
     m2 = [_agg(s2_rows, "lift_nats")[s][0] for s in NOISE_LEVELS]
     ax2 = ax.twinx()
     ax2.errorbar(
-        x, m2, yerr=[_agg(s2_rows, "lift_nats")[s][1] for s in NOISE_LEVELS],
-        fmt="s--", color="C1", capsize=3, label="NLL lift over random (nats)",
+        x,
+        m2,
+        yerr=[_agg(s2_rows, "lift_nats")[s][1] for s in NOISE_LEVELS],
+        fmt="s--",
+        color="C1",
+        capsize=3,
+        label="NLL lift over random (nats)",
     )
     ax.set_xlabel("feature noise (% of signal sd)")
     ax.set_title("Stage 2: choice model")

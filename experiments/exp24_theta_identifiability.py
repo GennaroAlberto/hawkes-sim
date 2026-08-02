@@ -82,8 +82,14 @@ def part_a(volumes=(1, 4)):
                         kas.append(float(res.alpha[0, 0]) / float(th))
                     k = int(np.argmax(lls))
                     rows.append(
-                        dict(vol=vol, rep=rep, width=width, imp=imp,
-                             theta_hat=float(THETA_GRID[k]), kappa_hat=float(kas[k]))
+                        dict(
+                            vol=vol,
+                            rep=rep,
+                            width=width,
+                            imp=imp,
+                            theta_hat=float(THETA_GRID[k]),
+                            kappa_hat=float(kas[k]),
+                        )
                     )
                     if rep == 0 and imp == 0:
                         curves[f"v{vol}_w{width}"] = (np.asarray(lls) - max(lls)).tolist()
@@ -114,8 +120,13 @@ def part_b(gt):
                 kas.append(float(res.alpha[0, 0]) / float(th))
             k = int(np.argmax(lls))
             rows.append(
-                dict(sector=s, width=width, imp=imp,
-                     theta_hat=float(THETA_GRID[k]), kappa_hat=float(kas[k]))
+                dict(
+                    sector=s,
+                    width=width,
+                    imp=imp,
+                    theta_hat=float(THETA_GRID[k]),
+                    kappa_hat=float(kas[k]),
+                )
             )
             print(
                 f"  [B] sector {s} width {width:>2}d imp {imp}: "
@@ -138,14 +149,20 @@ def main(out_dir="results"):
     b_rows = part_b(gt)
 
     res = dict(
-        theta_true=THETA_TRUE, kappa_true=KAPPA_TRUE, theta_grid=THETA_GRID.tolist(),
-        part_a=a_rows, part_a_curves=a_curves, part_b=b_rows,
+        theta_true=THETA_TRUE,
+        kappa_true=KAPPA_TRUE,
+        theta_grid=THETA_GRID.tolist(),
+        part_a=a_rows,
+        part_a_curves=a_curves,
+        part_b=b_rows,
     )
     with open(os.path.join(out_dir, "exp24_theta.json"), "w") as fh:
         json.dump(res, fh, indent=2, default=float)
 
-    print(f"\n=== exp24: decay identifiability vs resolution "
-          f"(true kappa {KAPPA_TRUE}, theta {THETA_TRUE:.3f}/day = 7d half-life) ===")
+    print(
+        f"\n=== exp24: decay identifiability vs resolution "
+        f"(true kappa {KAPPA_TRUE}, theta {THETA_TRUE:.3f}/day = 7d half-life) ==="
+    )
     print("\nPART A -- controlled simulation (constant baseline, well-specified):")
     for vol in sorted({r["vol"] for r in a_rows}):
         n_ev = "~4k" if vol == 1 else f"~{4 * vol}k"
@@ -153,7 +170,9 @@ def main(out_dir="results"):
         for w in WIDTHS:
             tm, ts = _summ(a_rows, w, "theta_hat", vol=vol)
             km, ks = _summ(a_rows, w, "kappa_hat", vol=vol)
-            print(f"                            {w:>3}d    {tm:.3f} ± {ts:.3f}      {km:.3f} ± {ks:.3f}")
+            print(
+                f"                            {w:>3}d    {tm:.3f} ± {ts:.3f}      {km:.3f} ± {ks:.3f}"
+            )
     print("\nPART B -- regime B busiest sector (macro-covariate baseline; latent")
     print("           quality still clusters events, so kappa keeps an upward bias):")
     print("  width   theta_hat            kappa_hat")
@@ -179,8 +198,13 @@ def _plot(out_dir, res):
     styles = {1: "o-", 7: "s--", 28: "^:"}
     vol_hi = max(r["vol"] for r in res["part_a"])
     for j, w in enumerate(WIDTHS):
-        ax.plot(grid, res["part_a_curves"][f"v{vol_hi}_w{w}"], styles[w], color=f"C{j}",
-                label=f"{w}d buckets")
+        ax.plot(
+            grid,
+            res["part_a_curves"][f"v{vol_hi}_w{w}"],
+            styles[w],
+            color=f"C{j}",
+            label=f"{w}d buckets",
+        )
     ax.axvline(res["theta_true"], color="k", lw=1, ls="--", label="true theta")
     ax.set_xscale("log")
     ax.set_xlabel("decay theta (1/day)")
@@ -190,17 +214,34 @@ def _plot(out_dir, res):
     ax.grid(alpha=0.3)
 
     for ax, rows, title in (
-        (axes[1], [r for r in res["part_a"] if r["vol"] == vol_hi],
-         f"A: controlled recovery ({vol_hi}x volume)"),
+        (
+            axes[1],
+            [r for r in res["part_a"] if r["vol"] == vol_hi],
+            f"A: controlled recovery ({vol_hi}x volume)",
+        ),
         (axes[2], res["part_b"], "B: regime B (covariate baseline)"),
     ):
         for j, w in enumerate(WIDTHS):
             tv = [r["theta_hat"] for r in rows if r["width"] == w]
             kv = [r["kappa_hat"] for r in rows if r["width"] == w]
-            ax.errorbar([w], [np.mean(tv)], yerr=[np.std(tv)], fmt="o", capsize=4,
-                        color="C0", label="theta_hat" if j == 0 else None)
-            ax.errorbar([w * 1.25], [np.mean(kv)], yerr=[np.std(kv)], fmt="s", capsize=4,
-                        color="C3", label="kappa_hat" if j == 0 else None)
+            ax.errorbar(
+                [w],
+                [np.mean(tv)],
+                yerr=[np.std(tv)],
+                fmt="o",
+                capsize=4,
+                color="C0",
+                label="theta_hat" if j == 0 else None,
+            )
+            ax.errorbar(
+                [w * 1.25],
+                [np.mean(kv)],
+                yerr=[np.std(kv)],
+                fmt="s",
+                capsize=4,
+                color="C3",
+                label="kappa_hat" if j == 0 else None,
+            )
         ax.axhline(res["theta_true"], color="C0", lw=1, ls="--")
         ax.axhline(res["kappa_true"], color="C3", lw=1, ls=":")
         ax.set_xscale("log")
