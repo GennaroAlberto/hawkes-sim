@@ -170,10 +170,25 @@ sector counts into the two channels and fitting them separately aligns the
 outside option with Hawkes semantics --- the newcomer alternative \emph{is} the
 immigrant channel seen from the mark factor.
 
+Measured verdicts from the rehearsal (\code{exp28}): the nested design (N3)
+attains the best joint likelihood on both worlds, the context-ASC (N1) the best
+quarterly newcomer-share calibration (mean $\approx$3--4pp error vs.\
+$\approx$6--9pp for a bare constant); the integrated entrant-quality term (N2b)
+explains only 13--15\% of the fitted ASC, so most of the newcomer utility is
+coverage and pool-size, not entrant quality; and the immigrant stream carries
+the larger fitted ``excitation'' radius ($\approx$0.30 vs.\ $\approx$0.08--0.11
+for repeats) --- entry waves absorbing the latent factor, exactly the S1
+mechanism. The practical recommendation is N3 for likelihood, N1 for
+calibrated shares, and the two coincide in their incumbent weights.
+
 The synthetic worlds also let us quantify a conflation no real dataset can:
 ``newcomer'' mixes true entrants with untracked incumbents, and the private
 deal map prices that conflation in joint likelihood. On real data the split is
 unobservable; the scenario map (S4) says what to expect instead.
+Measured: newcomer wins split $\approx$45/45/10\% between true entrants,
+untracked incumbents, and pool misses, yet separating the two classes improves
+joint likelihood by only $+0.003$ nats --- the conflation is nearly free in
+likelihood even though it blocks compositional interpretation.
 
 % ---------------------------------------------------------------------
 \subsection{The scenario map: identifiability and expected performance}
@@ -307,7 +322,13 @@ context ASC; its composition will remain unidentifiable (S4, M7).
 \item A gradient-boosted ranker at feature parity will land within a few
 points of the conditional logit; a large gap would falsify the linear-utility
 restriction and would be the single most informative failure we could observe
-(\S\ref{sec:design_bench}).
+(\S\ref{sec:design_bench}). \emph{Status: this test has already fired on the
+synthetic worlds} --- parity XGBoost beats the logit by $+0.22$ nats and
+$+9$pp incumbent top-5 on world A ($+0.10$ nats on B), so the linear utility
+leaves genuine nonlinearity (plausibly gap-feature interactions) on the table
+even before feature enrichment. The expectation for real data is therefore
+revised: budget for a nonlinear mark scorer or engineered interactions, and
+treat the parity gap, re-measured on real data, as the enrichment budget.
 \end{enumerate}
 
 % ---------------------------------------------------------------------
@@ -320,7 +341,11 @@ challenger that travels with the codebase:
 (isolates the linear-utility restriction) and with a strictly point-in-time
 kitchen sink (bounds the value of missing features); decision rule
 pre-registered --- parity means the parametric mark factor stands, a gap means
-features/nonlinearity, and the gap size is the budget for enrichment.
+features/nonlinearity, and the gap size is the budget for enrichment. In the
+synthetic rehearsal the gap materialized (parity $+0.22$ nats on A), so the
+linear-utility restriction is already known to be falsifiable in practice and
+the mark factor's robustness claim is scoped to the \emph{likelihood family},
+not the linear score.
 \textbf{B2} (\code{exp27}): the covariates-only NHPP null with the
 decomposition seasonal $\to$ covariates $\to$ +excitation $\to$ +event-time
 timing; excitation must earn its held-out nats or be dropped from the

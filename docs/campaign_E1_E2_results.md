@@ -170,3 +170,18 @@ misspecification.**
 Reproduce: `PYTHONPATH=. python -m experiments.exp25_model_ladder` (generate
 `data/synthetic_A_strong` first via `simulate_world(regime='A', covariate_scale=1.5)`
 → `emit_dataset`). Results: `results/exp25_model_ladder.{json,png}`.
+
+## B1 + B2 + N — REVIEW benchmarks and newcomer designs (`exp26`–`exp28`)
+
+**B1 (XGB, `exp26`) — the falsification test FIRED**: parity XGBoost beats the
+conditional logit (A: +0.22 nats / +9pp incumbent top-5, all-events top-5 0.485 vs
+0.446; B: +0.10 nats / +1.8pp) and the kitchen sink adds more on A (0.518). The
+linear-utility restriction leaves real nonlinearity on the table; budget for
+interactions or a nonlinear scorer. `rank:pairwise` underperformed `binary:logistic`
+throughout. **B2 (NHPP null, `exp27`)**: seasonal→NHPP carries almost everything
+(+3.5/+5.7/+1.5 nats by world); weekly excitation adds +0.04 (A), −1.15 (A-strong,
+bucketing artifact), +0.53 (B); event-time timing adds +0.09/+1.35/+0.53 and is the
+best-calibrated arm everywhere (dispersion ≈1.0). **N (`exp28`)**: N3 nested wins
+joint NLL (3.301 A / 3.708 B), N1 context-ASC wins newcomer-share calibration
+(mean ~3–4pp); entrant quality explains only 13–15% of the ASC; conflation of
+entrants vs untracked incumbents (~45/45/10 split) costs only +0.003 nats.
