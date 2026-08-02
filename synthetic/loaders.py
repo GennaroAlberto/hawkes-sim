@@ -70,8 +70,63 @@ CHOICE_FEATURES = [
     "is_newcomer",
 ]
 
+# Market-context features g_{s,t} for the newcomer alternative (design N1 in
+# REVIEW.md): filled ONLY on the newcomer row, incumbents keep zeros there,
+# mirroring the is_newcomer dummy.  All entries are point-in-time safe.
+CHOICE_CONTEXT_FEATURES = [
+    "ctx_log1p_sector_deals_90d",  # log1p(#sector deals in [d-90, d), strictly before d)
+    "ctx_first_share_expanding",  # expanding share of first-financings in the sector
+    "ctx_FFUND",  # macro as-of publish_date (strictly before d)
+    "ctx_CPI_YOY",
+    "ctx_RUNEMP",
+    "ctx_log1p_pool_size",  # log1p(eligible incumbent pool size, pre-subsampling)
+]
 
-def build_choice_sets(data_dir, *, max_candidates=64, exclusion="sector", newcomer=True, seed=0):
+
+def _newcomer_context(data_dir, deals, day, e_sector, week0, n_sectors):
+    """Per-deal market context (columns 0-4 of CHOICE_CONTEXT_FEATURES).
+
+    * sector deals last 90d: count of deals of the event's sector with day in
+      [d-90, d) — strictly before the event day (same discipline as LOCF);
+    * first-financing share: expanding (train-safe) share of deals in the sector
+      strictly before this row that are the firm's first deal, Laplace-smoothed
+      (cnt+1)/(tot+2);
+    * macro: as-of join on publish_date strictly before the event day, matching
+      the weekly convention of ``_weekly_asof``.
+    """
+    macro = pd.read_csv(f"{data_dir}/macro.csv", parse_dates=["publish_date"])
+    n_days = int(day.max()) + 1
+    dates = (week0 + pd.to_timedelta(np.arange(n_days), unit="D")).to_numpy("datetime64[ns]")
+    macro_day = np.zeros((n_days, 3))
+    for j, code in enumerate(["FFUND", "CPI_YOY", "RUNEMP"]):
+        s = macro[macro.series_code == code].sort_values("publish_date")
+        pub = s.publish_date.to_numpy("datetime64[ns]")
+        val = s.value.to_numpy(float)
+        idx = np.clip(np.searchsorted(pub, dates, side="left") - 1, 0, len(val) - 1)
+        macro_day[:, j] = val[idx]
+
+    out = np.zeros((len(deals), 5))
+    first = (~deals.company_id.duplicated()).to_numpy()
+    for s in range(n_sectors):
+        m = np.flatnonzero(e_sector == s)
+        ds_ = day[m]  # nondecreasing (deals sorted by date)
+        cnt90 = np.searchsorted(ds_, ds_, side="left") - np.searchsorted(ds_, ds_ - 90, side="left")
+        out[m, 0] = np.log1p(cnt90)
+        cf = np.cumsum(first[m]) - first[m]  # first-financings strictly before this row
+        out[m, 1] = (cf + 1.0) / (np.arange(len(m)) + 2.0)
+    out[:, 2:5] = macro_day[np.clip(day, 0, n_days - 1)]
+    return out
+
+
+def build_choice_sets(
+    data_dir,
+    *,
+    max_candidates=64,
+    exclusion="sector",
+    newcomer=True,
+    seed=0,
+    newcomer_context=False,
+):
     """Event-level (day-resolution) choice sets under the truthful-risk-set rule.
 
     For each deal, chronologically:
@@ -92,6 +147,13 @@ def build_choice_sets(data_dir, *, max_candidates=64, exclusion="sector", newcom
     Risk sets larger than ``max_candidates`` are subsampled keeping the winner
     (sampled softmax); set ``max_candidates=None`` for full sets.
 
+    With ``newcomer_context=True`` (design N1) six extra feature columns
+    (CHOICE_CONTEXT_FEATURES, g_{s,t}) are appended and filled ONLY on the
+    newcomer row — incumbents keep zeros there — and the returned dict also
+    carries ``deal_id`` (per kept event) and ``context_feature_names``.
+    The default ``newcomer_context=False`` output is byte-identical to the
+    historical behaviour.
+
     Returns dict with padded tensors: F (E,K,6) float32, mask (E,K) bool,
     label (E,), sector (E,), day (E,), plus bookkeeping counts.
     """
@@ -99,6 +161,8 @@ def build_choice_sets(data_dir, *, max_candidates=64, exclusion="sector", newcom
 
     if not max_candidates:
         raise ValueError("max_candidates must be a positive int (padded output)")
+    if newcomer_context and not newcomer:
+        raise ValueError("newcomer_context=True requires newcomer=True")
     rng = np.random.default_rng(seed)
     deals = pd.read_csv(f"{data_dir}/deals.csv", low_memory=False)
     companies = pd.read_csv(f"{data_dir}/companies.csv")
@@ -135,7 +199,10 @@ def build_choice_sets(data_dir, *, max_candidates=64, exclusion="sector", newcom
     cid = deals.company_id.map(lambda c: fidx.get(c, -1)).to_numpy()
 
     K = (max_candidates or 10**9) + 1  # +1 newcomer slot
-    F_rows, m_rows, labels, secs, days_out = [], [], [], [], []
+    n_feat = 6 + (len(CHOICE_CONTEXT_FEATURES) if newcomer_context else 0)
+    ctx = _newcomer_context(data_dir, deals, day, e_sector, week0, M) if newcomer_context else None
+    did_arr = deals.deal_id.to_numpy()
+    F_rows, m_rows, labels, secs, days_out, dids = [], [], [], [], [], []
     n_drop_repeat = n_newcomer = 0
 
     for e in range(len(deals)):
@@ -151,6 +218,7 @@ def build_choice_sets(data_dir, *, max_candidates=64, exclusion="sector", newcom
         if excluded_repeat:
             n_drop_repeat += 1
         else:
+            pool_n = cand.size  # eligible incumbents, pre-subsampling
             if not winner_in_pool:
                 n_newcomer += 1
             if max_candidates and cand.size > max_candidates - (0 if newcomer else 1):
@@ -163,7 +231,7 @@ def build_choice_sets(data_dir, *, max_candidates=64, exclusion="sector", newcom
                     )
                 ).astype(int)
             k = cand.size
-            Fe = np.zeros((K, 6), np.float32)
+            Fe = np.zeros((K, n_feat), np.float32)
             me = np.zeros(K, bool)
             if k:
                 gap = np.maximum(d - last_day[cand], 0.0)
@@ -176,6 +244,9 @@ def build_choice_sets(data_dir, *, max_candidates=64, exclusion="sector", newcom
             lab = -1
             if newcomer:
                 Fe[k, 5] = 1.0
+                if newcomer_context:
+                    Fe[k, 6:11] = ctx[e]
+                    Fe[k, 11] = np.log1p(pool_n)
                 me[k] = True
                 lab = int(np.flatnonzero(cand == f)[0]) if winner_in_pool else k
             elif winner_in_pool:
@@ -186,6 +257,7 @@ def build_choice_sets(data_dir, *, max_candidates=64, exclusion="sector", newcom
                 labels.append(lab)
                 secs.append(s)
                 days_out.append(d)
+                dids.append(did_arr[e])
 
         # ---- state update (after constructing the event's risk set) ----
         if f >= 0:
@@ -205,7 +277,7 @@ def build_choice_sets(data_dir, *, max_candidates=64, exclusion="sector", newcom
     Kmax = min(K, max(2, max(int(m.sum()) for m in m_rows)))
     F = np.stack([r[:Kmax] for r in F_rows])
     msk = np.stack([r[:Kmax] for r in m_rows])
-    return dict(
+    out = dict(
         F=F,
         mask=msk,
         label=np.array(labels),
@@ -217,6 +289,11 @@ def build_choice_sets(data_dir, *, max_candidates=64, exclusion="sector", newcom
         n_newcomer_wins=n_newcomer,
         n_sectors=M,
     )
+    if newcomer_context:
+        out["feature_names"] = list(CHOICE_FEATURES) + list(CHOICE_CONTEXT_FEATURES)
+        out["context_feature_names"] = list(CHOICE_CONTEXT_FEATURES)
+        out["deal_id"] = np.array(dids)
+    return out
 
 
 def load_dataset(data_dir, *, dedup=True, active="observed", ground_truth=None):
