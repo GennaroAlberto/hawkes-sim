@@ -1,0 +1,383 @@
+% ---------------------------------------------------------------------------
+% Design decisions and scenario analysis: the funding-event model argued end to
+% end. Synthetic experiments (exp19--exp28) are cited as calibrated evidence for
+% the scenario map, not as performance claims; derivations are in MATH_NOTES.md
+% (cited M1--M8). Input from complete_account.tex.
+% ---------------------------------------------------------------------------
+\section{Design decisions: modeling funding events, argued end to end}
+\label{sec:design}
+
+We have deliberately not touched real data yet. This section is therefore
+written the only honest way a pre-data chapter can be: as a \emph{modeling
+argument} --- what a funding event is statistically, why the architecture
+follows from the data-generating reality rather than from taste, and, most
+importantly, a \emph{scenario map}: in which worlds we expect this machinery to
+work, in which worlds specific parameters stop being identifiable, and what we
+predict will happen on real data before we see it. The synthetic campaign
+(\code{exp19}--\code{exp28}) plays the role of calibrated intuition: each
+scenario claim below was rehearsed in a world where the truth is known, so the
+expectations come with a mechanism, not just a hunch. Derivations are collected
+in \code{MATH\_NOTES.md} (M1--M8).
+
+% ---------------------------------------------------------------------
+\subsection{The data reality that dictates the architecture}
+\label{sec:design_data}
+
+Four properties of startup-funding data are terrain, not choices.
+
+\begin{enumerate}[leftmargin=1.6em]
+\item \textbf{Event-time-only updates.} A firm's covariates refresh only at its
+own deals; between deals nothing is observed. Features are
+last-observation-carried-forward by construction. Any model that pretends to
+watch firms continuously is fiction; any feature pipeline that reads a value
+recorded after the event is leakage.
+\item \textbf{Positive-only labels.} We observe fundings, never rejections or
+failed raises. There is no firm-level negative class, so the natural likelihood
+is conditional on the event (``given a deal in sector $s$ at $t$, which
+firm?''), not a pointwise classifier over firm-weeks (M8).
+\item \textbf{A churning, partially observed universe.} Firms are founded,
+raise for the first time (before which they are invisible), and leave by
+failure or graduation (IPO/M\&A) --- mostly without labels. The candidate set
+is dynamic and incomplete; a fraction of deals belongs to firms outside any
+tracked universe.
+\item \textbf{Resolution is a modeling choice.} Deal dates exist at day
+resolution; weekly bucketing is something \emph{we} impose. What aggregation
+destroys is quantifiable and is part of the scenario map
+(\S\ref{sec:design_scenarios}).
+\end{enumerate}
+
+% ---------------------------------------------------------------------
+\subsection{The two stages are a factorization, not an approximation}
+\label{sec:design_factorization}
+
+The cornerstone is the marked-point-process factorization (Daley--Vere-Jones;
+M1): the firm-level intensity always decomposes as
+\begin{equation}
+\lambda_i(t)\;=\;\underbrace{\Lambda_{s(i)}(t)}_{\text{ground: when/where}}
+\;\cdot\;
+\underbrace{\Prob\!\left(i \mid s(i),\,t,\,\cH_t\right)}_{\text{mark: which firm}}.
+\label{eq:design_factorization}
+\end{equation}
+This is an identity, so ``two-stage'' loses nothing by construction. All
+modeling content lives in how each factor is parametrized, and those
+restrictions are named exhaustively in M1 ([G1]--[G6] for the ground factor,
+[P1]--[P6] for the mark factor): log-linear weekly autoregression or
+exponential-kernel event-time Hawkes for $\Lambda_s$; softmax over the live
+risk set with linear utilities, one cooldown covariate, and an outside option
+for the mark. Two structural consequences follow (M8): the joint likelihood
+separates whenever the factors share no parameters, so the mark model is a
+valid partial likelihood \emph{without any timing model at all}; and the places
+where we do couple history (cooldown features, the funded-pool rule) remain
+valid because they condition on $\cH_t$ only.
+
+The value of stating it this way is rhetorical discipline: whenever a reviewer
+asks ``why two stages?'', the answer is that the decomposition is exact and the
+\emph{restrictions inside each factor} are the discussable content --- each of
+which has either a derivation or a standing falsification test
+(\S\ref{sec:design_bench}).
+
+% ---------------------------------------------------------------------
+\subsection{Parametrizing the ground factor: sector Hawkes, held loosely}
+\label{sec:design_ground}
+
+\paragraph{Sign structure decides the level.} Sector-level contagion is
+positive (a deal raises attention and liquidity for neighbors); the firm-level
+self-effect is negative (a firm that just raised leaves the market for months).
+Nonnegative Hawkes kernels can express the former and \emph{cannot} express the
+latter --- a near-zero excitation is ``no effect,'' never inhibition. Firm
+inhibition therefore moves into the mark factor as a cooldown covariate, and
+the exp-link block Hawkes (Section~\ref{sec:blockhawkes}) exists as the
+single-layer alternative that can carry both signs at once, at the price of
+abandoning the linear mean-field identity behind counts-only MBPP calibration
+($\E[g(Y)]\neq g(\E Y)$; M5).
+
+\paragraph{Excitation is a bounded add-on, not the headline.} Our prior, which
+the scenario analysis sharpens, is that macro/sector covariates carry most of
+the predictable variation in deal flow and self-excitation is a modest,
+short-horizon correction. The architecture treats excitation accordingly:
+nonnegative, stability-constrained (row-sum bound $\Rightarrow$ spectral radius
+$<1$), reported always with its effective radius, and challenged by a standing
+covariates-only null (\S\ref{sec:design_bench}). In the synthetic rehearsals
+the covariate block indeed dominated held-out gains and the weekly excitation
+channel was small or even harmful once a persistent latent factor existed
+(\code{exp25}, \code{exp27}) --- a mechanism we expect to survive on real data
+in the form of ``risk-on/risk-off'' common factors.
+
+\paragraph{Weekly counts vs event times is a real fork.} The weekly GLM is
+convenient and aggregation-coherent; the event-time model is the only one that
+can see sub-week timing. Which to deploy is a scenario question
+(\S\ref{sec:design_scenarios}, S2): the decision variable is the ratio of
+bucket width to the contagion kernel's half-life.
+
+% ---------------------------------------------------------------------
+\subsection{Parametrizing the mark factor: conditional choice over risk sets}
+\label{sec:design_mark}
+
+The mark factor is a conditional-choice model: softmax over the live pool with
+score $q_{i,t}=(w_0+u_s)^\top Z_{i,t}+\eta_s C_{i,t}$
+\eqref{eq:cox_score}. The defenses, each tied to a data property:
+
+\begin{itemize}[leftmargin=1.6em]
+\item \emph{Conditional likelihood} because labels are positive-only (M8): no
+invented non-events, no class-imbalance machinery, and the sector-time baseline
+cancels exactly as in Cox partial likelihood.
+\item \emph{The funded pool} because covariates only exist for previously
+funded firms (LOCF reality); never-funded firms cannot be scored on firm
+features and are routed to the newcomer channel
+(\S\ref{sec:design_newcomer}).
+\item \emph{The exclusion rule} (drop the most recently funded firm of the
+sector) encodes the one suppression we are certain of; ties break
+deterministically; risk-set construction precedes state updates (audited, unit
+tested).
+\item \emph{A single gap feature carries inhibition.} M6 derives the implied
+hazard-vs-gap curves under an indicator cooldown and under exponential
+inhibition, and what a binned refit recovers in each case --- the
+functional-form check that transfers to real data.
+\item \emph{Likelihood family is a convenience choice among equals.} On
+identical pools and events, conditional logit, Cox partial likelihood, and a
+discrete hazard were statistically indistinguishable and reached the
+true-parameter ceiling in rehearsal (\code{exp25}); an intensity-based
+(Hawkes-recency) ranker underperforms except where its dynamics are the truth.
+We therefore claim robustness of the \emph{family}, and put the real leverage
+where the rehearsals located it: pool correctness and feature quality, not the
+link function.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\subsection{The newcomer channel: every design implemented}
+\label{sec:design_newcomer}
+
+Cold start is structural: $\sim$27\% of choice events in our synthetic worlds
+are won by first-timers or untracked firms, and the same order of magnitude is
+plausible in production. Four designs are implemented (\code{exp28}; M7), in
+increasing structural commitment:
+N1, a context-covariate alternative-specific utility
+$q_{0,s,t}=b_0+\gamma^\top g_{s,t}$ on market context (sector heat, historical
+first-financing share, macro, pool size), making the newcomer share
+time-varying and calibratable;
+N2, a representative-entrant model using the estimable at-first-funding feature
+distribution, with the exact Gaussian log-MGF utility
+$w^\top\mu_s+\tfrac12 w^\top\Sigma_s w+c_s$ --- M7 both derives it and proves
+the pool-size term is unidentified from a free constant unless the entrant pool
+varies in time (an identifiability statement we can make \emph{before} real
+data);
+N3, a nested two-step (binary newcomer-vs-incumbent, then incumbents-only
+choice) whose joint likelihood factorizes exactly and whose incumbent weights
+must match N1's --- a consistency check more than a competitor;
+N4, the structural reading: first financings are the \emph{immigrant} stream of
+the sector branching process, repeats are the offspring stream; splitting the
+sector counts into the two channels and fitting them separately aligns the
+outside option with Hawkes semantics --- the newcomer alternative \emph{is} the
+immigrant channel seen from the mark factor.
+
+The synthetic worlds also let us quantify a conflation no real dataset can:
+``newcomer'' mixes true entrants with untracked incumbents, and the private
+deal map prices that conflation in joint likelihood. On real data the split is
+unobservable; the scenario map (S4) says what to expect instead.
+
+% ---------------------------------------------------------------------
+\subsection{The scenario map: identifiability and expected performance}
+\label{sec:design_scenarios}
+
+This is the section we will reach for when real data arrives. Each scenario
+states: what is identifiable, what silently is not, where we expect the model
+to perform, the diagnostic that distinguishes the scenarios, and the reporting
+discipline that keeps us honest. The synthetic worlds are cited as the
+mechanism check for each claim.
+
+\paragraph{S1 --- What drives deal flow: covariates, contagion, or a latent
+factor.}
+The three drivers are near-indistinguishable in weekly counts: a persistent
+unobserved common factor loads onto the lagged-count channel and masquerades as
+contagion (rehearsed: fitted effective radius $2.4\times$ truth under a mild
+latent factor; and at pooled-sector level even day-resolution timestamps could
+not separate latent quality from excitation). \emph{Expectations:} fitted
+excitation is an \emph{upper bound}, its off-diagonal entries are not
+structurally interpretable, and only orderings (which sector is most
+self-exciting; which firms are most suppressed) survive --- orderings were
+recoverable even under misspecification (rank correlation $0.94$ for
+firm-level inhibition in the day-resolution rehearsal). \emph{Diagnostics:}
+add a lagged aggregate-market covariate and watch the fitted radius drop; if it
+collapses, the ``contagion'' was a common factor. \emph{Reporting:} predictive
+claims freely; structural excitation claims only as bounds with the radius
+attached.
+
+\paragraph{S2 --- Observation resolution vs kernel timescale.}
+The branching ratio $\kappa$ is identified at any resolution; the decay
+$\theta$ is identified only when the bucket width is small relative to the
+kernel (M3 gives the Fisher-information collapse; the rehearsal located the
+cliff: buckets $\le$ one kernel half-life are safe, $\ge4$ half-lives bias the
+decay irrecoverably). \emph{Expectations for real data:} with day-resolution
+deal dates and a contagion half-life plausibly of order days-to-weeks, the
+event-time track can estimate timing; monthly aggregations cannot, and any
+$\theta$ fitted from them is an artifact. Volume matters as much as
+resolution: at a few thousand events per sector the $\kappa$--$\theta$ ridge
+dominates before bucketing even enters --- pool sectors or fix $\theta$ to a
+bank of interpretable half-lives and profile. \emph{Diagnostic:} refit at two
+bucket widths; a stable $\hat\theta$ is informative, a drifting one means you
+are on the ridge. \emph{Reporting:} state the (resolution, volume) pair next
+to any timing claim.
+
+\paragraph{S3 --- Risk-set observability.}
+The single largest sensitivity in the whole architecture. With truthful
+entry/exit the mark factor recovers true economics and sits at its theoretical
+ceiling; with pools inferred from observables the fitted weights can
+\emph{invert} --- recency becomes a large positive predictor because it proxies
+the unobserved exit information, and in rehearsal \emph{no} observable exit
+model (even one predicting true exit at AUC $0.88$) closed the gap.
+\emph{Expectations:} on real data, where graduation/death labels are partial,
+we expect measured ranking quality to sit strictly between the observed-pool
+and clean-pool bounds, and \emph{fitted weights to be biased in the direction
+of survival proxies}. \emph{Diagnostics:} weight signs that contradict
+economic priors (capital raised strongly positive, cooldown weak) are the
+signature of pool contamination, not a market insight. \emph{Reporting:}
+metrics under both the naive pool and the best exit-labeled pool; the spread is
+the price of the observation gap and must be quoted, not averaged away.
+
+\paragraph{S4 --- Universe coverage and the newcomer share.}
+With partial coverage, the newcomer channel absorbs two indistinguishable
+populations (true entrants, untracked incumbents). \emph{Expectations:} the
+context-ASC (N1) keeps the newcomer \emph{share} calibrated over time even
+though the composition is unknowable; the entrant-quality decomposition (N2) is
+estimable only for the tracked-entrant part; a rising newcomer share with
+constant context is the diagnostic that coverage, not the market, changed.
+\emph{Reporting:} newcomer-share reliability by quarter alongside any
+incumbent ranking metric; never compare incumbent top-$k$ across periods with
+different coverage.
+
+\paragraph{S5 --- Volume regime.}
+Sparse worlds (tenths of events per sector-week) leave excitation numerically
+unidentifiable and favor adaptive baselines; the rehearsals showed a
+three-line EWMA matching structural models wherever a latent level factor
+existed, and penalized (L1) excitation with a stability bound as the only way
+the GLM stays sane. Dense worlds progressively identify excitation and then
+timing. \emph{Expectations:} on real sector panels (tens of sectors, years of
+weeks) we are in the sparse-to-middle regime: covariates + small bounded
+excitation, timing claims only from the event-time track.
+\emph{Diagnostic:} if a trivial EWMA matches the structural model out of
+sample, believe it --- it is telling you the identifiable content is a slowly
+moving level.
+
+\paragraph{S6 --- Feature measurement noise.}
+Errors-in-variables attenuates structure long before it harms prediction
+(rehearsed at up to 20\% relative noise: ranking essentially unchanged,
+weights attenuated $\times0.88$, recovery correlations visibly degraded).
+\emph{Expectations:} PitchBook-style noise (undisclosed sizes, estimated
+employees) will barely move top-$k$ but will shrink every fitted coefficient
+toward zero --- coefficients are lower bounds in magnitude.
+\emph{Reporting:} predictive and structural claims split, with attenuation
+acknowledged on the latter.
+
+\paragraph{S7 --- Stability regime of the market.}
+Two explosion mechanisms exist (M5): additive supercriticality
+($\rho\ge1$), and the log-link raw-count feedback that is explosive even at
+$\rho(b)\ll1$ --- the mechanism we measured as metastability (a $0.35$-radius
+world tipping into a supercritical episode). \emph{Expectations:} a genuinely
+``hot'' market (AI 2021-style) will push fitted excitation toward the
+stability boundary, and \emph{simulation}, not estimation, is where it breaks.
+The guards are layered precisely for this scenario: stability-constrained
+fitting, baseline winsorization, risk-set caps, first-$K$ caps, refusal to
+simulate above effective radius $0.95$. \emph{Diagnostic:} row sums pinned at
+the stability bound mean the likelihood wants more feedback than stability
+allows --- treat as a latent-factor or regime-change signal, not as contagion.
+
+% ---------------------------------------------------------------------
+\subsection{Pre-registered expectations for real data}
+\label{sec:design_prereg}
+
+Written before any real-data fit, so that the first back-test confirms or
+falsifies cleanly:
+
+\begin{enumerate}[leftmargin=1.6em]
+\item Macro/sector covariates will carry the large majority of the held-out
+gain over a seasonal baseline; weekly excitation will add little and may hurt
+until stability-penalized (S1, S5).
+\item The fitted effective radius will exceed any plausible true contagion;
+adding a market-level factor covariate will reduce it materially (S1).
+\item $\theta$ (timing) will be estimable only on the day-resolution event
+stream, and only for sectors with sufficient volume; weekly refits will sit on
+the $\kappa$--$\theta$ ridge (S2).
+\item Conditional logit, Cox, and hazard variants of the mark factor will be
+indistinguishable out of sample; feature and pool changes will dominate model
+changes (S3, \code{exp25}).
+\item Fitted mark weights will lean toward survival proxies relative to
+economic priors, to a degree that shrinks as exit labeling improves (S3).
+\item The newcomer share will be calibratable within a couple of points by the
+context ASC; its composition will remain unidentifiable (S4, M7).
+\item A gradient-boosted ranker at feature parity will land within a few
+points of the conditional logit; a large gap would falsify the linear-utility
+restriction and would be the single most informative failure we could observe
+(\S\ref{sec:design_bench}).
+\end{enumerate}
+
+% ---------------------------------------------------------------------
+\subsection{Benchmarks as standing falsification tests}
+\label{sec:design_bench}
+
+Because we cannot yet validate on real data, every restriction gets a
+challenger that travels with the codebase:
+\textbf{B1} (\code{exp26}): XGBoost on identical choice sets, at feature parity
+(isolates the linear-utility restriction) and with a strictly point-in-time
+kitchen sink (bounds the value of missing features); decision rule
+pre-registered --- parity means the parametric mark factor stands, a gap means
+features/nonlinearity, and the gap size is the budget for enrichment.
+\textbf{B2} (\code{exp27}): the covariates-only NHPP null with the
+decomposition seasonal $\to$ covariates $\to$ +excitation $\to$ +event-time
+timing; excitation must earn its held-out nats or be dropped from the
+production configuration (in rehearsal it earned them only at event-time
+resolution --- weekly excitation was marginal-to-harmful, while the event-time
+block recovered genuine timing gain on the day-resolution world).
+\textbf{The alternatives audit} (\code{exp25}): the model-family robustness
+result cited throughout, itself protocol-audited adversarially before its
+numbers were trusted.
+
+% ---------------------------------------------------------------------
+\subsection{Analytical MLE first; learned operators as accelerators}
+\label{sec:design_pino}
+
+Every estimator in the pipeline has an exact, concave or profile-concave
+likelihood (M2, M4): nothing in \emph{calibration} needs learning. Learned
+operators (PINO) enter only as forward-solve accelerators for scenario stress
+and walk-forward simulation --- rehearsed at sub-percent-to-few-percent
+solve error and millisecond latency --- and the amortized \emph{inverse}
+direction was tested and rejected (direct regression plateaus far above
+differentiable-inversion error). This ordering is itself a design decision:
+transparency and identifiability first, acceleration second, and no learned
+component anywhere a likelihood is available.
+
+% ---------------------------------------------------------------------
+\subsection{Limitations and the production checklist}
+\label{sec:design_limits}
+
+\begin{enumerate}[leftmargin=1.6em]
+\item \textbf{Risk-set truthfulness} is assumed by the v2 architecture and is
+the dominant sensitivity (S3). Production effort should go to exit/graduation
+labeling before any model refinement; metrics reported under both pools.
+\item \textbf{Point-in-time discipline}: end-of-sample snapshot columns are
+forbidden as features; every feature path is audited and unit-tested.
+\item \textbf{Overdispersion}: Poisson intervals are anti-conservative at the
+measured dispersions; quasi-Poisson corrections accompany all NLL tables and a
+negative-binomial sector model is the natural upgrade.
+\item \textbf{Multi-deal weeks}: repeated softmax approximates Plackett--Luce;
+the approximation is bounded and audited, and becomes material only if
+multi-deal sector-weeks dominate.
+\item \textbf{Synthetic evidence}: all numbers cited here validate
+\emph{mechanisms} under known truths. The scenario map and the pre-registered
+expectations of \S\ref{sec:design_prereg} are the bridge: the first real
+back-test should be scored against them, item by item.
+\end{enumerate}
+
+\paragraph{Summary of the argument.} The factorization
+\eqref{eq:design_factorization} makes the two-stage architecture lossless; the
+data reality (LOCF covariates, positive-only labels, churning partial universe,
+chosen resolution) fixes the parametrization of each factor; identifiability
+analysis decides what is estimated, what is fixed, and what is only ever a
+bound; the scenario map says in advance where the machinery will be strong
+(prediction, orderings, calibrated shares) and where it will be silent or
+biased (structural excitation under latent factors, timing under coarse
+buckets, weights under contaminated pools); and every remaining discretionary
+choice ships with a falsification test. What survives is deliberately
+conservative: a covariate-driven sector intensity with small, bounded,
+stability-constrained excitation, and a conditional risk-set choice model with
+a context-driven outside option --- with the honest map of when to trust each
+number attached.
