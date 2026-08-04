@@ -1,0 +1,838 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1.05in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{enumitem}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black]{hyperref}
+\usepackage{booktabs}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\cH}{\mathcal{H}}
+\newcommand{\cF}{\mathcal{F}}
+\newcommand{\cR}{\mathcal{R}}
+\newcommand{\one}{\mathbf{1}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newtheorem{assumption}{Assumption}
+\newtheorem{proposition}{Proposition}
+\newtheorem{remark}{Remark}
+\numberwithin{assumption}{section}
+\numberwithin{proposition}{section}
+\numberwithin{remark}{section}
+
+\title{\bfseries The Escalation Ladder for Funding Events:\\[3pt]
+A Mathematical Treatment}
+\author{Counting processes, survival analysis, censoring, and self-excitation\\
+for the staged modeling strategy of \code{STRATEGY.md}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}\noindent
+This document gives the mathematical foundations for the model escalation
+ladder: (1) inhomogeneous Poisson intensities driven by covariates; (2)
+multi-state models with constrained stage transitions; (3) history-dependent
+intensities through predictable covariates (``Hawkes without Hawkes''); (4)
+fully self-exciting point processes and their cluster/cascade representation;
+(5) the two-step treatment of firms outside the observed universe. For each
+step we state the model in the counting-process language of survival analysis,
+derive the likelihood and its properties, treat right censoring, interval
+censoring and left truncation explicitly, list the assumptions in falsifiable
+form, state what the data must exhibit for calibration to be meaningful, and
+catalogue the statistical failure modes one should expect to find while
+calibrating. The status-quo gradient-boosted benchmark is deliberately not
+treated: it is a scoring rule, not an intensity model, and the mathematics
+below is precisely what it lacks.
+\end{abstract}
+
+\tableofcontents
+
+% =======================================================================
+\section{Preliminaries: counting processes, intensities, and censoring}
+\label{sec:prelim}
+
+\subsection{The canonical setup}
+Let $(\Omega,\cF,\Prob)$ carry a filtration $\{\cF_t\}$ representing
+everything observed up to time $t$: past deals, covariate paths, and entries
+and exits from the panel. For each firm $i$ let $N_i(t)$ count its funding
+events in $[0,t]$. We work throughout with the \emph{conditional intensity}
+\begin{equation}
+\lambda_i(t)\dd t \;=\; \Prob\big(N_i \text{ jumps in } [t,t+\dd t) \mid \cF_{t-}\big),
+\label{eq:intensity_def}
+\end{equation}
+equivalently the predictable process such that
+$M_i(t)=N_i(t)-\int_0^t \lambda_i(s)\dd s$ is a local martingale
+(Doob--Meyer). All estimators in this document are martingale-based in the
+sense of Aalen's multiplicative intensity model \citep{aalen1978},
+systematised in \citet{abgk1993}: we write
+\begin{equation}
+\lambda_i(t) \;=\; Y_i(t)\,\alpha_i(t),
+\label{eq:aalen}
+\end{equation}
+where $Y_i(t)\in\{0,1\}$ is the \emph{at-risk indicator} (predictable, i.e.\
+determined by $\cF_{t-}$) and $\alpha_i(t)$ the hazard of interest. The
+at-risk process is where every observation problem of this dataset lives:
+who is in the market, at which stage, tracked or not.
+
+\paragraph{Point-process likelihood.} If a process with intensity
+$\lambda_\vartheta$ is observed on $[0,T]$ with event times
+$t_1<\dots<t_n$, the log-likelihood is
+\begin{equation}
+\ell(\vartheta)\;=\;\sum_{k=1}^{n}\log\lambda_\vartheta(t_k)
+\;-\;\int_0^T \lambda_\vartheta(s)\dd s ,
+\label{eq:pp_lik}
+\end{equation}
+\citep{daleyvj2003,ogata1978}. Everything on the ladder is an instance of
+\eqref{eq:pp_lik} with a different parametrization of $\lambda$, estimated
+either from exact times or after aggregation.
+
+\subsection{A censoring taxonomy for funding data}
+\label{sec:censoring}
+The word ``censoring'' covers five distinct phenomena here; conflating them
+is the single most common source of silent bias. For each we give the
+likelihood treatment and the assumption under which that treatment is valid.
+
+\begin{enumerate}[leftmargin=1.6em]
+\item \textbf{Administrative right censoring.} Observation stops at the
+sample end $T$; firms still active simply contribute the survival factor
+$\exp(-\int_{t_{\text{last}}}^{T}\lambda_i)$ through \eqref{eq:pp_lik}. This
+is Type-I censoring; it is \emph{always} independent and needs no assumption
+beyond correct $\lambda$.
+\item \textbf{Random right censoring by observed exit.} A firm leaves the
+panel at an observed time $C_i$ (known IPO/M\&A/shutdown): set $Y_i(t)=0$
+for $t>C_i$. Valid iff censoring is \emph{independent}: conditional on
+covariates, the exit time carries no information about the counterfactual
+funding hazard,
+\begin{equation}
+\lambda_i\big(t \mid \cF_{t-},\, C_i \ge t\big)
+= \lambda_i\big(t \mid \cF_{t-}\big).
+\label{eq:indep_censoring}
+\end{equation}
+For funding data this is \emph{not} innocuous --- firms exit \emph{because}
+of funding states (graduation after success, death after drought) --- but it
+is testable in the direction that matters: including exit-predictive
+covariates in $\lambda$ restores validity (censoring independent
+\emph{given covariates}, \citealp{kalbfleisch2002}).
+\item \textbf{Informative, \emph{unobserved} right censoring.} The dangerous
+one: a firm dies or graduates \emph{silently}, so $Y_i(t)$ is recorded as
+$1$ while the truth is $0$. The at-risk process is then misspecified, the
+denominator of every hazard is inflated, and --- crucially --- the bias is
+\emph{directional}: covariates correlated with silent exit (staleness, late
+stage, large cumulative raise) absorb the missing exits and can flip sign.
+No reweighting of observables repairs this in general, because the
+observation process is confounded with the outcome; the honest treatments
+are (a) explicit exit modeling as a competing risk with a cure/mover--stayer
+component \citep{farewell1982}, (b) bounds: report under the naive and the
+best exit-labeled risk set, and quote the spread. This phenomenon is the
+mathematical content of our measured ``risk-set inversion.''
+\item \textbf{Interval censoring.} If only bucketed counts are kept (weekly
+aggregation), event times are interval-censored. For a Poisson-type model
+with intensity constant within buckets, the bucket counts are
+\emph{sufficient}: the likelihood \eqref{eq:pp_lik} collapses exactly to a
+Poisson GLM on counts (\S\ref{sec:step1}). For history-dependent models the
+collapse is not exact, and what is lost is quantifiable Fisher information
+about timescales (\S\ref{sec:step4}); for the full Hawkes case the
+counts-only route is the interval-censored theory of \citet{rizoiu2022}.
+\item \textbf{Left truncation (delayed entry).} A firm enters the observable
+universe only at its first recorded deal (or first tracking date). Its
+history before entry is unobservable, and it must not contribute risk before
+entry: $Y_i(t)=0$ for $t<E_i$. Standard delayed-entry survival methodology
+\citep{kalbfleisch2002} handles this \emph{if entry is independent given
+covariates}; the deeper problem is that \emph{covariates themselves} are
+undefined pre-entry --- the mathematical root of the newcomer channel
+(\S\ref{sec:step5}), where the entrant's unobserved covariates are
+integrated out rather than imputed.
+\end{enumerate}
+
+\begin{remark}[Coarsening]
+Undisclosed deal sizes and estimated fields are a sixth, milder phenomenon:
+\emph{coarsened} marks. Likelihood factorizations survive under Coarsening
+At Random \citep{heitjan1991}; a disclosure indicator as a covariate is the
+cheap guard when CAR is doubtful.
+\end{remark}
+
+% =======================================================================
+\section{Step 1: covariate-driven Poisson intensities}
+\label{sec:step1}
+
+\subsection{Model and likelihood}
+The first calibrated rung is the inhomogeneous Poisson (Cox-regression-style
+multiplicative) model at whatever aggregation level is chosen --- sector
+$s$, or firm $i$ within \eqref{eq:aalen}:
+\begin{equation}
+\lambda_s(t)\;=\;\exp\!\big(a_s+\beta_s^{\top}X(t)\big),
+\label{eq:nhpp}
+\end{equation}
+with $X(t)$ exogenous (macro) covariates. Substituting into
+\eqref{eq:pp_lik}, $\ell$ is concave in $(a_s,\beta_s)$ because the
+log-intensity is affine and $-\int e^{\eta}$ is concave in $\eta$
+(exponential-family argument; conditions and boundary cases in
+\code{MATH\_NOTES.md} M2). MLE consistency and asymptotic normality for
+point-process likelihoods of this type are classical \citep{ogata1978}.
+
+\paragraph{Exact reduction under interval censoring.} If $X$ is constant on
+buckets $[\tau_{w-1},\tau_w)$ (as-of weekly covariates), then
+\eqref{eq:pp_lik} depends on the data only through bucket counts
+$Y_{s,w}$, and maximizing it is \emph{identical} to the Poisson GLM
+\begin{equation}
+Y_{s,w}\sim\mathrm{Poisson}\!\big(\Delta_w\,e^{a_s+\beta_s^\top X_w}\big).
+\label{eq:pois_glm}
+\end{equation}
+This equivalence is why step 1 loses nothing to weekly data: for a
+history-free intensity, counts are sufficient statistics. It is the
+\emph{only} rung with that property.
+
+\subsection{Censored or not?}
+Under \eqref{eq:nhpp} at sector level there is no firm at-risk process, so
+censoring reduces to items 1 and 4 of \S\ref{sec:censoring}: administrative
+truncation at $T$ (handled by \eqref{eq:pp_lik} automatically) and interval
+censoring (handled exactly by \eqref{eq:pois_glm}). At the \emph{firm} level
+the same model already inherits the full at-risk machinery, and every
+warning of \S\ref{sec:censoring} item 3 applies --- which is one reason to
+begin at sector level, where the aggregate is insensitive to which
+individual firms are silently dead.
+
+\subsection{Assumptions}
+\begin{assumption}[No history dependence]\label{as:nhpp_indep}
+Conditional on $\{X(s)\}_{s\le t}$, increments of $N$ are independent of
+$\cF_{t-}$: $\lambda(t\mid\cF_{t-})=\lambda(t\mid X(t))$.
+\end{assumption}
+\begin{assumption}[Covariate exogeneity]\label{as:nhpp_exo}
+$X$ is $\cF_{t-}$-predictable and its law does not depend on the parameters
+of $N$ (no feedback from deals to macro at the horizon modeled).
+\end{assumption}
+\begin{assumption}[Correct link and log-linearity]\label{as:nhpp_link}
+$\log\lambda$ is affine in $X$; departures are absorbed into diagnostics,
+not the estimator.
+\end{assumption}
+
+\subsection{What the data must show, and where calibration fails}
+\emph{To see in data:} quasi-Poisson dispersion $\approx 1$ per cell;
+uniform randomized PIT of held-out counts; martingale residuals
+$\widehat M_s(w)$ without autocorrelation. Each violation is informative:
+overdispersion + PIT autocorrelation is the signature that
+Assumption~\ref{as:nhpp_indep} fails and history matters (the gate to
+steps 2--3); overdispersion \emph{without} autocorrelation indicates static
+heterogeneity, pointing to a gamma-frailty/negative-binomial correction
+\citep{vaupel1979} rather than to dynamics.
+
+\emph{Statistical failure modes while calibrating:}
+(i) \emph{collinearity} of macro series (rates, inflation, unemployment
+comove) inflating $\mathrm{Var}(\hat\beta)$ --- ridge-penalize and report
+the effective dof;
+(ii) \emph{separation} in low-volume sectors (all-zero cells drive
+$a_s\to-\infty$) --- weakly-informative priors or pooling;
+(iii) \emph{nonstationarity}: a regime change makes train-window
+standardization and as-of joins load onto the intercept; held-out
+covariates outside the training support explode $e^{\beta^\top X}$ ---
+winsorize predictions to the training envelope (implemented in the stable
+fitter);
+(iv) \emph{publication lag leakage} if covariates are joined on reference
+date rather than release date.
+
+% =======================================================================
+\section{Step 2: multi-state models with constrained stage transitions}
+\label{sec:step2}
+
+\subsection{The state space and the marked process}
+Let the stage lattice be $\mathcal S=\{$Seed$,A,B,C,D,E,\dots\}
+\cup\{\partial_{\mathrm{IPO}},\partial_{\mathrm{M\&A}},
+\partial_{\dagger}\}$ with the partial order of progression and the
+absorbing boundary $\partial$. Firm $i$ occupies state $S_i(t)\in\mathcal S$;
+each funding event is a \emph{transition mark}: a jump $k\to j$ with the
+admissibility constraint
+\begin{equation}
+j \succeq k:\qquad
+\text{from } C:\; \{C, D, E,\dots\} \text{ allowed (repeats, skips)};\quad
+A, B \text{ forbidden}.
+\label{eq:admissible}
+\end{equation}
+The pair $(N_i,\{S_i\})$ is a marked counting process; equivalently a
+\emph{progressive multi-state model with self-transitions}
+\citep{putter2007,abgk1993}. Absorbing exits make graduation and death part
+of the state space instead of censoring nuisances --- the structural cure
+for the silent-exit bias of \S\ref{sec:censoring} whenever exit is at least
+partially observed.
+
+\subsection{Transition intensities, competing risks, and factorization}
+Give every admissible transition its own Aalen multiplicative intensity
+\begin{equation}
+\lambda_{k\to j,i}(t)\;=\;Y_{ik}(t)\;
+\exp\!\big(\alpha_{k\to j}+\beta_{k\to j}^\top X(t)
++\delta_{k\to j}^\top Z_{i,t}\big),
+\qquad Y_{ik}(t)=\one\{S_i(t-)=k\},
+\label{eq:msm}
+\end{equation}
+From state $k$ the destinations $\{j\succeq k\}\cup\partial$ \emph{compete}.
+Two classical facts organize everything:
+
+\begin{proposition}[Likelihood factorization, ABGK]
+If the parameter sets of distinct transitions are variation-independent,
+the full likelihood \eqref{eq:pp_lik} of the marked process factorizes over
+transitions; each factor is the likelihood of a univariate counting process
+in which all other transitions act as censoring. Estimation therefore
+decomposes into independent concave fits per transition.
+\end{proposition}
+
+\begin{proposition}[Cause-specific vs subdistribution]
+The cause-specific hazards in \eqref{eq:msm} are estimable by treating
+competing transitions as censoring \emph{regardless of dependence} among
+causes \citep{prentice1978}. But probabilities of eventual destinations
+(cumulative incidence) require \emph{all} competing hazards, combined by
+the Aalen--Johansen product-integral \citep{aalenjohansen1978}; a
+Fine--Gray subdistribution model \citep{finegray1999} is the alternative
+when the incidence scale is the deliverable. For our ranking use we need
+hazards (the mark factor conditions on an event), so cause-specific is the
+right scale; for lifetime stage-mix forecasts, Aalen--Johansen.
+\end{proposition}
+
+\subsection{Clocks: Markov, semi-Markov, and both}
+A modeling fork with real consequences. In \emph{calendar time} (clock
+forward), \eqref{eq:msm} is Markov given covariates and macro effects enter
+naturally. In \emph{gap time} (clock reset at each round; semi-Markov), the
+baseline hazard depends on the time since the last transition ---
+empirically the dominant timescale (raise cadence), and exactly what the
+renewal literature and the gap-time model of
+Prentice--Williams--Peterson \citep{pwp1981} formalize. The pragmatic
+resolution, standard in recurrent-event survival, is calendar-time
+intensity with gap-time \emph{covariates} --- which is precisely the bridge
+to step 3: the semi-Markov content of the process is carried by a
+predictable covariate rather than by the clock.
+
+\subsection{Censoring in the multi-state model}
+Administrative and observed-exit censoring are handled by
+$Y_{ik}$ as in \S\ref{sec:censoring}. Two specifics deserve care:
+(i) \emph{left truncation}: a firm first observed at stage $C$ enters the
+risk sets of $C\to\cdot$ transitions at its entry time, contributing no
+earlier exposure --- delayed entry, standard but mandatory
+\citep{kalbfleisch2002}; its unobserved earlier path is irrelevant for
+cause-specific hazards by the factorization, a quiet but important
+robustness of step 2;
+(ii) \emph{silent exits}: still the weak point. Within the multi-state
+frame, the honest device is a partially observed absorbing transition: a
+latent $k\to\partial_\dagger$ with a cure/mover--stayer structure
+\citep{farewell1982}, identified from long silences only under a parametric
+assumption --- state it, fit it, and report sensitivity, or bound as in
+\S\ref{sec:censoring}.
+
+\subsection{Assumptions}
+\begin{assumption}[Admissibility]\label{as:msm_dag}
+Transitions violating \eqref{eq:admissible} have intensity zero. (Encoded,
+not estimated; data violations are label noise to be measured, not signal.)
+\end{assumption}
+\begin{assumption}[Variation-independent parameters]\label{as:msm_sep}
+No parameter sharing across transitions unless imposed deliberately as
+shrinkage (below).
+\end{assumption}
+\begin{assumption}[Independent censoring given covariates, per
+transition]\label{as:msm_cens}
+For each transition, \eqref{eq:indep_censoring} holds conditional on
+$(X,Z)$.
+\end{assumption}
+
+\subsection{What the data must show, and where calibration fails}
+\emph{To see in data:} an empirical transition matrix respecting
+\eqref{eq:admissible} up to a small, quantified label-noise mass in the
+forbidden cells; per-transition event counts sufficient for the cells you
+keep unpooled; stage-mix forecasts (Aalen--Johansen) calibrated by cohort.
+
+\emph{Failure modes:}
+(i) \emph{sparse cells}: Seed$\to$E has a handful of events; unpenalized
+per-transition fits explode. Hierarchical shrinkage --- e.g.\
+$\delta_{k\to j}=\delta_0+\Delta_{k\to j}$ with a prior on $\Delta$ ---
+or pooling across destinations within origin is mandatory;
+(ii) \emph{ties}: weekly data put many transitions at the same timestamp;
+use Efron's approximation over Breslow when partial likelihoods are used
+\citep{efron1977};
+(iii) \emph{stage mislabels} put firms in wrong risk sets --- the forbidden
+cells of the transition matrix estimate the mislabel rate, an
+error-in-state problem analogous to misclassification in hidden Markov
+models;
+(iv) \emph{immortal-time bias} if stage is backfilled from later
+information --- stage must be as-of, like every covariate.
+
+% =======================================================================
+\section{Step 3: history as predictable covariates
+(``Hawkes without Hawkes'')}
+\label{sec:step3}
+
+\subsection{The model and why it is licensed}
+Augment \eqref{eq:msm} with functionals of the past:
+\begin{equation}
+\lambda_{k\to j,i}(t)=Y_{ik}(t)\exp\Big(
+\alpha_{k\to j}+\beta^\top X(t)
++\phi^{\top} H_{s(i)}(t)
+-\psi\, g\big(t-T_i^{\mathrm{last}}\big)\Big),
+\label{eq:step3}
+\end{equation}
+where $H_s(t)=\int_0^{t-} \kappa_h(t-u)\dd N_s(u)$ is a
+\emph{fixed-kernel} convolution of same-sector activity (e.g.\ exponential
+kernels at half-lives 30/90/180 days, coefficients $\phi$ free) and $g$ a
+monotone gap transform (log-gap, or binned dummies to let the data draw the
+inhibition curve).
+
+The decisive technical point: $H_s$ and $g(t-T^{\mathrm{last}}_i)$ are
+\emph{predictable} processes --- measurable with respect to $\cF_{t-}$.
+The entire likelihood theory of \S\ref{sec:prelim} is agnostic to whether a
+predictable covariate is exogenous or built from the process's own past;
+this is the content of the Andersen--Gill formulation of recurrent events
+\citep{andersengill1982}. Concavity survives because the parameters still
+enter affinely. Step 3 therefore costs \emph{nothing} statistically
+relative to step 2, while capturing the two interaction effects that
+motivate self-excitation:
+sector momentum with sign-free coefficients, and self-inhibition --- which
+a nonnegative Hawkes kernel structurally cannot express.
+
+\begin{remark}[Relation to Hawkes]
+Equation \eqref{eq:step3} is a multiplicative (log-link) analogue of a
+Hawkes process with \emph{known} kernel shape and \emph{estimated}
+amplitude. Two genuine differences from step 4: (a) additivity --- a linear
+Hawkes intensity is $\mu+\sum\text{kernels}$, supporting the cluster
+decomposition of \S\ref{sec:step4}, whereas \eqref{eq:step3} multiplies;
+for small exposures $e^{\phi H}\approx 1+\phi H$ and the two coincide
+locally; (b) the kernel timescale is fixed here and free there. Fixing it
+is not a concession: it is the response to the $\kappa$--$\theta$
+identifiability ridge (\code{MATH\_NOTES.md} M3) --- estimate what the data
+can identify (amplitudes), profile over a small bank of interpretable
+half-lives, and leave joint decay estimation to the regime where it is
+identified (\S\ref{sec:step4}).
+\end{remark}
+
+\subsection{The deepest calibration problem on the ladder:
+heterogeneity vs state dependence}
+A positive $\hat\phi$ has two observationally similar sources: true
+dynamics (past events genuinely raise the hazard) and \emph{unobserved
+heterogeneity} (good sectors/firms have persistently high hazards, hence
+clustered events). This is Heckman's classical distinction
+\citep{heckman1981}; in duration analysis, frailty and duration dependence
+are not separately identified from single spells without covariates
+\citep{elbersridder1982,lancaster1990}. Two structural facts rescue us:
+\begin{enumerate}[leftmargin=1.6em]
+\item \emph{Recurrent events.} Firms and sectors have many spells. With
+multi-spell data a shared frailty $u_i$ (or $u_s$) multiplying the
+intensity --- gamma frailty being the tractable canonical choice
+\citep{vaupel1979,nielsen1992} --- is identified alongside $\phi$: the
+frailty explains \emph{permanent} differences in level, the history terms
+explain \emph{transient} post-event elevation. Fit \eqref{eq:step3} with
+and without frailty; the drop in $\hat\phi$ measures how much
+``momentum'' was heterogeneity.
+\item \emph{Common factors.} A serially correlated \emph{market-wide}
+latent factor is the worst confounder because it is shared across sectors:
+it loads onto every $H_s$. The guard is observable proxies (aggregate
+market activity as a covariate) plus the diagnostic: if adding the market
+aggregate collapses $\hat\phi$, the ``sector momentum'' was a common
+factor. Our synthetic rehearsals measured exactly this mechanism inflating
+fitted excitation by a factor $\sim2.4$.
+\end{enumerate}
+
+\subsection{Assumptions, data requirements, failure modes}
+\begin{assumption}[Kernel bank]\label{as:s3_kernel}
+The true history dependence is spanned (approximately) by the chosen
+fixed-decay kernels; adequacy is checked by the binned-gap refit
+(M6) and by residual clustering diagnostics.
+\end{assumption}
+\begin{assumption}[Frailty orthogonality]\label{as:s3_frailty}
+Unobserved heterogeneity is time-invariant (frailty), not itself dynamic;
+dynamic unobservables beyond the included factors are attributed to the
+history terms and reported as such.
+\end{assumption}
+
+\emph{To see in data:} PIT/dispersion clean-up relative to step 2;
+stability of $\hat\phi$ across half-life choices (a coefficient that
+migrates wildly across the bank means the timescale is wrong); frailty
+variance materially $>0$ (expect it); $\hat\psi>0$ with the binned curve
+monotone.
+
+\emph{Failure modes:}
+(i) frailty--momentum confounding as above --- always fit the frailty
+variant;
+(ii) \emph{simultaneity} in $H_s$: the firm's own event is in the sector
+count --- exclude own events from $H_{s(i)}$ or the coefficient absorbs a
+mechanical reflection;
+(iii) collinearity between $H_s$ at adjacent half-lives (correlations
+$>0.9$) --- orthogonalize or keep two well-separated scales;
+(iv) boundary spells: gaps censored at entry (left truncation) must use the
+entry-adjusted gap, else early-sample hazards are biased.
+
+% =======================================================================
+\section{Step 4: self-exciting processes and the cascade representation}
+\label{sec:step4}
+
+\subsection{Linear Hawkes and the cluster/cascade picture}
+The linear multivariate Hawkes process \citep{hawkes1971} has intensity
+\begin{equation}
+\lambda_m(t)\;=\;\mu_m(t)\;+\;\sum_{r}\int_0^{t-}
+\varphi_{mr}(t-u)\,\dd N_r(u),
+\qquad \varphi_{mr}\ge0 ,
+\label{eq:hawkes}
+\end{equation}
+with branching matrix $K_{mr}=\int_0^\infty\varphi_{mr}$ and stationarity
+iff $\rho(K)<1$ \citep{hawkes1971,bremaud1996}. The equivalent
+\emph{cluster representation} \citep{hawkesoakes1974} is the conceptual
+key: immigrants arrive as a Poisson process with rate $\mu$, and each event
+(immigrant or not) independently spawns offspring as an inhomogeneous
+Poisson process with rate $\varphi(\cdot)$ --- a branching cascade of
+Poisson processes. This is precisely the modeling frame of
+\citet{simmajordan2010}, \emph{Modeling Events with Cascades of Poisson
+Processes}: events are attributed to a background process or to a parent
+event, the latent parentage is marginalised or imputed, and estimation
+proceeds by EM over the branching structure --- the same augmentation used
+in seismology \citep{veen2008} and equivalent to the complete-data
+likelihood being that of independent Poisson cascades. Three consequences
+we use:
+\begin{enumerate}[leftmargin=1.6em]
+\item \emph{EM estimation.} The E-step computes parentage probabilities
+$p_{kl}\propto\varphi(t_k-t_l)$ vs $p_{k0}\propto\mu(t_k)$; the M-step
+fits Poisson rates on the attributed streams. Monotone, stable, and it
+scales; it is the alternative of choice to direct maximization of
+\eqref{eq:pp_lik} \citep{ogata1978,ozaki1979} when kernels are flexible
+\citep{lewis2011}.
+\item \emph{The immigrant/offspring decomposition is meaningful.} The
+background stream is covariate-driven; the offspring stream carries the
+endogenous dynamics. In funding data we can \emph{partially observe} this
+latent attribution: first financings are immigrants by definition. Step 5
+exploits exactly this.
+\item \emph{Second-order non-identifiability.} A doubly-stochastic
+(Cox) process with serially correlated random intensity can match the
+second-order statistics (Bartlett spectrum) of a Hawkes process
+\citep{daleyvj2003}; counts alone therefore cannot distinguish contagion
+from common factors --- the process-level restatement of the
+heterogeneity problem of \S\ref{sec:step3}, and the reason every fitted
+branching ratio is reported as an upper bound.
+\end{enumerate}
+
+\subsection{Estimation regimes and interval censoring}
+With exact day-resolution times: direct MLE of \eqref{eq:pp_lik} (concave
+in $(\mu,\alpha)$ for fixed decays; profile over decay banks) or EM as
+above; goodness of fit by the time-rescaling theorem --- transformed waits
+$\Lambda(t_k)-\Lambda(t_{k-1})$ must be i.i.d.\ Exp(1)
+\citep{brown2002}. With counts only: the interval-censored route through
+the mean-behavior process of \citet{rizoiu2022} (our MBPP machinery), which
+identifies $\kappa$ well and the decay poorly --- the Fisher-information
+collapse of \code{MATH\_NOTES.md} M3 quantifies the loss as bucket width
+grows (safe at $\le$ one kernel half-life, destroyed by $\ge4$).
+Discrete-time log-link approximations (Poisson autoregressions on lagged
+counts) are \emph{not} Hawkes: their stability theory is of
+Fokianos--Tj{\o}stheim type \citep{fokianos2011} and raw-count exponential
+feedback is explosive even with small coefficients --- the ``Mechanism B''
+pathology we measured; simulation guards are mandatory.
+
+\subsection{Assumptions, data requirements, failure modes}
+\begin{assumption}[Subcriticality]\label{as:h_stab}
+$\rho(K)<1$, imposed in estimation (spectral/row-sum constraint) and
+verified before any forward simulation.
+\end{assumption}
+\begin{assumption}[Kernel family]\label{as:h_kernel}
+$\varphi$ exponential or a small sum of exponentials (Markovian state-space
+reduction exists); richer shapes only with EM + volume.
+\end{assumption}
+\begin{assumption}[No unmodeled common factor]\label{as:h_factor}
+Interpreting $\hat K$ structurally requires the common-factor channel
+closed (observable proxies included); otherwise $\hat K$ is predictive,
+and an upper bound.
+\end{assumption}
+
+\emph{To see in data:} day resolution; enough events per modeled node
+(the ridge scales as \code{MATH\_NOTES.md} M3 --- thousands of events per
+free $(\kappa,\theta)$ pair); time-rescaling KS passing; stability margin
+$\rho(\hat K)$ comfortably below 1.
+
+\emph{Failure modes:}
+(i) the $\kappa$--$\theta$ ridge (fix or bank the decays);
+(ii) common-factor inflation of $\hat K$ (see
+Assumption~\ref{as:h_factor});
+(iii) boundary solutions: row sums pinned at a stability constraint mean
+the likelihood wants more feedback than stationarity allows --- a
+regime-change or latent-factor signal, not contagion;
+(iv) edge effects: cascades truncated at $t=0$ bias early-sample kernels
+(condition on a burn-in window);
+(v) multi-timescale confusion: daily reporting spikes (Monday batching of
+deal announcements) masquerade as fast kernels --- deseasonalize the
+within-week pattern first.
+
+% =======================================================================
+\section{Step 5: the outside universe --- a two-step nested structure}
+\label{sec:step5}
+
+\subsection{The mark factor with an outside option}
+Conditional on an event in sector $s$ at $t$, the winner is either a member
+of the observed risk set $\cR_{s,t}$ or ``outside'' (a first-time entrant,
+or an untracked incumbent). Write $O$ for the outside alternative. The
+natural structure is a \emph{nested logit} \citep{mcfadden1974,
+mcfadden1978}: an upper choice between nests $\{O\}$ and $\cR_{s,t}$, then
+a within-nest choice among incumbents,
+\begin{align}
+\Prob(\text{outside}\mid s,t)
+&=\sigma\!\big(b_0+\gamma^\top g_{s,t}\big),
+\label{eq:step5_upper}\\[2pt]
+\Prob(i\mid \text{inside}, s,t)
+&=\frac{\exp\big(q_{i,t}\big)}
+{\sum_{j\in\cR_{s,t}}\exp\big(q_{j,t}\big)},
+\label{eq:step5_lower}
+\end{align}
+with $g_{s,t}$ \emph{global/context} covariates only (sector activity,
+historical first-financing share, macro, pool size) --- necessarily so,
+because firm covariates do not exist for the outside branch. The joint
+log-likelihood is the exact sum of the two stages; with a free upper-stage
+model this is the nested logit at dissimilarity parameter 1, and the
+within-nest estimates are consistent regardless of the upper stage (the
+two-step estimator of \citealp{mcfadden1978}), which also licenses
+\emph{sampling of alternatives} in the big denominators of
+\eqref{eq:step5_lower} --- uniform sampling with the winner retained leaves
+the conditional MLE consistent (\code{MATH\_NOTES.md} M4).
+
+\subsection{Three deep readings of the outside option}
+\paragraph{(a) Demand-estimation reading.} In differentiated-products demand
+\citep{berry1994}, the outside good's share is what identifies market size
+and pins utility levels. Identically here: the newcomer share over time is
+the observable that identifies \emph{coverage} --- a drifting outside share
+under stable context covariates is the diagnostic that the universe, not
+the market, changed. And the converse identifiability warning holds
+(\code{MATH\_NOTES.md} M7): a pool-size term in the outside utility is not
+separately identified from the intercept unless pool size varies over time.
+\paragraph{(b) Truncation reading.} Entrants are left-truncated at first
+funding: their covariates are unobservable pre-entry, so any within-nest
+score for them must integrate over the covariate distribution rather than
+impute. Under a Gaussian entrant law $z\sim N(\mu_s,\Sigma_s)$ the
+integrated utility is the log-MGF $w^\top\mu_s+\tfrac12 w^\top\Sigma_s w$
+--- exact, estimable from observed first deals, and a measured
+decomposition device (it attributes the fitted outside constant into
+quality vs coverage; empirically quality was the minor share).
+\paragraph{(c) Cascade reading.} In the cluster representation of
+\S\ref{sec:step4}, the outside stream \emph{is} the immigrant process:
+covariate-driven background arrivals, versus offspring arrivals from within
+the observed system. Simma--Jordan's latent parentage becomes partially
+observed in funding data --- a first financing is an immigrant with
+certainty --- so the two-step is not an engineering workaround; it is the
+observable projection of the branching decomposition, estimated without EM
+precisely because the data label the immigrants.
+
+\subsection{Coarsening, CAR, and the conflation}
+The outside label conflates two populations (true entrants; untracked
+incumbents). Formally the mark is \emph{coarsened}: we observe the coarse
+label $O$ instead of the fine identity. The two-step likelihood is valid
+under Coarsening At Random \citep{heitjan1991} --- the probability of being
+untracked must not depend on the fine identity beyond what $g_{s,t}$
+carries. CAR here is not innocuous (coverage correlates with sector and
+time), which is exactly why the upper stage carries context covariates:
+they move the coarsening mechanism into the conditioning set. What is lost
+under conflation is \emph{composition}, not fit --- separating the classes
+with oracle labels moved the joint likelihood negligibly in rehearsal ---
+so the discipline is linguistic as much as statistical: report ``outside
+probability,'' never ``entrant probability.''
+
+\subsection{Assumptions, data requirements, failure modes}
+\begin{assumption}[Upper-stage sufficiency]\label{as:s5_car}
+Given $g_{s,t}$, the outside/inside indicator is independent of the fine
+identity of the winner (CAR given context).
+\end{assumption}
+\begin{assumption}[Within-nest correctness]\label{as:s5_nest}
+Conditional on inside, the risk set is correct --- all of
+\S\ref{sec:censoring} item 3 applies to $\cR_{s,t}$, and its failure modes
+dominate any nesting refinement.
+\end{assumption}
+
+\emph{To see in data:} quarterly reliability of the predicted outside share
+(a few points of calibration error at most); stability of within-nest
+coefficients when the upper stage is re-specified (they should not move ---
+a factorization property that doubles as a specification test); entrant
+first-deal feature distributions stable enough across the train window for
+the log-MGF device.
+
+\emph{Failure modes:}
+(i) coverage drift misread as market change (watch the context-adjusted
+outside share);
+(ii) upper-stage separation in sector-quarters with no outside wins;
+(iii) IIA violations \emph{within} the incumbent nest (a red-flag test:
+estimated dissimilarity far from 1 when relaxed, or systematic
+substitution-pattern residuals) --- the escalation is a richer nest
+structure, not abandonment of the frame;
+(iv) the pool-size/intercept non-identifiability (M7) --- never interpret
+$b_0$ alone.
+
+% =======================================================================
+\section{Synthesis: the assumptions ladder and the calibration checklist}
+\label{sec:synthesis}
+
+Each rung strictly weakens the independence structure of the last:
+\[
+\underbrace{\text{Poisson}(X)}_{\text{no history}}
+\;\subset\;
+\underbrace{\text{multi-state}}_{\text{history via state}}
+\;\subset\;
+\underbrace{\text{+ predictable history covariates}}_{\text{fixed-kernel dynamics}}
+\;\subset\;
+\underbrace{\text{Hawkes}}_{\text{free-kernel dynamics}}
+\]
+with step 5 orthogonal (a statement about the \emph{mark} space, attachable
+to any rung). The corresponding falsification chain runs in the same order:
+dispersion/PIT reject rung 1; forbidden-cell mass and stage-mix
+calibration test rung 2; residual clustering after fixed kernels is the
+only license for rung 4; outside-share reliability tests rung 5. Every
+assumption above is stated so that a specific diagnostic can break it ---
+that, more than any single model, is the methodological commitment: the
+ladder is climbable in either direction, and the data decide the floor.
+
+% =======================================================================
+\begin{thebibliography}{99}\small
+
+\bibitem[Aalen(1978)]{aalen1978}
+Aalen, O.~O. (1978). Nonparametric inference for a family of counting
+processes. \emph{Annals of Statistics} 6(4), 701--726.
+
+\bibitem[Aalen \& Johansen(1978)]{aalenjohansen1978}
+Aalen, O.~O., \& Johansen, S. (1978). An empirical transition matrix for
+non-homogeneous Markov chains based on censored observations.
+\emph{Scandinavian Journal of Statistics} 5, 141--150.
+
+\bibitem[Andersen \& Gill(1982)]{andersengill1982}
+Andersen, P.~K., \& Gill, R.~D. (1982). Cox's regression model for counting
+processes: a large sample study. \emph{Annals of Statistics} 10(4),
+1100--1120.
+
+\bibitem[Andersen et al.(1993)]{abgk1993}
+Andersen, P.~K., Borgan, {\O}., Gill, R.~D., \& Keiding, N. (1993).
+\emph{Statistical Models Based on Counting Processes}. Springer.
+
+\bibitem[Berry(1994)]{berry1994}
+Berry, S.~T. (1994). Estimating discrete-choice models of product
+differentiation. \emph{RAND Journal of Economics} 25(2), 242--262.
+
+\bibitem[Br\'emaud \& Massouli\'e(1996)]{bremaud1996}
+Br\'emaud, P., \& Massouli\'e, L. (1996). Stability of nonlinear Hawkes
+processes. \emph{Annals of Probability} 24(3), 1563--1588.
+
+\bibitem[Brown et al.(2002)]{brown2002}
+Brown, E.~N., Barbieri, R., Ventura, V., Kass, R.~E., \& Frank, L.~M.
+(2002). The time-rescaling theorem and its application to neural spike
+train data analysis. \emph{Neural Computation} 14(2), 325--346.
+
+\bibitem[Cox(1972)]{cox1972}
+Cox, D.~R. (1972). Regression models and life-tables (with discussion).
+\emph{Journal of the Royal Statistical Society B} 34(2), 187--220.
+
+\bibitem[Daley \& Vere-Jones(2003)]{daleyvj2003}
+Daley, D.~J., \& Vere-Jones, D. (2003). \emph{An Introduction to the Theory
+of Point Processes}, Vol.~I, 2nd ed. Springer.
+
+\bibitem[Efron(1977)]{efron1977}
+Efron, B. (1977). The efficiency of Cox's likelihood function for censored
+data. \emph{JASA} 72(359), 557--565.
+
+\bibitem[Elbers \& Ridder(1982)]{elbersridder1982}
+Elbers, C., \& Ridder, G. (1982). True and spurious duration dependence:
+the identifiability of the proportional hazard model. \emph{Review of
+Economic Studies} 49(3), 403--409.
+
+\bibitem[Farewell(1982)]{farewell1982}
+Farewell, V.~T. (1982). The use of mixture models for the analysis of
+survival data with long-term survivors. \emph{Biometrics} 38(4),
+1041--1046.
+
+\bibitem[Fine \& Gray(1999)]{finegray1999}
+Fine, J.~P., \& Gray, R.~J. (1999). A proportional hazards model for the
+subdistribution of a competing risk. \emph{JASA} 94(446), 496--509.
+
+\bibitem[Fokianos \& Tj{\o}stheim(2011)]{fokianos2011}
+Fokianos, K., \& Tj{\o}stheim, D. (2011). Log-linear Poisson
+autoregression. \emph{Journal of Multivariate Analysis} 102(3), 563--578.
+
+\bibitem[Hawkes(1971)]{hawkes1971}
+Hawkes, A.~G. (1971). Spectra of some self-exciting and mutually exciting
+point processes. \emph{Biometrika} 58(1), 83--90.
+
+\bibitem[Hawkes \& Oakes(1974)]{hawkesoakes1974}
+Hawkes, A.~G., \& Oakes, D. (1974). A cluster process representation of a
+self-exciting process. \emph{Journal of Applied Probability} 11(3),
+493--503.
+
+\bibitem[Heckman(1981)]{heckman1981}
+Heckman, J.~J. (1981). Heterogeneity and state dependence. In
+\emph{Studies in Labor Markets}, University of Chicago Press, 91--140.
+
+\bibitem[Heitjan \& Rubin(1991)]{heitjan1991}
+Heitjan, D.~F., \& Rubin, D.~B. (1991). Ignorability and coarse data.
+\emph{Annals of Statistics} 19(4), 2244--2253.
+
+\bibitem[Kalbfleisch \& Prentice(2002)]{kalbfleisch2002}
+Kalbfleisch, J.~D., \& Prentice, R.~L. (2002). \emph{The Statistical
+Analysis of Failure Time Data}, 2nd ed. Wiley.
+
+\bibitem[Lancaster(1990)]{lancaster1990}
+Lancaster, T. (1990). \emph{The Econometric Analysis of Transition Data}.
+Cambridge University Press.
+
+\bibitem[Lewis \& Mohler(2011)]{lewis2011}
+Lewis, E., \& Mohler, G. (2011). A nonparametric EM algorithm for
+multiscale Hawkes processes. \emph{Journal of Nonparametric Statistics}
+1(1), 1--20.
+
+\bibitem[McFadden(1974)]{mcfadden1974}
+McFadden, D. (1974). Conditional logit analysis of qualitative choice
+behavior. In \emph{Frontiers in Econometrics}, Academic Press, 105--142.
+
+\bibitem[McFadden(1978)]{mcfadden1978}
+McFadden, D. (1978). Modeling the choice of residential location. In
+\emph{Spatial Interaction Theory and Planning Models}, North-Holland,
+75--96.
+
+\bibitem[Nielsen et al.(1992)]{nielsen1992}
+Nielsen, G.~G., Gill, R.~D., Andersen, P.~K., \& S{\o}rensen, T.~I.~A.
+(1992). A counting process approach to maximum likelihood estimation in
+frailty models. \emph{Scandinavian Journal of Statistics} 19(1), 25--43.
+
+\bibitem[Ogata(1978)]{ogata1978}
+Ogata, Y. (1978). The asymptotic behaviour of maximum likelihood
+estimators for stationary point processes. \emph{Annals of the Institute
+of Statistical Mathematics} 30(1), 243--261.
+
+\bibitem[Ozaki(1979)]{ozaki1979}
+Ozaki, T. (1979). Maximum likelihood estimation of Hawkes' self-exciting
+point processes. \emph{Annals of the Institute of Statistical
+Mathematics} 31(1), 145--155.
+
+\bibitem[Prentice et al.(1978)]{prentice1978}
+Prentice, R.~L., Kalbfleisch, J.~D., Peterson, A.~V., Flournoy, N.,
+Farewell, V.~T., \& Breslow, N.~E. (1978). The analysis of failure times
+in the presence of competing risks. \emph{Biometrics} 34(4), 541--554.
+
+\bibitem[Prentice et al.(1981)]{pwp1981}
+Prentice, R.~L., Williams, B.~J., \& Peterson, A.~V. (1981). On the
+regression analysis of multivariate failure time data. \emph{Biometrika}
+68(2), 373--379.
+
+\bibitem[Putter et al.(2007)]{putter2007}
+Putter, H., Fiocco, M., \& Geskus, R.~B. (2007). Tutorial in
+biostatistics: competing risks and multi-state models. \emph{Statistics in
+Medicine} 26(11), 2389--2430.
+
+\bibitem[Rizoiu et al.(2022)]{rizoiu2022}
+Rizoiu, M.-A., Soen, A., Li, S., Calderon, P., Dong, L., Menon, A.~K., \&
+Xie, L. (2022). Interval-censored Hawkes processes. \emph{Journal of
+Machine Learning Research} 23(338), 1--84.
+
+\bibitem[Simma \& Jordan(2010)]{simmajordan2010}
+Simma, A., \& Jordan, M.~I. (2010). Modeling events with cascades of
+Poisson processes. In \emph{Proceedings of the 26th Conference on
+Uncertainty in Artificial Intelligence (UAI)}, 546--555.
+
+\bibitem[Vaupel et al.(1979)]{vaupel1979}
+Vaupel, J.~W., Manton, K.~G., \& Stallard, E. (1979). The impact of
+heterogeneity in individual frailty on the dynamics of mortality.
+\emph{Demography} 16(3), 439--454.
+
+\bibitem[Veen \& Schoenberg(2008)]{veen2008}
+Veen, A., \& Schoenberg, F.~P. (2008). Estimation of space--time branching
+process models in seismology using an EM-type algorithm. \emph{JASA}
+103(482), 614--624.
+
+\bibitem[Wei et al.(1989)]{wlw1989}
+Wei, L.~J., Lin, D.~Y., \& Weissfeld, L. (1989). Regression analysis of
+multivariate incomplete failure time data by modeling marginal
+distributions. \emph{JASA} 84(408), 1065--1073.
+
+\end{thebibliography}
+
+\end{document}
