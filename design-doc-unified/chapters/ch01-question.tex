@@ -1,0 +1,247 @@
+% ch01-question — the central question and the map from questions to models
+
+\section{Worth, formally}\label{ch01:sec:worth}
+
+The business objective is to understand which private-market investments
+are ``worth it.'' That phrase hides a decision problem. The first rule of
+this document is to make the decision problem explicit \emph{before} any
+model is chosen. An investment thesis about a private company is a bet on
+a few future observables: whether the company raises again, when, at what
+valuation, and whether the eventual exit repays the capital deployed
+today. A model is useful only if it improves one of those bets. So the
+central question is not ``which model is best'' but:
+
+\begin{center}
+\emph{What is valuable to know?}
+\end{center}
+
+Formally, let $\mathcal{D}$ be a space of actions available to the investor
+(allocate attention to a company, enter a diligence process, price a
+secondary position, pass), let $\omega$ denote the future evolution of the
+market --- the marked point process of deals defined in \cref{ch:data} ---
+and let $u(d,\omega)$ be the utility of action $d\in\mathcal{D}$ under
+outcome $\omega$. A predictive object $\pi$ (a probability, an intensity, a
+ranking) is \emph{valuable} exactly to the extent that
+\begin{equation}\label{eq:ch01:voi}
+\mathrm{VoI}(\pi)
+ \;=\;
+ \E\!\left[\, u\!\left(d^{*}_{\pi},\,\omega\right) \right]
+ \;-\;
+ \E\!\left[\, u\!\left(d^{*}_{0},\,\omega\right) \right],
+ \qquad
+ d^{*}_{\pi} = \argmax_{d\in\mathcal{D}} \E\!\left[u(d,\omega)\st \pi\right],
+\end{equation}
+is positive and large, where $d^{*}_{0}$ is the action taken without the
+model. This is the standard value-of-information decomposition. Its
+practical force here is negative: it rules out models whose outputs no
+action consumes. Every model family in this document is admitted only
+because a concrete action consumes its output, and each family's
+evaluation metric is chosen as a proxy for \cref{eq:ch01:voi} under that
+action, not as a generic accuracy score.
+
+\section{The four answers and the targets they induce}\label{ch01:sec:targets}
+
+The sourcing and monitoring workflows that would consume model output give
+four answers to ``what is valuable to know.'' Each induces a different
+mathematical target on the same underlying data.
+
+\paragraph{T1 --- Identity: \emph{which} company gets funded next.}
+The sourcing action is a short list: given finite diligence capacity, which
+$K$ companies should be looked at now because they are most likely to be the
+next ones to raise? The natural target is the conditional distribution of
+the next deal's identity,
+\begin{equation}\label{eq:ch01:t1}
+\Prob\big(\text{next deal in sector } s \text{ goes to firm } i
+ \;\big|\; \Ftm\big),
+\end{equation}
+and the natural metric is ranking quality --- recall at $K$ against the next
+deals actually observed (\cref{ch:ranking}). Crucially, \cref{eq:ch01:t1}
+conditions on \emph{a deal occurring}: the timing of deals cancels from the
+target, which is why identity models can survive data defects that destroy
+timing models (\cref{ch01:sec:factorization}).
+
+\paragraph{T2 --- Timing: \emph{when} the deals arrive.}
+Pricing, portfolio pacing, and capital-deployment planning consume arrival
+times: how many deals will sector $s$ produce next quarter, and how is firm
+$i$'s next round distributed in time? The target is the conditional
+intensity $\lam(t)$ of the deal process (\cref{ch:foundations}) and
+functionals of it (expected counts, waiting-time distributions), evaluated
+by likelihood on held-out windows and by calibration diagnostics
+(\cref{ch:gof}). This is the target the Poisson and Hawkes machinery of
+\cref{ch:poisson,ch:hawkes} serves.
+
+\paragraph{T3 --- Horizon events: will firm $i$ raise within $\horizon$.}
+Many consuming actions are binary and horizon-bound: enter diligence now if
+the company is likely to raise within the next six months; deprioritize if
+no event is plausible within two years. The target is the fixed-horizon
+event probability
+\begin{equation}\label{eq:ch01:t3}
+p_{i}(t,\horizon)
+ \;=\;
+ \Prob\big(N_{i}(t+\horizon) - N_{i}(t) \ge 1 \st \Ft\big),
+ \qquad \horizon \in \{\text{6M},\, \text{1Y},\, \text{2Y}\},
+\end{equation}
+a discrete-time object that can be attacked directly with supervised
+learning on a bucketed panel (\cref{ch:buckets}) --- at the price of
+label-construction subtleties that \cref{ch:buckets} treats in detail.
+
+\paragraph{T4 --- Marks: size, valuation, terms.}
+Finally, worth depends on \emph{what} the deal is, not only that it happens:
+round size, pre/post valuation, up/down/flat classification. These are mark
+distributions conditional on an event, $\Prob(\dmark \in \cdot \st
+\text{deal at } t \text{ by } i, \Ftm)$. This document develops T4 only to
+the extent needed by the decision layer (\cref{ch:decision}); its
+estimation reuses the regression machinery of \cref{ch:buckets} and
+inherits every covariate caveat of \cref{ch:stale}.
+
+These four targets are not competing models of the same quantity. They are
+different marginals and conditionals of one object --- the marked point
+process --- consumed by different actions. The failure mode this document
+is designed to prevent is answering one target's question with another
+target's model and metric (for instance, selling a horizon classifier's
+probability, T3, as a timing model, T2; or judging a ranking model, T1, by
+likelihood alone).
+
+\section{One process, two factorizations}\label{ch01:sec:factorization}
+
+The unifying object is the marked point process of deals: ground times $t_m$
+(when a deal happens), marks $(s_m, i_m, \dmark_m)$ (which sector, which
+firm, what terms). Its likelihood factorizes \emph{exactly} as
+\begin{equation}\label{eq:ch01:groundmark}
+p\big(\text{times, sectors, firms, terms}\big)
+ \;=\;
+ \underbrace{p\big(\text{times, sectors}\big)}_{\text{ground process}}
+ \;\times\;
+ \underbrace{p\big(\text{firm} \st \text{sector, time, history}\big)}_{\text{mark factor}}
+ \;\times\;
+ \underbrace{p\big(\text{terms} \st \text{firm, time}\big)}_{\text{deal marks}} .
+\end{equation}
+This identity is established as \cref{thm:ch03:groundmark}; it is the
+decomposition labeled M1 in the repository's earlier theory notes, and the
+whole design rests on it. It is an identity of likelihoods, not an
+approximation: all approximations live \emph{inside} one factor at a time,
+and data defects can be assigned to the factor they damage. Three
+consequences organize the document.
+
+First, \emph{the targets map onto factors}. T2 lives in the ground process;
+T1 lives in the mark factor; T4 lives in the deal marks; T3 is a horizon
+functional of ground $\times$ mark. A team can therefore improve one factor
+without touching the others, and \cref{ch:roadmap} assigns code modules
+factor by factor.
+
+Second, \emph{the mark factor is robust where the ground process is
+fragile}. The mark factor is a conditional-choice likelihood in which the
+sector-time baseline cancels (\cref{ch:ranking}); it survives untrusted
+deal dates, weekly aggregation, and even moderate intensity misspecification.
+The ground process absorbs precisely those defects. When the data cannot
+support a trustworthy ground model, the mark factor still delivers T1.
+This asymmetry, developed in \cref{ch:censoring,ch:ranking}, is why
+ranking is the most defensible deliverable on current data quality.
+
+Third, \emph{discrete-time models are the same object at coarser
+resolution}. The bucketed panel of \cref{ch:buckets} is the ground+mark
+object aggregated to intervals: \cref{thm:ch09:hazardlink} shows the
+bucket-probability model is exactly a discrete-time hazard model, and
+recovers the continuous-time intensity as bucket width shrinks. XGBoost on
+buckets and Hawkes in continuous time are therefore the same object at
+different resolutions. The choice between them is decided by the target
+and by the data defects of \cref{ch:data}.
+
+\section{From questions to models: the decision map}\label{ch01:sec:map}
+
+\Cref{tab:ch01:map} is the document in one table. Each row is an answer to
+``what is valuable to know''; the columns give the mathematical target, the
+model family this document commits to for that target, the evaluation
+metric that proxies \cref{eq:ch01:voi}, and the chapter that develops it.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{0.21\textwidth} p{0.2\textwidth} p{0.23\textwidth} p{0.16\textwidth} p{0.07\textwidth}}
+\toprule
+\textbf{Valuable to know} & \textbf{Target} & \textbf{Committed model} &
+\textbf{Metric} & \textbf{Ch.} \\
+\midrule
+Which firm raises next (identity) &
+$\Prob(i \mid \text{deal}, s, t, \Hist)$ &
+risk-set conditional logit $\to$ gradient-boosted ranker &
+recall@$K$, MRR, held-out conditional NLL & \ref{ch:ranking} \\
+\addlinespace
+When/how many deals (timing) &
+ground intensity $\lam_s(t)$ &
+covariate NHPP $\to$ exponential Hawkes with engineered
+excitation/inhibition &
+held-out NLL, time-rescaling, PIT & \ref{ch:poisson}--\ref{ch:gof} \\
+\addlinespace
+Will $i$ raise within $\horizon$ (horizon) &
+$p_i(t,\horizon)$, $\horizon\in\{$6M, 1Y, 2Y$\}$ &
+discrete-hazard panel + XGBoost with staleness features &
+calibrated probabilities; PR-AUC; lift@$K$ & \ref{ch:buckets} \\
+\addlinespace
+Deal terms (marks) &
+$p(\dmark \mid i, t)$ &
+mark regressions on deal covariates &
+per-mark scores & \ref{ch:decision} \\
+\bottomrule
+\end{tabular}
+\caption{The decision map: answers to ``what is valuable to know,'' the
+targets they induce, and the models and metrics this document commits to.}
+\label{tab:ch01:map}
+\end{table}
+
+Within the point-process answer there is also a non-log-linear,
+likelihood-based option: the intensity comes from a boosted-tree,
+random-forest, or small-network model on engineered covariates
+(\cref{ch:nonparam}). It trades interpretability and closed-form theory
+for flexibility, and it applies when deal times are trusted (uncensored).
+
+\begin{decision}{D1.1 --- target before model}
+No model is built, modified, or benchmarked in this repository without first
+naming which target (T1--T4) it serves and which action consumes its output.
+Pull requests that improve a metric not attached to a target are rejected by
+policy. Rationale: \cref{eq:ch01:voi}; the failure mode it prevents is
+optimizing likelihood in a factor whose output nothing consumes.
+Reversal trigger: none anticipated.
+\end{decision}
+
+\begin{decision}{D1.2 --- both stacks, one object}
+We maintain \emph{both} the continuous-time stack (NHPP/Hawkes ground
+process + risk-set mark factor) and the discrete-time stack (bucketed
+panel + XGBoost), as views of the same marked process at different
+resolutions, rather than choosing one ideology. Rationale: we expect the
+covariate-driven baseline to carry most of the predictive mass for timing,
+with excitation adding a smaller increment, and we expect a
+gradient-boosted learner on equal features to beat the linear conditional
+logit on identity. Both expectations are hypotheses to be checked on the
+synthetic world (\cref{ch:results-synth}). Each stack should dominate
+somewhere. Reversal trigger: if, after the stale-covariate
+remedies of \cref{ch:stale}, one stack dominates on \emph{every} consuming
+action for two consecutive evaluation campaigns, the other is demoted to
+benchmark-only status.
+\end{decision}
+
+\section{What ``worth it'' will mean operationally}\label{ch01:sec:operational}
+
+The decision layer of \cref{ch:decision} composes the four targets into
+the quantities the investment workflow consumes: a ranked sourcing list
+with horizon-qualified event probabilities attached (T1 + T3), sector
+pacing forecasts with uncertainty bands (T2), and expected-terms context
+(T4). Until that chapter, ``worth it'' is used in the narrow sense of
+\cref{eq:ch01:voi}: a model output is worth producing if and only if the
+action that consumes it gains utility, and the evaluation protocols are
+designed so that offline metrics are monotone proxies for that gain. The
+chapters in between make those outputs trustworthy on the data we actually
+have --- the subject of the next chapter.
+
+\begin{codehooks}
+The decision map of \cref{tab:ch01:map} is mirrored in code by keeping the
+factors of \cref{eq:ch01:groundmark} in separate modules with separate
+evaluation harnesses: ground-process fitters (\modrepo{sector\_stability.py},
+\modrepo{eventtime/}), mark-factor fitters (\modrepo{sector\_ranker.py},
+\modrepo{models/hawkes\_ranker.py}), and (to be written) the bucketed-panel
+builder and horizon classifier of \cref{ch:buckets}
+(\modrepo{panel/}), the staleness state layer of \cref{ch:stale}
+(\modrepo{covstate/}), and the decision layer of \cref{ch:decision}
+(\modrepo{decision/}). \Cref{ch:roadmap} gives the full mapping with
+migration steps.
+\end{codehooks}

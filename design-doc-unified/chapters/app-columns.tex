@@ -1,0 +1,115 @@
+% app-columns — data dictionary
+
+This appendix is the column-level contract between the raw data and the
+loader of \cref{ch13:sec:phase0}. It reflects the column conventions
+already encoded in the repository's observation layer
+(\code{synthetic/observe.py}, \code{synthetic/macro.py},
+\code{synthetic/loaders.py}), which mirror the production
+PitchBook/FactSet extracts. The real adapter must treat any divergence
+between this dictionary and a delivered extract as an audit failure, not
+something to patch silently.
+
+\section*{Deals table (one row per financing event)}
+
+\begin{longtable}{p{0.30\textwidth} p{0.62\textwidth}}
+\toprule
+\textbf{Column} & \textbf{Notes for modeling} \\
+\midrule
+\endhead
+\code{deal\_id} & primary key; duplicates exist upstream --- the
+dedup rule (same company within a few days, jittered size) runs first
+(\cref{prot:ch02:pit}). \\
+\code{company\_id} & foreign key into companies; may reference a firm
+with \emph{no} companies row when out-of-universe (C6). \\
+\code{deal\_date} & the untrusted timestamp of (C4): announced vs.\
+closed conventions and backfill jitter; enters models only at the
+honest resolution of \cref{ch:censoring}. \\
+\code{primary\_industry\_sector} / \code{\_group} / \code{\_code} &
+sector taxonomy; small mislabel rate --- group-level rollups are the
+robustness fallback (\cref{ch:universe}). \\
+\code{company\_universe} & \code{'Venture Capital'} vs.\
+\code{'Out of Universe'}; the (C6) flag; coverage share by era is a
+standing audit. \\
+\code{deal\_size}, \code{deal\_size\_status} & size with
+\code{Actual}/\code{Estimated}/\code{Undisclosed} status;
+undisclosedness is informative --- always a feature, never silently
+imputed. \\
+\code{pre\_money\_valuation}, \code{post\_valuation},
+\code{post\_valuation\_status} & frequently jointly missing; missingness
+indicator enters T4 models. \\
+\code{vc\_round}, \code{vc\_round\_up\_down\_flat} & round sequence and
+direction; up/down/flat is a T4 target and a T1 feature. \\
+\code{deal\_type}, \code{deal\_type\_2}, \code{deal\_type\_3},
+\code{deal\_class} & deal taxonomy; defines which events count as
+``funding rounds'' for each model's event definition (an explicit
+loader config, audited). \\
+\code{raised\_to\_date}, \code{total\_raised\_to\_date},
+\code{total\_invested\_capital}, \code{total\_invested\_equity},
+\code{debt}, \code{total\_new\_debt}, \code{total\_debt},
+\code{total\_investor\_ownership}, \code{pct\_acquired},
+\code{type\_of\_stock}, \code{deal\_status}, \code{sellers} &
+capitalization block; \emph{mechanically} event-linked columns
+(\cref{ch:stale}'s classification): they update by construction at
+deals, so their staleness is definitional, not drift. \\
+\code{revenue}, \code{ebitda}, \code{gross\_profit},
+\code{net\_income}, \code{revenue\_growth\_since\_last\_deal},
+\code{number\_of\_employees} & firm fundamentals as reported around the
+deal; the \emph{drifting} class of \cref{ch:stale} --- prime candidates
+for the R2 drift model. \\
+\code{valuation\_cash\_flow}, \code{valuation\_ebitda},
+\code{valuation\_revenue}, \code{deal\_size\_cash\_flow},
+\code{deal\_size\_ebitda}, \code{deal\_size\_revenue} & ratio block;
+derived --- recompute from parents rather than trusting, audit
+inconsistencies. \\
+\code{year\_founded}, \code{hq\_location}, \code{company\_country},
+\code{hq\_global\_region}, \code{hq\_global\_sub\_region} & static
+descriptors; founding year anchors cohort entry models
+(\cref{ch:universe}). \\
+\bottomrule
+\end{longtable}
+
+\section*{Companies table (one row per tracked firm)}
+
+\begin{longtable}{p{0.30\textwidth} p{0.62\textwidth}}
+\toprule
+\textbf{Column} & \textbf{Notes for modeling} \\
+\midrule
+\endhead
+\code{company\_id}, \code{company\_name}, \code{description},
+\code{website} & identity block. \\
+\code{financing\_status}, \code{business\_status},
+\code{ownership\_status}, \code{company\_universe} & status block;
+\code{business\_status} is the only exit signal and it is coarse and
+laggy --- the (C3) discussion of \cref{ch:data} governs its use; it may
+close spells only through a point-in-time rule. \\
+\code{year\_founded}, \code{hq\_*}, \code{primary\_industry\_sector},
+\code{other\_industries} & static descriptors. \\
+\code{last\_financing\_date}, \code{last\_financing\_size},
+\code{last\_financing\_valuation}, \code{last\_financing\_deal\_type},
+\code{last\_known\_valuation\_date},
+\code{last\_known\_valuation\_deal\_type},
+\code{total\_money\_raised}, \code{employees} & snapshot summaries of
+the latest deal --- the companies table is itself LOCF by construction;
+never join it as if current (the (C5) warning in table form). \\
+\bottomrule
+\end{longtable}
+
+\section*{Investors table}
+
+\code{company\_id}, \code{investor\_id}, \code{investorname},
+\code{investorstatus}, \code{investorsince}: the firm--investor link
+with first-investment dates. Used for engineered features (investor
+count, investor quality proxies, syndicate recency), all as-of
+\code{investorsince}.
+
+\section*{FactSet macro feed}
+
+Long format \code{(series\_code, reference\_date, publish\_date, value)}.
+Series: \code{FFUNDT} (Fed Funds target, daily step path), \code{FFUND}
+(effective Fed Funds, daily), \code{CPI\_RAW} (CPI level, monthly,
+$\sim$14-day publication lag), \code{CPI\_YOY} (derived YoY inflation),
+\code{RUNEMP} (unemployment rate, monthly). Joins are as-of on
+\code{publish\_date} only (\cref{prot:ch02:pit}); reference-date joins
+are look-ahead and fail the audit. Derived transforms (changes, regime
+dummies, real-rate proxies) are computed inside the loader so their
+point-in-time correctness is testable in one place.

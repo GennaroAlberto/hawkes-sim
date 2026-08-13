@@ -1,0 +1,158 @@
+% ------------------------------------------------------------------
+% ch-results-synth.tex --- body of the chapter
+%   "Results on Synthetic Data"  (\chapter in main.tex)
+% Do not add a \chapter command here.
+% ------------------------------------------------------------------
+
+This chapter is intentionally empty of numbers. It is the destination for the protocols of
+\cref{ch:codeplan}: every synthetic-data run writes its verdict here, append-only, under the artifact
+rules of \cref{chcp:sec:ci}. Each section below mirrors one protocol of \cref{chcp:sec:forward}. A
+section is filled only after its protocol has run under its frozen pass criterion; until then its
+table shell stays empty. Real-data results never appear here; they belong to \cref{ch:results-spain}.
+
+\section{Generator sanity and stability checks}\label{chrs:sec:generator}
+
+Before any fitter is judged, the rehearsal worlds themselves must pass: stable event counts across
+seeds, no supercritical excursions, no runaway per-firm deal concentration, and a deduplication rule
+that keeps legitimate repeat fundings. These checks apply the harness rules of \cref{chcp:sec:harness}
+to the generator itself.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+Check & Regime A & Regime B & Verdict \\
+\midrule
+\multicolumn{4}{l}{\todo{fill after running the generator checks of \cref{chcp:sec:harness}}} \\
+\bottomrule
+\end{tabular}
+\caption{Generator sanity and stability checks, per rehearsal regime.}
+\label{chrs:tab:generator}
+\end{table}
+
+\section{Poisson baselines and the covariates-vs-excitation decomposition}\label{chrs:sec:b2}
+
+Results of protocol B2 (\cref{chcp:prot:b2}): the nested NLL ladder from seasonal-naive through
+covariates-only Poisson to covariates-plus-excitation, decomposed rung by rung with error bars.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+Ladder rung & Held-out NLL (A) & Held-out NLL (B) & $\Delta$ vs.\ previous rung \\
+\midrule
+\multicolumn{4}{l}{\todo{fill after running protocol B2 (\cref{chcp:prot:b2})}} \\
+\bottomrule
+\end{tabular}
+\caption{Improvement decomposition across the model ladder.}
+\label{chrs:tab:b2}
+\end{table}
+
+\section{Parametric Hawkes recovery and bucket-width identifiability}\label{chrs:sec:e1}
+
+Results of protocol E1 (\cref{chcp:prot:e1}): recovery of $\branch$ and $\decay$ at 1d, 7d, and 28d
+bucket widths, and the fitted-radius curve against latent-factor strength.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+Bucket width & $\branch$ bias (SE) & $\decay$ bias (SE) & Ridge visible & Verdict \\
+\midrule
+\multicolumn{5}{l}{\todo{fill after running protocol E1 (\cref{chcp:prot:e1})}} \\
+\bottomrule
+\end{tabular}
+\caption{Bucket-width identifiability and latent-confounding results.}
+\label{chrs:tab:e1}
+\end{table}
+
+\section{Nonparametric challenger comparison}\label{chrs:sec:nonparam}
+
+Results of protocol B3 (\cref{chcp:prot:b3}): the intensity models of \cref{ch:nonparam} against the
+log-linear GLM and the parametric Hawkes, on held-out likelihood and calibration, in the same harness.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+Model & Held-out NLL & Calibration (PIT / dispersion) & Verdict \\
+\midrule
+\multicolumn{4}{l}{\todo{fill after running protocol B3 (\cref{chcp:prot:b3})}} \\
+\bottomrule
+\end{tabular}
+\caption{Nonparametric challenger versus parametric incumbents.}
+\label{chrs:tab:nonparam}
+\end{table}
+
+\section{Choice-model and ranking metrics}\label{chrs:sec:ranking}
+
+Results of protocol E2 (\cref{chcp:prot:e2}) and benchmark B1 (\cref{chcp:prot:b1}): choice-model
+design choices, weight recovery, and ranking quality under the recall-at-$K$ protocol of
+\cref{ch10:sec:protocol}.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+Model & Held-out NLL & Recall@5 & Recall@10 & MRR \\
+\midrule
+\multicolumn{5}{l}{\todo{fill after running protocols E2 (\cref{chcp:prot:e2}) and B1 (\cref{chcp:prot:b1})}} \\
+\bottomrule
+\end{tabular}
+\caption{Choice-model and ranking results under the protocol of \cref{ch10:sec:protocol}.}
+\label{chrs:tab:ranking}
+\end{table}
+
+\section{Open-universe and newcomer calibration}\label{chrs:sec:newcomer}
+
+Results of the newcomer-design sweep (E2.2 of \cref{chcp:prot:e2}) and the outside-option calibration
+targets of \cref{ch:universe}: quarterly newcomer-share calibration and coverage diagnostics.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+Design & Newcomer-share error (pp) & Incumbent weights stable & Verdict \\
+\midrule
+\multicolumn{4}{l}{\todo{fill after running E2.2 of \cref{chcp:prot:e2}}} \\
+\bottomrule
+\end{tabular}
+\caption{Newcomer designs and open-universe calibration.}
+\label{chrs:tab:newcomer}
+\end{table}
+
+\section{Causal-pipeline validation}\label{chrs:sec:causal}
+
+Results of the causal validation protocol (\cref{chcp:prot:causal}): naive, backdoor, and AIPW
+estimates against the known estimand, with the four coded assertions.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+Estimator & Estimate (CI) & Gap to truth & Assertion \\
+\midrule
+\multicolumn{4}{l}{\todo{fill after running the causal validation protocol (\cref{chcp:prot:causal})}} \\
+\bottomrule
+\end{tabular}
+\caption{Causal-pipeline validation on known ground truth.}
+\label{chrs:tab:causal}
+\end{table}
+
+\section{Walk-forward backtest}\label{chrs:sec:e5}
+
+Results of protocol E5 (\cref{chcp:prot:e5}): the end-to-end weekly walk-forward, scored against
+oracle and random, with the covariate ablations.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+Variant & Top-5 & MRR & PIT calibration & Lead time (weeks) \\
+\midrule
+\multicolumn{5}{l}{\todo{fill after running protocol E5 (\cref{chcp:prot:e5})}} \\
+\bottomrule
+\end{tabular}
+\caption{Walk-forward backtest with covariate ablation.}
+\label{chrs:tab:e5}
+\end{table}

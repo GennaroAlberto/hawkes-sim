@@ -1,0 +1,392 @@
+\chapter{A Causal Layer: Does Financing Cause Growth?}
+\label{ch:causal}
+
+Chapter~\ref{ch:xgb} predicts. Managers ask a different question: \emph{if} a company
+raises a round, does growth follow --- or do growing companies simply raise? The fitted
+$\hat m(x)$ cannot answer this, because the coefficientless dependence it learns on
+deal-history features mixes the effect of financing with the selection of good firms into
+financing. This chapter builds the minimal causal layer the European regime supports. The
+regime is favourable for exactly one reason: the statutory fundamentals panel gives us a
+\emph{rich, audited, pre-treatment} covariate history --- close to the dossier an
+investor actually screens on --- so adjustment has a fighting chance. Every estimate
+ships with cluster-bootstrap uncertainty, an E-value, and two falsification tests, and
+the whole pipeline is validated on the synthetic testbed of Chapter~\ref{ch:selection},
+where the true effect is known by construction.
+
+\section{Estimands and assumptions}
+\label{sec:causal-estimands}
+
+Treatment: $A_{i,y} = \ind{\text{firm } i \text{ closed a PE/VC equity round in year }
+y}$, from the deals table. Outcome: $Y_{i,y}$, the $h=2$ winsorized EBITDA arc-growth of
+Chapter~\ref{ch:success}, measured over $(y, y+h]$ so it is strictly post-treatment.
+Each unit carries potential outcomes $Y_{i,y}(1)$ and $Y_{i,y}(0)$: growth with and
+without a round in year $y$.
+
+\begin{assumption}[SUTVA]
+\label{ass:causal-sutva}
+(i)~No interference: $Y_{i,y}(a)$ does not depend on other firms' treatments;
+(ii)~single version of treatment: $A_{i,y}=1$ denotes one well-defined intervention
+\cite{imbens2015}.
+\end{assumption}
+
+\begin{assumption}[Consistency]
+\label{ass:causal-consistency}
+$Y_{i,y} = A_{i,y} Y_{i,y}(1) + (1 - A_{i,y})\, Y_{i,y}(0)$ \cite{hernan2020}.
+\end{assumption}
+
+Both parts of Assumption~\ref{ass:causal-sutva} are approximations here: a round can
+hurt a direct competitor's growth (interference; we flag narrow niches), and rounds
+differ in size and investor (versions; we deliberately coarsen to ``raised
+institutional equity'' and treat dose--response as an extension, not the estimand).
+
+The estimands, in decreasing ambition of the conditioning:
+\begin{equation}
+\tau_{\mathrm{ATE}} = \E[Y(1) - Y(0)], \quad
+\tau_{\mathrm{ATT}} = \E[Y(1) - Y(0) \mid A = 1], \quad
+\tau(x) = \E[Y(1) - Y(0) \mid X = x].
+\label{eq:causal-estimands}
+\end{equation}
+For the portfolio question (``did our financings work?'') the ATT is the object; for
+targeting (``where would a round move the needle?'') the CATE $\tau(x)$; the ATE is the
+reporting default because it is the easiest to estimate stably. Identification requires:
+
+\begin{assumption}[Conditional exchangeability and positivity]
+\label{ass:causal-ignorability}
+There exists an observed pre-treatment set $Z$ with
+$\bigl(Y(0), Y(1)\bigr) \indep A \mid Z$ and
+$0 < e(z) = \Prob(A = 1 \mid Z = z) < 1$ for all $z$ in the support
+\cite{imbens2015,hernan2020}.
+\end{assumption}
+
+Assumption~\ref{ass:causal-ignorability} is not a modelling choice; it is a claim about
+the world that the next section argues from a graph, Section~\ref{sec:causal-sens}
+stress-tests, and Section~\ref{sec:causal-synth} verifies where the truth is known.
+
+\section{The causal graph}
+\label{sec:causal-dag}
+
+Five variables. $U$: latent firm quality (management, product, moat) --- unobserved.
+$X$: the observed pre-treatment fundamentals history (levels, growth path, margins,
+leverage, payroll over the three years up to $y$), plus sector and age. $M$: the macro
+state as of year $y$ (rates, CPI YoY, unemployment, as-of vintages). $A$: the treatment.
+$Y$: the outcome. The edges: $U \to A$ (investors select quality), $U \to Y$ (quality
+drives growth), $U \to X$ (quality leaves tracks in the filings), $X \to A$ (investors
+screen on the observable dossier), $X \to Y$ (fundamentals persist), $M \to A$ (funding
+cycles), $M \to Y$ (macro drives growth), and the causal edge of interest $A \to Y$.
+Table~\ref{tab:causal-paths} enumerates every $A$--$Y$ path.
+
+\begin{table}[htbp]
+\centering
+\caption{Paths between $A$ and $Y$ in the working graph.}
+\label{tab:causal-paths}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Path & Type & Status after conditioning on $(X, M)$ \\
+\midrule
+$A \to Y$ & causal & kept (the estimand) \\
+$A \leftarrow X \to Y$ & backdoor & blocked by $X$ \\
+$A \leftarrow M \to Y$ & backdoor & blocked by $M$ (sector-year cells) \\
+$A \leftarrow U \to Y$ & backdoor & \emph{not} blockable directly; attenuated \\
+ & & via the proxy path $U \to X$ \\
+$A \leftarrow U \to X \to Y$ & backdoor & blocked by $X$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The whole argument of the EU track sits in the fourth row. $U$ is unobserved, so the
+path $A \leftarrow U \to Y$ cannot be blocked exactly. But investors do not observe $U$
+either: they observe the dossier, which is essentially $X$ --- audited statements,
+growth trajectory, margins, leverage. To the extent that the selection $U \to A$ flows
+\emph{through} what is observable about quality, conditioning on a rich $X$ intercepts
+most of it, and the residual confounding is the part of quality that moves investors
+without leaving any track in three years of filings. In the European regime that
+residual is plausibly small and, crucially, \emph{boundable}
+(Section~\ref{sec:causal-sens}). In the US regime there is no fundamentals panel, $X$
+collapses to deal marks and coarse firmographics, and this argument dies --- which is
+why Chapters~\ref{ch:us} and onward change the estimand rather than pretend the backdoor
+is closed.
+
+\section{Identification: the backdoor criterion}
+\label{sec:causal-backdoor}
+
+\begin{definition}[Backdoor criterion \cite{pearl1995}]
+\label{def:causal-backdoor}
+A set of observed variables $Z$ satisfies the backdoor criterion relative to $(A, Y)$
+if (i)~no element of $Z$ is a descendant of $A$, and (ii)~$Z$ blocks every path between
+$A$ and $Y$ that contains an arrow into $A$.
+\end{definition}
+
+\begin{theorem}[Adjustment formula \cite{pearl1995}]
+\label{thm:causal-adjustment}
+If $Z$ satisfies the backdoor criterion relative to $(A, Y)$, then
+\begin{equation}
+\E[Y \mid \Do(A = a)] = \E_Z\bigl[\, \E[Y \mid A = a, Z] \,\bigr],
+\label{eq:causal-adjustment}
+\end{equation}
+the outer expectation over the marginal law of $Z$, and consequently
+$\tau_{\mathrm{ATE}} = \E_Z[\E[Y \mid A=1, Z] - \E[Y \mid A=0, Z]]$.
+\end{theorem}
+
+In the working graph, $Z = (X, M)$ satisfies the criterion \emph{up to} the residual
+$U$-path discussed above: formally we proceed under
+Assumption~\ref{ass:causal-ignorability} with $Z = (X$ history over 3 years, sector-year
+cell$)$ --- the cells absorb $M$ and sector-level funding cycles --- and quantify the
+violation rather than assume it away.
+
+\begin{warning}[Bad controls]
+\label{warn:causal-badcontrols}
+More conditioning is not more safety. Three failure modes, all present in this dataset.
+(i)~\emph{Mediators}: post-treatment employee counts sit on the path
+$A \to \text{hiring} \to Y$; conditioning on them subtracts part of the effect being
+estimated. (ii)~\emph{Colliders/descendants}: a subsequent valuation mark is caused
+both by the round ($A$) and by quality ($U$); conditioning on it opens the path
+$A \to \text{mark} \leftarrow U \to Y$ and manufactures spurious association.
+(iii)~\emph{M-bias}: even a \emph{pre-treatment} variable can hurt --- if some early
+covariate is a common effect of one latent cause that drives selection and another
+latent cause that drives growth, then conditioning on it opens a previously closed path
+between those latents. The rule is graphical, not chronological: the adjustment set is
+chosen by Definition~\ref{def:causal-backdoor}, never by predictive power, and nothing
+dated after the round enters $Z$.
+\end{warning}
+
+\section{Estimators, in increasing robustness}
+\label{sec:causal-estimators}
+
+Throughout, nuisance functions are fitted with the boosted-tree machinery of
+Chapter~\ref{ch:xgb} (same features, same era discipline), written
+$\mu_a(z) = \E[Y \mid A = a, Z = z]$ and $e(z) = \Prob(A = 1 \mid Z = z)$.
+
+\paragraph{(1) Outcome regression (g-formula).}
+Fit $\hat\mu_1, \hat\mu_0$ and average:
+$\hat\tau_{\mathrm{OR}} = n^{-1} \sum_{i,y} \{\hat\mu_1(Z_{i,y}) -
+\hat\mu_0(Z_{i,y})\}$. Two flavours: the T-learner (separate models per arm; honest but
+noisy in the small treated arm) and the S-learner ($A$ as one feature among $p$; stable
+but regularization can shrink the $A$-splits, biasing $\hat\tau$ toward zero). Both
+inherit every extrapolation weakness of trees precisely in low-overlap regions, where
+$\hat\mu_{1}$ is evaluated at control-like $z$ and vice versa.
+
+\paragraph{(2) Inverse propensity weighting.}
+Fit $\hat e$, then the Hajek form
+\[
+\hat\tau_{\mathrm{IPW}}
+= \frac{\sum_i A_i Y_i w_i^1}{\sum_i A_i w_i^1}
+- \frac{\sum_i (1-A_i) Y_i w_i^0}{\sum_i (1-A_i) w_i^0},
+\qquad
+w^1 = \frac{1}{\hat e(Z)}, \quad w^0 = \frac{1}{1 - \hat e(Z)}.
+\]
+Mandatory diagnostics before any estimate is read:
+the histogram of $\hat e$ by treatment arm (overlap plot); trimming to
+$\hat e \in [0.02, 0.98]$ with the trimmed fraction reported --- if it exceeds a few
+percent, the estimand has silently changed to a trimmed-population effect and we say
+so; the effective sample size $\mathrm{ESS} = (\sum w)^2 / \sum w^2$ per arm. IPW uses
+the treatment model only, so it fails independently of (1) --- but its variance explodes
+near the trimming boundary.
+
+\paragraph{(3) AIPW with cross-fitting (the default).}
+The doubly robust score combines both nuisances \cite{chernozhukov2018}:
+\begin{equation}
+\psi(O; \mu, e) = \mu_1(Z) - \mu_0(Z)
++ \frac{A\,(Y - \mu_1(Z))}{e(Z)}
+- \frac{(1-A)\,(Y - \mu_0(Z))}{1 - e(Z)},
+\qquad
+\hat\tau_{\mathrm{AIPW}} = \frac{1}{n} \sum \psi_i .
+\label{eq:causal-aipw}
+\end{equation}
+
+\begin{proposition}[Double robustness]
+\label{prop:causal-dr}
+Under Assumptions~\ref{ass:causal-consistency}--\ref{ass:causal-ignorability},
+$\E[\psi(O; \mu, e)] = \tau_{\mathrm{ATE}}$ if \emph{either} $\mu = (\mu_1^*, \mu_0^*)$
+is the true outcome function \emph{or} $e = e^*$ is the true propensity (with the other
+nuisance arbitrary, subject to positivity).
+\end{proposition}
+
+\begin{proof}
+Consider the $a=1$ half, $\psi_1 = \mu_1(Z) + A(Y - \mu_1(Z))/e(Z)$. If
+$\mu_1 = \mu_1^*$: $\E[A(Y - \mu_1^*(Z)) \mid Z] = e^*(Z)\,\E[Y - \mu_1^*(Z) \mid A=1,
+Z] = 0$, so $\E[\psi_1] = \E[\mu_1^*(Z)] = \E[Y(1)]$ by
+Assumption~\ref{ass:causal-ignorability}. If $e = e^*$:
+$\E[\psi_1 \mid Z] = \mu_1(Z) + \{e^*(Z)\,\E[Y \mid A=1,Z] - e^*(Z)\mu_1(Z)\}/e^*(Z)
+= \E[Y \mid A=1, Z] = \E[Y(1) \mid Z]$, and the arbitrary $\mu_1$ cancels. The $a=0$
+half is symmetric; subtract.
+\end{proof}
+
+\begin{remark}[Rate condition]
+\label{rem:causal-rates}
+Beyond consistency, valid $\sqrt{n}$ inference informally requires the \emph{product}
+of nuisance errors to vanish fast:
+$\|\hat\mu_a - \mu_a^*\|_{2} \cdot \|\hat e - e^*\|_{2} = o_P(n^{-1/2})$
+\cite{chernozhukov2018}. Each nuisance may converge slowly (as boosted trees do) as
+long as the product is fast --- this, plus the removal of own-observation overfitting
+bias by cross-fitting, is why (3) is the default and not merely a hedge.
+\end{remark}
+
+\paragraph{Algorithm (cross-fitted AIPW).}
+\begin{enumerate}
+\item Partition \emph{firms} into $K = 5$ folds; a firm's rows never straddle folds
+(within-firm correlation would otherwise leak nuisance fits into own scores).
+\item For each fold $k$: fit $\hat\mu_1^{(-k)}, \hat\mu_0^{(-k)}, \hat e^{(-k)}$ on the
+other $K-1$ folds, with the era-aware tuning of Chapter~\ref{ch:xgb} frozen once,
+outside the loop.
+\item Trim: drop rows of fold $k$ with $\hat e^{(-k)} \notin [0.02, 0.98]$; record the
+trimmed fraction.
+\item Compute $\psi_{i,y}$ for the surviving rows of fold $k$ via
+\eqref{eq:causal-aipw} using only out-of-fold nuisances.
+\item Pool: $\hat\tau = $ mean of all $\psi_{i,y}$; variance by
+Section~\ref{sec:causal-inference}; report alongside the overlap plot and trimmed
+fraction.
+\end{enumerate}
+
+\section{Inference under firm clustering}
+\label{sec:causal-inference}
+
+Rows recur within firms across years, and the scores $\psi_{i,y}$ of a firm are
+correlated through persistent firm effects. An i.i.d.\ bootstrap (or the naive variance
+$n^{-2}\sum(\psi_{i,y} - \hat\tau)^2$) treats $n$ rows as $n$ independent draws and
+understates the variance --- the effective sample size is nearer the number of firms.
+Two consistent routes; we run both and report the wider.
+
+\paragraph{(a) Cluster-robust influence-function variance.}
+Let $S_i = \sum_{y} (\psi_{i,y} - \hat\tau)$ sum a firm's centred scores. Then
+\begin{equation}
+\widehat{\Var}(\hat\tau) = \frac{1}{n^2} \sum_{i \in \mathcal{F}} S_i^{\,2},
+\label{eq:causal-clustervar}
+\end{equation}
+which is the sandwich variance with firms as clusters; normal intervals
+$\hat\tau \pm z_{1-\alpha/2}\,\widehat{\Var}^{1/2}$.
+
+\paragraph{(b) Cluster bootstrap \cite{efron1994}.}
+\begin{enumerate}
+\item For $b = 1, \dots, B$ (200--500): resample firms with replacement; a drawn firm
+contributes all its rows.
+\item Re-run the \emph{entire} cross-fitting algorithm on the replicate --- nuisance
+refits included, tuning still frozen --- to obtain $\hat\tau_b$.
+\item Report the percentile interval of $\{\hat\tau_b\}$.
+\end{enumerate}
+The bootstrap additionally propagates nuisance-estimation noise that
+\eqref{eq:causal-clustervar} treats as fixed; disagreement between (a) and (b) beyond
+$\sim$20\% of interval width is itself a diagnostic of nuisance instability.
+
+\section{Sensitivity and falsification}
+\label{sec:causal-sens}
+
+Assumption~\ref{ass:causal-ignorability} cannot be verified from the data it licenses.
+It can be stress-tested. Every reported effect must clear the checklist of
+Table~\ref{tab:causal-checklist}; an estimate that fails any row does not ship.
+
+\paragraph{E-values.}
+The E-value \cite{vanderweele2017} is the minimum strength of association, on the risk
+ratio scale, that an unmeasured confounder would need with \emph{both} treatment and
+outcome, above and beyond $Z$, to explain away the observed association. For an
+observed risk ratio $\mathrm{RR} \ge 1$,
+\begin{equation}
+\mathrm{E} = \mathrm{RR} + \sqrt{\mathrm{RR}\,(\mathrm{RR} - 1)} .
+\label{eq:causal-evalue}
+\end{equation}
+Our outcome is continuous, so we standardize: with effect $d = \hat\tau / \hat\sigma_Y$
+(cluster-bootstrap CI carried through), the conventional conversion
+$\mathrm{RR} \approx \exp(0.91\, d)$ feeds \eqref{eq:causal-evalue}, and the E-value of
+the CI limit closer to the null is reported alongside that of the point estimate. An
+E-value of 1.8 reads: a latent-quality confounder must nearly double both the odds of
+raising and of high growth, conditional on the full fundamentals history, to explain
+the estimate away --- a statement a domain expert can argue with, which is the point.
+
+\paragraph{Placebo treatment.}
+Define $A^{\mathrm{fut}}_{i,y} = \ind{\text{round in year } y + 3}$ and estimate its
+``effect'' on $Y_{i,y}$ (which is fully realized before the placebo round) with the
+identical AIPW pipeline. Under Assumption~\ref{ass:causal-ignorability} the estimate
+must be null: a future round cannot cause past growth, so any nonzero adjusted estimate
+measures exactly the selection-on-trends that $Z$ failed to absorb.
+
+\paragraph{Negative-control outcome.}
+Symmetrically, estimate the ``effect'' of $A_{i,y}$ on \emph{pre-treatment} growth
+(years $y-2$ to $y$, excluded from $Z$ for this test only). Nonzero means the treated
+were already on a different trajectory in a way $Z$ does not capture.
+
+\begin{table}[htbp]
+\centering
+\caption{Mandatory pre-shipping checklist for any causal estimate.}
+\label{tab:causal-checklist}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Check & Pass criterion & On failure \\
+\midrule
+Overlap plot & common support, trimmed & redefine estimand (ATT, \\
+ & fraction $< 5\%$ & trimmed population) \\
+Placebo (future round) & CI covers 0 & enrich $Z$ (longer history, \\
+ & & trend features); else do not ship \\
+Negative control (pre-growth) & CI covers 0 & same as placebo \\
+E-value & $>$ plausible latent-quality & report as bounded, not \\
+ & association given rich $X$ & as an effect \\
+Variance agreement & IF vs bootstrap within 20\% & investigate nuisance \\
+ & & instability \\
+Synthetic recovery & Table~\ref{tab:causal-synth} ranking & pipeline bug; fix before \\
+ & reproduced & touching real data \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Synthetic validation protocol}
+\label{sec:causal-synth}
+
+The testbed of Chapter~\ref{ch:selection} generates a world with a known latent quality
+$q_i$ driving both funding intensity and fundamentals, so the true $\tau$ is known by
+construction and confounding by quality is present by design. The causal layer is
+accepted only if it passes the following protocol there.
+
+\begin{enumerate}
+\item \emph{Generate} an EU-style panel: fundamentals as noisy, lagged functions of
+$q_i$ and macro; treatment assignment with probability increasing in $q_i$ and in the
+observable dossier; outcome with a known additive effect $\tau^* $ of treatment.
+\item \emph{Estimate} with four pipelines: naive difference in means; g-formula
+(T-learner); IPW; cross-fitted AIPW --- each with firm-cluster bootstrap CIs and
+E-values.
+\item \emph{Verify} the qualitative ranking of Table~\ref{tab:causal-synth}: the naive
+contrast overstates $\tau^*$ badly (quality confounding); all adjusted estimators land
+near $\tau^*$ when the generated $X$ is rich; ablating $X$ columns (hiding the dossier,
+i.e.\ simulating the US regime) re-opens the gap, with AIPW degrading most gracefully.
+\item \emph{Report} empirical CI coverage of $\tau^*$ across Monte Carlo replications
+and check that the naive estimator's E-value correctly flags fragility while the
+adjusted estimators' E-values are informative about the injected residual confounding.
+\end{enumerate}
+
+\begin{table}[htbp]
+\centering
+\caption{Expected qualitative behaviour on the synthetic testbed
+(Chapter~\ref{ch:selection}). ``$\approx$'' means CI covers $\tau^*$ at nominal rate.}
+\label{tab:causal-synth}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Estimator & Rich $X$ (EU-style) & Impoverished $X$ (US-style) \\
+\midrule
+Naive difference & $\gg \tau^*$ & $\gg \tau^*$ \\
+g-formula (XGB) & $\approx \tau^*$ & biased toward naive \\
+IPW (trimmed) & $\approx \tau^*$, wider CI & biased, unstable \\
+AIPW cross-fitted & $\approx \tau^*$, correct coverage & residual bias, flagged \\
+ & & by placebo and E-value \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This protocol is what makes the chapter testable rather than decorative: the code that
+produces Table~\ref{tab:causal-synth} is byte-identical to the code run on the real
+panel, so a pipeline that cannot recover a known effect is caught before it is believed.
+
+\section{Limits}
+\label{sec:causal-limits}
+
+Two limits are structural and stated plainly. First, \emph{selection on unobservables
+is not solved} --- it is attenuated by a rich $X$, bounded by E-values, and probed by
+placebo and negative-control tests, but a confounder invisible to three years of
+audited filings and strong enough to survive the checklist remains logically possible.
+Our claim is calibrated accordingly: adjusted estimates with reported sensitivity, not
+oracle effects. Second, \emph{external validity across macro regimes}: $M$ enters both
+selection and outcome, all estimates average over the funding cycles in sample, and a
+CATE-by-era analysis is data-hungry precisely because treated firms are scarce within
+any single era. An effect estimated across 2015--2021 need not transport to a
+tight-money regime, for the same no-extrapolation reasons as in
+Chapter~\ref{ch:xgb}. The US regime sharpens both limits at once: with no fundamentals
+panel there is no rich $X$, and the honest response is to change the estimand and the
+observation model --- the programme of Chapters~\ref{ch:us} and~\ref{ch:selection}.

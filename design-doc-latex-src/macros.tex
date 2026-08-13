@@ -1,0 +1,91 @@
+% ------------------------------------------------------------------
+% macros.tex — shared notation for the design document.
+% Conventions follow THEORY.md / MATH_NOTES.md of the hawkes-sim repo:
+%   N counting process, lambda conditional intensity, Y at-risk indicator,
+%   kappa branching scale, theta kernel decay, x/beta covariates & loadings,
+%   q ranker scores, G aggregated excitation matrix, rho spectral radius.
+% ------------------------------------------------------------------
+
+% ---------- general math ----------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\Cov}{\operatorname{Cov}}
+\newcommand{\ind}[1]{\mathbf{1}\{#1\}}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\T}{^{\top}}
+\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\defeq}{\coloneqq}
+\newcommand{\st}{\mid}
+\newcommand{\abs}[1]{\left|#1\right|}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+\newcommand{\floor}[1]{\left\lfloor#1\right\rfloor}
+\newcommand{\argmax}{\operatornamewithlimits{arg\,max}}
+\newcommand{\argmin}{\operatornamewithlimits{arg\,min}}
+\newcommand{\logsumexp}{\operatorname{logsumexp}}
+\newcommand{\diag}{\operatorname{diag}}
+\newcommand{\rank}{\operatorname{rank}}
+\newcommand{\tr}{\operatorname{tr}}
+\newcommand{\sgn}{\operatorname{sgn}}
+\newcommand{\KL}[2]{\operatorname{KL}\!\left(#1 \,\middle\|\, #2\right)}
+
+% ---------- filtrations & processes ----------
+\newcommand{\F}{\mathcal{F}}
+\newcommand{\Ft}{\mathcal{F}_{t}}
+\newcommand{\Ftm}{\mathcal{F}_{t^-}}
+\newcommand{\Hist}{\mathcal{H}}          % internal history
+\newcommand{\lam}{\lambda}
+\newcommand{\Lam}{\Lambda}               % compensator / integrated intensity
+\newcommand{\lambar}{\bar{\lambda}}      % mean intensity (MBPP)
+\newcommand{\atrisk}{Y}                  % at-risk indicator
+\newcommand{\counting}{N}
+
+% ---------- Hawkes objects ----------
+\newcommand{\mub}{\mu}                   % baseline intensity
+\newcommand{\kernel}{h}                  % excitation kernel
+\newcommand{\branch}{\kappa}             % branching scale (integral of kernel)
+\newcommand{\decay}{\theta}              % exponential decay rate
+\newcommand{\Gmat}{G}                    % aggregated excitation matrix
+\newcommand{\rhomax}{\rho_{\max}}
+\newcommand{\specrad}[1]{\rho\!\left(#1\right)}
+
+% ---------- covariates, marks, ranking ----------
+\newcommand{\xcov}{x}                    % covariate vector
+\newcommand{\zfeat}{z}                   % firm-level features (ranker)
+\newcommand{\bcoef}{\beta}
+\newcommand{\score}{q}                   % ranker score
+\newcommand{\riskset}{\mathcal{R}}       % risk set
+\newcommand{\sectors}{\mathcal{S}}
+\newcommand{\firms}{\mathcal{I}}
+\newcommand{\dmark}{m}                   % deal mark (\mark is a TeX primitive)
+
+% ---------- estimation ----------
+\newcommand{\loglik}{\ell}
+\newcommand{\lik}{L}
+\newcommand{\thetamodel}{\vartheta}      % generic parameter vector (avoid clash with decay)
+\newcommand{\thetahat}{\hat{\vartheta}}
+\newcommand{\Fisher}{\mathcal{I}}
+\newcommand{\scorefn}{U}
+
+% ---------- recurring dataset symbols ----------
+\newcommand{\Tend}{T}                    % end of observation window
+\newcommand{\entry}{V}                   % entry (left-truncation) time
+\newcommand{\horizon}{\Delta}            % bucket horizon
+\newcommand{\staleage}{a}                % staleness age variable
+
+% ---------- editorial ----------
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\modrepo}[1]{\texttt{hawkes\_calibration/#1}}
+
+% "Code hooks" box: maps a chapter's math to repo modules.
+\newenvironment{codehooks}
+  {\par\medskip\noindent\begin{framed}\noindent\textbf{Code hooks.}\par\smallskip}
+  {\end{framed}\medskip}
+
+% "Design decision" box: a committed modeling decision with its rationale.
+\newenvironment{decision}[1]
+  {\par\medskip\noindent\begin{framed}\noindent\textbf{Design decision (#1).}\par\smallskip}
+  {\end{framed}\medskip}

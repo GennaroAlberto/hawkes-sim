@@ -1,0 +1,351 @@
+\chapter{Proof sketches and derivations}
+\label{app:proofs}
+
+This appendix collects the mathematical statements used in the main text with proof sketches at the level
+of rigor we actually rely on --- enough to see why each claim is true and where its assumptions bind, with
+pointers to full treatments; nothing here pretends to be a complete proof.
+
+\section{Marked-point-process factorization}
+\label{app:proofs-mpp}
+
+\begin{proposition}
+\label{prop:app-mpp}
+Let $N$ be a marked point process on $[0,T]$ with marks in $\mathcal{M}$ and internal history $\Hist_t$. If
+$N$ admits a conditional intensity $\lambda(t, m \mid \Hist_t)$, then it factorizes as
+$\lambda(t, m \mid \Hist_t) = \lambda_g(t \mid \Hist_t)\, f(m \mid t, \Hist_t)$, where $\lambda_g$ is the
+ground intensity and $f(\cdot \mid t, \Hist_t)$ is a probability kernel on $\mathcal{M}$. The log-likelihood
+correspondingly splits into a ground term and a mark term.
+\end{proposition}
+
+\begin{proof}[Sketch]
+Define $\lambda_g(t \mid \Hist_t) = \int_{\mathcal{M}} \lambda(t, m \mid \Hist_t)\, \nu(\dd m)$, the
+conditional intensity of the ground process (event times ignoring marks), and set
+$f(m \mid t, \Hist_t) = \lambda(t, m \mid \Hist_t) / \lambda_g(t \mid \Hist_t)$ wherever the denominator is
+positive. By construction $f$ integrates to one and the factorization holds pointwise. Substituting into
+the point-process likelihood, the compensator $\int_0^T \lambda_g\,\dd t$ involves only the ground component
+because $f$ integrates out, so marks enter only through $\sum_i \log f(m_i \mid t_i, \Hist_{t_i})$. This is
+why Chapter~\ref{ch:hawkes} may fit timing and marks in two stages without loss when the parameters are
+variation-independent. See \cite[Ch.~6--7]{daley2003} for the full construction.
+\end{proof}
+
+\section{The MBPP Volterra equation}
+\label{app:proofs-volterra}
+
+\begin{proposition}
+\label{prop:app-volterra}
+Let $N$ be a Hawkes process with intensity $\lambda(t) = \mu(t) + \int_0^t \varphi(t-s)\,\dd N(s)$, with
+$\mu \ge 0$ locally bounded and $\varphi \ge 0$ integrable. Then $h(t) = \E[\lambda(t)]$ satisfies the
+Volterra equation of the second kind $h(t) = \mu(t) + \int_0^t \varphi(t-s)\, h(s)\,\dd s$, the object the
+MBPP layer of Chapter~\ref{ch:censored} solves.
+\end{proposition}
+
+\begin{proof}[Sketch]
+Write $\dd N(s) = \lambda(s)\,\dd s + \dd M(s)$ with $M$ the martingale part of the semimartingale
+decomposition of $N$. Then
+$\lambda(t) = \mu(t) + \int_0^t \varphi(t-s)\lambda(s)\,\dd s + \int_0^t \varphi(t-s)\,\dd M(s)$. Taking
+expectations, the martingale integral vanishes because $\varphi(t-\cdot)$ is deterministic and locally
+bounded, so its stochastic integral against $\dd M$ has zero mean; Fubini exchanges expectation and the
+Lebesgue integral, giving the stated equation. Uniqueness follows from Picard iteration for Volterra
+kernels with $\|\varphi\|_{L^1} < 1$ on compacts. The PINO operator of Chapter~\ref{ch:selection} learns
+the solution map $(\mu, \varphi) \mapsto h$ of exactly this equation.
+\end{proof}
+
+\section{Concavity of the log-link Poisson GLM}
+\label{app:proofs-concave}
+
+\begin{proposition}
+\label{prop:app-concave}
+For counts $y_i$ with rates $\lambda_i = \exp(x_i^\top \beta)$ and exposures $e_i > 0$, the Poisson
+log-likelihood $\ell(\beta) = \sum_i \{ y_i (x_i^\top\beta + \log e_i) - e_i \exp(x_i^\top \beta) \} + c$ is
+concave in $\beta$, strictly so when the design matrix has full column rank.
+\end{proposition}
+
+\begin{proof}[Sketch]
+This is the exponential-family Hessian argument:
+$\nabla^2 \ell(\beta) = -\sum_i e_i \exp(x_i^\top\beta)\, x_i x_i^\top$, a nonpositive-definite sum of
+rank-one matrices with positive weights, negative definite iff the $x_i$ span $\mathbb{R}^p$. Hence any
+stationary point is the global maximizer and Fisher scoring in Chapter~\ref{ch:poisson} is globally well
+behaved. The argument does not protect dynamics: with lagged endogenous counts in $x_i$ the likelihood
+remains concave conditionally on observed lags, but the implied system need not be stable --- the
+metastability episode of Chapter~\ref{ch:selection}, with theory in \cite{fokianos2009,bremaud1996}.
+\end{proof}
+
+\section{Sampled-softmax consistency for the conditional logit}
+\label{app:proofs-softmax}
+
+\begin{proposition}
+\label{prop:app-softmax}
+In the conditional logit \cite{mcfadden1974} with choice set $\RS_t$ and utilities $w^\top z_j$, suppose
+each event's estimation set $D_t$ consists of the chosen alternative plus $J-1$ alternatives drawn uniformly
+without replacement from $\RS_t$. Then the score of the sampled likelihood
+$\sum_t \log\{ \exp(w^\top z_{c_t}) / \sum_{j \in D_t} \exp(w^\top z_j) \}$ has zero expectation at the true
+$w$, and the maximizer is consistent.
+\end{proposition}
+
+\begin{proof}[Sketch]
+Under uniform sampling the probability of drawing the set $D_t$ is the same regardless of which element of
+$D_t$ was chosen (McFadden's uniform conditioning property). Conditioning the choice on
+$\{c_t \in D_t, D_t\}$ therefore yields a probability of exactly logit form restricted to $D_t$, with no
+correction terms --- the sampling weights cancel in the ratio. The sampled log-likelihood is thus a valid
+conditional likelihood, its score is a martingale difference with zero mean at the truth, and standard
+M-estimation gives consistency, at an efficiency cost decreasing in $J$. Non-uniform sampling requires the
+$\log q_j$ correction; we avoid it by sampling uniformly with $J = 64$ in Chapter~\ref{ch:hawkes}.
+\end{proof}
+
+\section{Integrated-entrant utility}
+\label{app:proofs-entrant}
+
+\begin{lemma}
+\label{lem:app-entrant}
+Let candidate features satisfy $z \sim \mathcal{N}(\mu, \Sigma)$ and let the utility be linear,
+$u = w^\top z$. Then $\log \E[\exp(w^\top z)] = w^\top \mu + \tfrac{1}{2} w^\top \Sigma\, w$. Consequently a
+pool of $N_{\mathrm{pool}}$ i.i.d.\ unobserved entrants contributes to the softmax denominator, in
+expectation, one composite alternative with utility
+$\mathrm{ASC} = \log N_{\mathrm{pool}} + w^\top \mu + \tfrac{1}{2} w^\top \Sigma\, w$.
+\end{lemma}
+
+\begin{proof}[Sketch]
+The first display is the Gaussian moment generating function: $w^\top z$ is univariate normal with mean
+$w^\top\mu$ and variance $w^\top\Sigma w$, and $\E[e^X] = e^{m + v/2}$ for $X \sim \mathcal{N}(m, v)$. For
+the pool, $\E[\sum_{j=1}^{N_{\mathrm{pool}}} e^{w^\top z_j}] = N_{\mathrm{pool}}\, \E[e^{w^\top z}]$ by
+exchangeability; replacing the random sum by its expectation inside the log denominator is a first-order
+approximation with $O(1/N_{\mathrm{pool}})$ error by a delta-method argument, adequate for the pool sizes of
+Chapter~\ref{ch:hawkes}.
+\end{proof}
+
+\begin{remark}
+\label{rem:app-entrant-ident}
+The decomposition shows that $N_{\mathrm{pool}}$ and the entrant mean utility $w^\top\mu$ are \emph{not
+separately identifiable} from a constant ASC: any pair on the same level set fits identically.
+Identification requires $N_{\mathrm{pool}}$ to vary over time with known (or modelled) variation --- for
+example universe-expansion waves --- entering as an offset $\log N_{\mathrm{pool},t}$. This is why
+Chapter~\ref{ch:selection} instructs recalibrating the newcomer ASC whenever the pool definition changes:
+the fitted 6.856 (regime A) is a statement about the pool as much as about entrant quality.
+\end{remark}
+
+\section{The time-rescaling theorem}
+\label{app:proofs-rescaling}
+
+\begin{theorem}
+\label{thm:app-rescaling}
+Let $N$ have conditional intensity $\lambda(t \mid \Hist_t) > 0$ with compensator
+$\Lambda(t) = \int_0^t \lambda(s \mid \Hist_s)\,\dd s \to \infty$. Then the transformed times
+$\tau_i = \Lambda(t_i)$ form a unit-rate Poisson process; equivalently the increments
+$\tau_i - \tau_{i-1}$ are i.i.d.\ standard exponential.
+\end{theorem}
+
+\begin{proof}[Sketch]
+The time-changed process $N(\Lambda^{-1}(\tau))$ has compensator $\tau$ by the change-of-time formula for
+point-process compensators, and a counting process with deterministic compensator $\tau$ is unit-rate
+Poisson by Watanabe's martingale characterization; see \cite[Ch.~7]{daley2003}. The practical use,
+following \cite{ogata1988}, is residual analysis: transform observed times through the fitted
+$\hat\Lambda$ and test the increments for unit exponentiality (QQ plots, Kolmogorov--Smirnov) and
+independence (autocorrelation of transformed interarrivals). Every event-time model in
+Chapter~\ref{ch:hawkes}, and every rung of the Poisson-null ladder in Chapter~\ref{ch:selection}, reports
+these residuals.
+\end{proof}
+
+\chapter{Schema reference}
+\label{app:schema}
+
+This appendix is the lookup companion to Chapter~\ref{ch:data}: field-level types and typical missingness
+for the three PitchBook relations, a macro-feed sample showing the publish-lag structure, and coverage by
+deal class. Missingness figures are representative magnitudes for a US-heavy export, matching the
+calibration of the synthetic observation layer; re-profile any given export before modelling.
+
+\section{The deals table}
+\label{app:schema-deals}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabular}{llp{5.0cm}}
+\toprule
+Field & Type & Typical missingness / notes \\
+\midrule
+\multicolumn{3}{l}{\emph{Identifiers}} \\
+\texttt{company\_id}, \texttt{deal\_id} & string key & none; join keys \\
+\texttt{company\_name} & string & none; display only, never a key \\
+\texttt{deal\_date} & date & none, but jitter up to 6 days \\
+\midrule
+\multicolumn{3}{l}{\emph{Industry and universe}} \\
+\texttt{primary\_industry\_sector} & categorical & $\sim$1\%; $\sim$3\% mislabelled \\
+\texttt{primary\_industry\_group}, \texttt{primary\_industry\_code} & categorical & $\sim$2\% \\
+\texttt{company\_universe} & categorical & none; snapshot semantics \\
+\texttt{current\_financing\_status} & categorical & snapshot --- forbidden as feature \\
+\midrule
+\multicolumn{3}{l}{\emph{Deal terms}} \\
+\texttt{deal\_type}, \texttt{deal\_class}, \texttt{deal\_status} & categorical & none \\
+\texttt{deal\_type2}, \texttt{deal\_type3} & categorical & 40\%, 70\% \\
+\texttt{deal\_size} & float (MUSD) & 28\% undisclosed; 15\% of rest estimated (18\% rel.\ error) \\
+\texttt{deal\_size\_status} & categorical & none; flags estimated sizes \\
+\texttt{pre\_money\_valuation}, \texttt{post\_valuation} & float (MUSD) & 55\% \\
+\texttt{post\_valuation\_status} & categorical & follows valuations \\
+\texttt{pct\_acquired} & float & 60\%; mostly M\&A rows \\
+\texttt{vc\_round}, \texttt{vc\_round\_up\_down\_flat} & categorical & VC only; 65\% for up/down/flat \\
+\texttt{type\_of\_stock}, \texttt{sellers} & string & 70\%+ \\
+\midrule
+\multicolumn{3}{l}{\emph{Capital structure}} \\
+\texttt{total\_invested\_capital}, \texttt{total\_invested\_equity} & float & 45\% \\
+\texttt{debt}, \texttt{total\_new\_debt}, \texttt{total\_debt} & float & 80\% on VC; better on debt \\
+\texttt{raised\_to\_date}, \texttt{total\_raised\_to\_date} & float & 30\%; recompute from history \\
+\texttt{total\_investor\_ownership} & float & 75\% \\
+\midrule
+\multicolumn{3}{l}{\emph{Financials at deal}} \\
+\texttt{revenue}, \texttt{ebitda} & float & 70\%, 80\% (US); far lower in EU \\
+\texttt{gross\_profit}, \texttt{net\_income} & float & 85\% \\
+\texttt{valuation\_ebitda}, \texttt{valuation\_revenue}, \texttt{valuation\_cash\_flow} & float & 85\%+ \\
+\texttt{deal\_size\_ebitda}, \texttt{deal\_size\_revenue}, \texttt{deal\_size\_cash\_flow} & float & 85\%+ \\
+\texttt{revenue\_growth\_since\_last\_deal} & float & 80\% \\
+\texttt{number\_of\_employees} & int & 40\% \\
+\midrule
+\multicolumn{3}{l}{\emph{Firmography carried on deal rows}} \\
+\texttt{year\_founded} & int & 5\% \\
+\texttt{hq\_location}, \texttt{hq\_country}, \texttt{hq\_region}, \texttt{hq\_sub\_region} & string & 2\% \\
+\bottomrule
+\end{tabular}
+\caption{Deals table: fields, types, and representative missingness.}
+\label{tab:app-deals}
+\end{table}
+
+\section{The companies and investors tables}
+\label{app:schema-companies}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabular}{llp{5.4cm}}
+\toprule
+Field & Type & Notes \\
+\midrule
+\texttt{company\_id} & string key & join key; 12\% of real firms untracked \\
+\texttt{description} & string & free text; 8\% missing \\
+\texttt{year\_founded} & int & 5\% missing \\
+\texttt{employees} & int & \emph{current} snapshot; forbidden as historical feature \\
+\texttt{financing\_status}, \texttt{business\_status}, \texttt{ownership\_status} & categorical & snapshots \\
+\texttt{total\_money\_raised} & float & snapshot; recompute from deals \\
+\texttt{last\_financing\_date}, \texttt{last\_financing\_size}, \texttt{last\_financing\_valuation} & mixed & snapshots of latest deal \\
+\midrule
+\texttt{investor\_id} & string key & investors relation \\
+\texttt{investorname} & string & display only \\
+\texttt{investorstatus} & categorical & current snapshot \\
+\texttt{investorsince} & date & dated; usable point-in-time \\
+\bottomrule
+\end{tabular}
+\caption{Companies table (top block) and investors relation (bottom block). Snapshot fields may validate
+history but must never enter features (Chapter~\ref{ch:data}).}
+\label{tab:app-companies}
+\end{table}
+
+\section{Macro feed sample}
+\label{app:schema-macro}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+\texttt{series\_code} & \texttt{ref\_date} & \texttt{publish\_date} & \texttt{value} \\
+\midrule
+\texttt{US\_GDP\_QOQ\_SAAR} & 2023-12-31 & 2024-01-25 & 3.3 \\
+\texttt{US\_CPI\_YOY} & 2024-01-31 & 2024-02-13 & 3.1 \\
+\texttt{US\_UNRATE} & 2024-01-31 & 2024-02-02 & 3.7 \\
+\texttt{US\_10Y\_YIELD} & 2024-02-15 & 2024-02-15 & 4.24 \\
+\texttt{EA\_GDP\_QOQ} & 2023-12-31 & 2024-01-30 & 0.0 \\
+\texttt{US\_PE\_DRYPOWDER} & 2023-12-31 & 2024-03-15 & 955.0 \\
+\bottomrule
+\end{tabular}
+\caption{Macro feed sample rows. The \texttt{ref\_date}-to-\texttt{publish\_date} gap --- zero for market
+series, weeks to months for releases --- is the point-in-time problem of Chapter~\ref{ch:us}: all joins
+key on \texttt{publish\_date}.}
+\label{tab:app-macro}
+\end{table}
+
+\section{Field coverage by deal class}
+\label{app:schema-coverage}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+Field group & VC & M\&A & Debt \\
+\midrule
+\texttt{deal\_size} disclosed & 65\% & 45\% & 75\% \\
+Valuations (\texttt{pre\_money}, \texttt{post}) & 55\% & 20\% & 5\% \\
+\texttt{pct\_acquired} & 15\% & 70\% & 10\% \\
+\texttt{vc\_round} fields & 95\% & --- & --- \\
+Debt / capital-structure fields & 15\% & 35\% & 90\% \\
+Financials at deal & 20\% & 45\% & 40\% \\
+\bottomrule
+\end{tabular}
+\caption{Approximate non-missing coverage by deal class. No field is well populated across all classes;
+class-conditional models or class indicators are mandatory (Chapter~\ref{ch:data}).}
+\label{tab:app-coverage}
+\end{table}
+
+\chapter{Code map and quickstart}
+\label{app:code}
+
+\section{Directory layout}
+\label{app:code-map}
+
+The accompanying code lives under \texttt{handbook/code}. The core package implements the estimators; the
+\texttt{synthetic} package implements the two testbed worlds of Chapter~\ref{ch:selection} and their
+observation-noise layer.
+
+\begin{verbatim}
+handbook/code/
+  hawkes_calibration/        core package
+    eventtime/               event-time Hawkes: kernels, MLE, thinning simulation
+    mbpp/                    Volterra solver, interval-censored likelihood
+    models/                  sector_ranker.py, sector_hazard.py,
+                             sector_survival.py, sector_backtest.py
+    operators/               pino.py (operator surrogate), training loops
+  synthetic/
+    macro.py                 latent macro factors and published series
+    firms.py                 firm universe, entry and exit
+    marks.py                 deal marks: size, valuation, stage
+    regime_a.py              weekly two-stage DGP (well specified)
+    regime_b.py              daily firm-level block-Hawkes DGP (misspecified)
+    observe.py               noise layer: missingness, jitter, duplicates
+    loaders.py               load_dataset, build_choice_sets
+    fast_fit.py              fit_sector_glm_fast, fit_choice_fast
+    generate.py              command-line entry point
+  EXPERIMENTS.md             experiment briefings, seeds, expected outputs
+  REVIEW.md                  review notes and open issues
+\end{verbatim}
+
+\section{Quickstart}
+\label{app:code-quickstart}
+
+Generate both synthetic worlds (seed 0 reproduces every number in Chapter~\ref{ch:selection}):
+
+\begin{verbatim}
+cd handbook/code
+PYTHONPATH=. python -m synthetic.generate --regime A --seed 0
+PYTHONPATH=. python -m synthetic.generate --regime B --seed 0
+\end{verbatim}
+
+Load, build choice sets, and fit both stages:
+
+\begin{verbatim}
+from synthetic.loaders import load_dataset, build_choice_sets
+from synthetic.fast_fit import fit_sector_glm_fast, fit_choice_fast
+
+ds  = load_dataset("A", seed=0)
+glm = fit_sector_glm_fast(ds)          # Stage 1: sector count GLM
+cs  = build_choice_sets(ds, n_candidates=64, cooldown_weeks=26)
+cl  = fit_choice_fast(cs)              # Stage 2: conditional logit
+\end{verbatim}
+
+\section{Regenerating the numbers}
+\label{app:code-regen}
+
+Every table in Chapter~\ref{ch:selection} regenerates from these entry points:
+Tables~\ref{tab:sel-stage1} and~\ref{tab:sel-choice} from the two fits above on both regimes;
+Table~\ref{tab:sel-riskset} by passing naive versus oracle membership masks to
+\texttt{build\_choice\_sets}; Table~\ref{tab:sel-stability} from the simulation guard in
+\texttt{hawkes\_calibration/models}. \texttt{EXPERIMENTS.md} lists each experiment with its command, seed,
+runtime, and the assertion it must satisfy --- including the causal-validation hypotheses ---
+and \texttt{REVIEW.md} records known deviations; if a regenerated number drifts, trust the code.

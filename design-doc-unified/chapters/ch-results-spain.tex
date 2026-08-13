@@ -1,0 +1,196 @@
+% ------------------------------------------------------------------
+% ch-results-spain.tex --- body of the chapter
+%   "Results on the Spain VC Ecosystem"  (\chapter in main.tex)
+% Do not add a \chapter command here.
+% ------------------------------------------------------------------
+
+This chapter is the real-data counterpart of \cref{ch:results-synth}. The target market is the Spanish
+venture-capital ecosystem. It is intentionally empty of numbers: each section below receives the
+real-data rerun of one protocol of \cref{ch:codeplan}, append-only, under the artifact rules of
+\cref{chcp:sec:ci}.
+
+One structural point shapes everything here. Spain is an EU jurisdiction with statutory filing
+requirements: companies file annual accounts with the mercantile registry, so firm fundamentals are
+observable on a statutory schedule rather than only at deal events. The transparent-regime chapters
+(\cref{ch:eufund,ch:eucausal}) therefore apply directly, alongside the deal-based machinery of the
+rest of the book. In practice this means registry fundamentals panels can be joined to PitchBook
+deals, and the fundamentals-prediction and causal questions can be asked of the same firms the deal
+models rank.
+
+\section{Data-assembly checklist}\label{chsp:sec:assembly}
+
+Before any fit, the Spanish extract must pass the following assembly steps. Each is an audit, not a
+convenience.
+
+\begin{itemize}[leftmargin=2em]
+\item \emph{Registry fundamentals join.} Join statutory filings to PitchBook company identifiers;
+record match rates and the reasons for non-matches. Filing dates, not fiscal-year ends, drive
+feature availability.
+\item \emph{Deal coverage audit.} Estimate what share of Spanish VC deals the vendor universe misses,
+per the model-free audit of \cref{ch11:sec:unseen}; report coverage by era and by sector.
+\item \emph{Macro series for the euro area.} The FactSet codes used in \cref{ch:data} are US series;
+each has a euro-area analogue (policy rate, effective rate, HICP inflation, unemployment). Joins
+remain as-of on publish date.
+\item \emph{Point-in-time discipline.} Every joined series --- deals, filings, macro --- passes the
+point-in-time protocol of \cref{ch02:sec:pit} before it enters any feature.
+\end{itemize}
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lcc}
+\toprule
+Assembly step & Metric & Status \\
+\midrule
+\multicolumn{3}{l}{\todo{fill after assembling the Spanish extract}} \\
+\bottomrule
+\end{tabular}
+\caption{Data-assembly checklist for the Spain extract.}
+\label{chsp:tab:assembly}
+\end{table}
+
+\section{Data audit}\label{chsp:sec:audit}
+
+The Phase 0 audit suite (\cref{ch13:sec:phase0}) on the Spanish extract: coverage share, date-quality
+composition, staleness-age distributions, and the honest-resolution decision.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lcc}
+\toprule
+Audit & Result & Verdict \\
+\midrule
+\multicolumn{3}{l}{\todo{fill after running the Phase 0 audits (\cref{ch13:sec:phase0})}} \\
+\bottomrule
+\end{tabular}
+\caption{Data audits on the Spain extract.}
+\label{chsp:tab:audit}
+\end{table}
+
+\section{Baselines and the improvement decomposition}\label{chsp:sec:baselines}
+
+The real-data rerun of protocol B2 (\cref{chcp:prot:b2}): the nats ladder from seasonal-naive through
+covariates-only to covariates-plus-excitation, on Spanish sector counts.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lcc}
+\toprule
+Ladder rung & Held-out NLL & $\Delta$ vs.\ previous rung \\
+\midrule
+\multicolumn{3}{l}{\todo{fill after rerunning protocol B2 (\cref{chcp:prot:b2}) on the Spain extract}} \\
+\bottomrule
+\end{tabular}
+\caption{Improvement decomposition on Spanish deal counts.}
+\label{chsp:tab:baselines}
+\end{table}
+
+\section{Parametric fits}\label{chsp:sec:parametric}
+
+The sector-level Hawkes fit at the honest resolution fixed by the data audit, with the ridge
+diagnostics of \cref{ch:gof} standing and excitation reported under the upper-bound convention.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+Model & $\branch$ (interval) & Held-out NLL & Diagnostics \\
+\midrule
+\multicolumn{4}{l}{\todo{fill after the Phase 2 Hawkes fit (\cref{ch13:sec:phase2})}} \\
+\bottomrule
+\end{tabular}
+\caption{Parametric intensity fits on Spanish sector streams.}
+\label{chsp:tab:parametric}
+\end{table}
+
+\section{Nonparametric challenger}\label{chsp:sec:nonparam}
+
+The real-data rerun of protocol B3 (\cref{chcp:prot:b3}): the intensity models of \cref{ch:nonparam}
+against the log-linear GLM and the parametric Hawkes, on held-out likelihood and calibration.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+Model & Held-out NLL & Calibration (PIT / dispersion) & Verdict \\
+\midrule
+\multicolumn{4}{l}{\todo{fill after rerunning protocol B3 (\cref{chcp:prot:b3}) on the Spain extract}} \\
+\bottomrule
+\end{tabular}
+\caption{Nonparametric challenger on Spanish data.}
+\label{chsp:tab:nonparam}
+\end{table}
+
+\section{Ranking and recall at $K$}\label{chsp:sec:ranking}
+
+The ranker on Spanish deals, evaluated under the recall-at-$K$ protocol of \cref{ch10:sec:protocol},
+with the B1 benchmark (\cref{chcp:prot:b1}) rerun against the linear baseline.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+Model & Held-out NLL & Recall@5 & Recall@10 & MRR \\
+\midrule
+\multicolumn{5}{l}{\todo{fill after the ranking evaluation (\cref{ch10:sec:protocol}, \cref{chcp:prot:b1})}} \\
+\bottomrule
+\end{tabular}
+\caption{Ranking results on Spanish deals.}
+\label{chsp:tab:ranking}
+\end{table}
+
+\section{Newcomer and outside-option calibration}\label{chsp:sec:newcomer}
+
+Calibration of the outside option on the Spanish universe: quarterly newcomer share against realized
+first financings, with the coverage audit of \cref{ch11:sec:unseen} as denominator control.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+Quarter block & Predicted newcomer share & Realized & Error (pp) \\
+\midrule
+\multicolumn{4}{l}{\todo{fill after the outside-option calibration (\cref{ch:universe})}} \\
+\bottomrule
+\end{tabular}
+\caption{Newcomer-share calibration on the Spanish universe.}
+\label{chsp:tab:newcomer}
+\end{table}
+
+\section{Fundamentals prediction and the causal question}\label{chsp:sec:fundamentals}
+
+Because Spanish filings make fundamentals observable, the transparent-regime models run directly: the
+success-metric and quantile-prediction stack of \cref{ch:eufund} on registry panels joined to deals,
+and the causal question of \cref{ch:eucausal} --- does financing cause growth? --- on the same joined
+panel, gated by the causal validation protocol (\cref{chcp:prot:causal}).
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+Target / estimand & Estimate (interval) & Diagnostic & Verdict \\
+\midrule
+\multicolumn{4}{l}{\todo{fill after the \cref{ch:eufund} fits and the \cref{ch:eucausal} estimates on Spanish filings}} \\
+\bottomrule
+\end{tabular}
+\caption{Fundamentals prediction and causal estimates on Spanish filings.}
+\label{chsp:tab:fundamentals}
+\end{table}
+
+\section{Decision-layer output}\label{chsp:sec:decision}
+
+The end-to-end weekly run of \cref{ch:decision} on Spanish data --- the Phase 2 gate
+(\cref{ch13:sec:phase2}) and the real-data form of protocol E5 (\cref{chcp:prot:e5}): sourcing lists,
+pacing fans, and the VoI measurement of \cref{prot:ch12:voi}.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+Deliverable & Metric & Value & Caveats attached \\
+\midrule
+\multicolumn{4}{l}{\todo{fill after the end-to-end weekly run (\cref{chcp:prot:e5}, \cref{ch:decision})}} \\
+\bottomrule
+\end{tabular}
+\caption{Decision-layer outputs on the Spain ecosystem.}
+\label{chsp:tab:decision}
+\end{table}

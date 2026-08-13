@@ -1,0 +1,124 @@
+\documentclass[11pt,a4paper]{report}
+\usepackage[margin=1.05in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\graphicspath{{figures/}}
+
+% ---------------- theorem environments ----------------
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\newtheorem{example}[theorem]{Example}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{warning}[theorem]{Warning}
+
+% ---------------- macros ----------------
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\Var}{\mathrm{Var}}
+\newcommand{\Cov}{\mathrm{Cov}}
+\newcommand{\ind}[1]{\mathbf{1}\{#1\}}
+\newcommand{\Hist}{\mathcal{H}}
+\newcommand{\RS}{\mathcal{R}}
+\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\indep}{\perp\!\!\!\perp}
+\newcommand{\Do}{\mathrm{do}}
+
+\title{\bfseries Modelling Private-Company Success and Deal Flow:\\
+\large A Practitioner's Manual --- from Financial-Statement Prediction to
+Point-Process Calibration\\[1ex]
+\normalsize PitchBook deals $\times$ FactSet Standardized Economics}
+\author{Alberto Gennaro}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+This manual develops, end to end, the modelling choices for predicting private-company
+success and financing activity from commercial deal data (PitchBook) and standardized
+macroeconomic series (FactSet). It is organised around a single practical axis: \emph{how
+much does the observation process let us see?} In the European regime, comprehensive
+statutory reporting makes firm fundamentals (EBITDA, revenue) directly observable, and the
+problem is supervised prediction with careful data engineering, gradient boosting, and a
+causal layer built on the backdoor criterion with bootstrap uncertainty quantification
+(Part~I). In the American regime, fundamentals are largely unobserved; deal marks
+(valuations, rounds, employees) and macro factors must proxy for growth, which changes both
+the estimand and the identification strategy (Part~II). Finally, because the data update
+\emph{only at deal events}, the natural formulation is the calibration of counting
+processes: inhomogeneous Poisson models with covariates, self-exciting and self-inhibiting
+extensions, Hawkes processes and their two-stage marked decomposition, and
+interval-censored (mean-behaviour) approximations when timestamps are unreliable
+(Part~III). Throughout, we give precise mathematical statements, identifiability analyses,
+uncertainty quantification recipes, and decision tables for choosing between methods; all
+quantitative claims are validated on a fully specified synthetic testbed that ships with
+the accompanying code.
+\end{abstract}
+
+\tableofcontents
+
+\chapter*{How to read this manual}
+\addcontentsline{toc}{chapter}{How to read this manual}
+
+The three parts are ordered by decreasing observability of the firm's state, and each can
+be read on its own. A reader who only works with European portfolios needs
+Chapters~\ref{ch:data}--\ref{ch:causal}; a reader focused on US venture data can skim
+Part~I for the data-engineering and uncertainty-quantification machinery (which Parts~II
+and III reuse) and start at Chapter~\ref{ch:us}; a reader who already accepts the
+event-based framing can start at Chapter~\ref{ch:poisson} and treat
+Chapter~\ref{ch:selection} as the operational summary.
+
+Three reading aids recur throughout. \emph{Warning} environments mark failure modes we
+have actually observed --- on real data or on the shipped synthetic testbed --- rather than
+theoretical possibilities; skipping them is how offline metrics end up flattering broken
+pipelines. \emph{Decision tables} close most chapters and are deliberately opinionated:
+they encode not just what a method can do but what it needs from the data to be worth its
+complexity. Finally, every quantitative claim carries one of two provenances: a precise
+mathematical statement (theorem or proposition, with proof or sketch in
+Appendix~\ref{app:proofs}), or a measured number from the synthetic testbed
+(consolidated in Chapter~\ref{ch:selection}), regenerable from the \texttt{code/}
+directory documented in Appendix~\ref{app:code}.
+
+A note on causal language, since several chapters make causal claims: we keep the
+predictive conditional $\E[Y \mid X{=}x]$ and the interventional quantity
+$\E[Y \mid \Do(X{=}x)]$ notationally distinct, we state identification assumptions where
+they are used, and --- because the testbed's ground truth is known --- we treat the causal
+pipeline itself as a testable artifact rather than a rhetorical one. Where identification
+is not credible, the text says so and falls back to clearly labelled association.
+
+% ---------------- chapters ----------------
+\input{chapters/ch01-problem}
+
+\part{The Transparent Regime: Predicting Fundamentals (Europe)}
+\input{chapters/ch02-data}
+\input{chapters/ch03-success}
+\input{chapters/ch04-xgb}
+\input{chapters/ch05-causal}
+
+\part{The Opaque Regime: Deals and Macro Factors (United States)}
+\input{chapters/ch06-us}
+
+\part{The Event-Based View: Calibrating Count Processes}
+\input{chapters/ch07-poisson}
+\input{chapters/ch08-hawkes}
+\input{chapters/ch09-censored}
+\input{chapters/ch10-selection}
+\input{chapters/ch11-codeplan}
+
+\appendix
+\input{chapters/appendix}
+
+\input{chapters/refs}
+
+\end{document}

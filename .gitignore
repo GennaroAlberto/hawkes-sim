@@ -28,3 +28,13 @@ htmlcov/
 
 # generated synthetic worlds (regenerate: python -m synthetic.generate)
 data/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.toc
+*.out
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk

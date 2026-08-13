@@ -1,0 +1,76 @@
+% app-notation — symbol table
+
+The table below collects the symbols used throughout the document, in
+the conventions fixed by \cref{ch:data} and \code{macros.tex}. Chapter
+references point to the definition site.
+
+\begin{longtable}{p{0.16\textwidth} p{0.6\textwidth} p{0.14\textwidth}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} & \textbf{Defined} \\
+\midrule
+\endhead
+$(\Omega,\F,\{\Ft\},\Prob)$ & filtered probability space; $\Ft$ holds the
+marked-process history and covariate paths & \cref{ch:data} \\
+$\Hist_{t^-}$ & internal history strictly before $t$ & \cref{ch:data} \\
+$t_m,\, s_m,\, i_m,\, \dmark_m$ & time, sector, firm, and marks of the
+$m$-th deal & \cref{ch:data} \\
+$\sectors$, $\firms$, $\firms^{\dagger}$ & sector set; tracked universe;
+untracked remainder & \cref{ch:data} \\
+$N_e(t)$ & counting process for index $e$ (sector, firm, transition) &
+\cref{ch:data} \\
+$\lam_e(t)$ & conditional intensity of $N_e$ & \cref{ch:data} \\
+$\Lam_e(t)$ & compensator $\int_0^t \atrisk_e \lam_e \dd u$ &
+\cref{ch:foundations} \\
+$\lambar,\ \xi(t)$ & mean intensity $\E[\lam(t)]$ (MBPP) &
+\cref{ch:censoring} \\
+$\atrisk_e(t)$ & at-risk indicator (observed, eligible at $t^-$) &
+\cref{ch:data} \\
+$M_e(t)$ & compensated martingale $N_e - \Lam_e$ & \cref{ch:data} \\
+$\mub_s(t)$ & baseline (immigrant) intensity of sector $s$ &
+\cref{ch:hawkes} \\
+$\kernel(t) = \branch\decay e^{-\decay t}$ & exponential excitation
+kernel & \cref{ch:hawkes} \\
+$\branch$ & branching ratio (kernel mass $\int \kernel$) &
+\cref{ch:hawkes} \\
+$\decay$ & kernel decay rate; half-life $\ln 2/\decay$ &
+\cref{ch:hawkes} \\
+$\Gmat[s,r]$ & aggregated excitation matrix $r \to s$; stability
+$\specrad{\Gmat} < 1$ & \cref{ch:hawkes} \\
+$\rhomax$ & row-sum stability budget (default $0.95$) &
+\cref{ch:hawkes} \\
+$\xcov^{\mathrm{mac}}(t)$ & macro covariates (FactSet), published with
+lag & \cref{ch:data} \\
+$\xcov_i(t)$, $\tilde\xcov_i(t)$ & true (latent) and LOCF-observed firm
+covariates & \cref{ch:data} \\
+$\tau_i(t)$ & time of firm $i$'s last deal before $t$ & \cref{ch:data} \\
+$\staleage_i(t) = t - \tau_i(t)$ & staleness age of firm $i$'s
+covariates & \cref{ch:data} \\
+$\bcoef,\ \gamma$ & covariate loadings (baseline; history features) &
+\cref{ch:poisson,ch:hawkes} \\
+$\zfeat_i(t)$ & firm-level ranker features & \cref{ch:ranking} \\
+$\score_i(t)$ & ranker score of firm $i$ & \cref{ch:ranking} \\
+$\riskset[s,t]$ & sector risk set (live candidates at $t$) &
+\cref{ch:ranking} \\
+$\lozenge_s$ & outside option (newcomer/untracked) in sector $s$'s risk
+set & \cref{ch:universe} \\
+$\entry_i$ & entry (left-truncation) time of firm $i$ &
+\cref{ch:data} \\
+$\Tend$ & end of observation window (June 2024) & \cref{ch:data} \\
+$\horizon$ & bucket horizon (26/52/104 weeks) & \cref{ch:buckets} \\
+$p_i(t,\horizon)$ & horizon event probability
+$\Prob(N_i(t+\horizon)-N_i(t)\ge 1 \mid \Ft)$ & \cref{ch:question} \\
+$y_{i,b}$ & bucket label for firm $i$, bucket $b$ & \cref{ch:buckets} \\
+$\loglik(\thetamodel)$, $\lik$ & log-likelihood; likelihood &
+\cref{ch:foundations} \\
+$\thetamodel$, $\thetahat$ & generic parameter vector; its MLE &
+\cref{ch:foundations} \\
+$\scorefn(\thetamodel)$, $\Fisher(\thetamodel)$ & score; Fisher
+information & \cref{ch:foundations} \\
+(C1)--(C6) & the defect ledger & \cref{tab:ch02:defects} \\
+T1--T4 & the four targets (identity, timing, horizon, marks) &
+\cref{ch:question} \\
+R1--R4 & staleness remedy ladder & \cref{ch:stale} \\
+D$x$.$y$ & numbered design decisions (registry:
+\cref{ch13:sec:registry}) & throughout \\
+\bottomrule
+\end{longtable}

@@ -1,0 +1,128 @@
+% ==================================================================
+% main.tex — "What Is Valuable to Know?"
+% Design document for investment-worth modeling on PitchBook/FactSet data.
+% Build:  latexmk -pdf main.tex   (or pdflatex + bibtex + pdflatex x2)
+% ==================================================================
+\documentclass[11pt,a4paper,twoside,openany]{book}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[margin=2.7cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bm}
+\usepackage{booktabs,longtable,array}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{framed}
+\usepackage[round,authoryear]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=green!40!black,urlcolor=blue!60!black]{hyperref}
+\usepackage[capitalise,noabbrev]{cleveref}
+\crefname{assumption}{Assumption}{Assumptions}
+\crefname{protocol}{Protocol}{Protocols}
+\crefname{warning}{Warning}{Warnings}
+\crefname{example}{Example}{Examples}
+\crefname{definition}{Definition}{Definitions}
+\crefname{remark}{Remark}{Remarks}
+
+\setlength{\emergencystretch}{2em}
+
+% ---------- theorem environments ----------
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\newtheorem{example}[theorem]{Example}
+\newtheorem{protocol}[theorem]{Protocol}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{warning}[theorem]{Warning}
+
+\input{macros}
+
+\title{\Huge What Is Valuable to Know?\\[1ex]
+\Large A Statistical Design Document for Investment-Worth Modeling\\
+on PitchBook/FactSet Deal Data\\[2ex]
+\normalsize hawkes-sim design document --- master reference for model and code decisions}
+\author{Alberto Gennaro\thanks{Document drafted with model-assisted tooling; all
+modeling decisions reviewed by the author.}}
+\date{\today\\[1ex]\normalsize Data window: January 2011 -- June 2024}
+
+\begin{document}
+\frontmatter
+\maketitle
+
+\chapter*{How to read this document}
+\addcontentsline{toc}{chapter}{How to read this document}
+\input{chapters/ch00-howto}
+
+\tableofcontents
+
+\mainmatter
+
+\part{The Question and the Data}
+\chapter{The Central Question: What Is Valuable to Know?}\label{ch:question}
+\input{chapters/ch01-question}
+
+\chapter{The Data: PitchBook Events, FactSet Macro, and What Observation Does to Them}\label{ch:data}
+\input{chapters/ch02-data}
+
+\part{Continuous-Time Machinery}
+\chapter{Temporal Point Processes: Foundations}\label{ch:foundations}
+\input{chapters/ch03-foundations}
+
+\chapter{Poisson Models: The Baselines That Must Be Beaten}\label{ch:poisson}
+\input{chapters/ch04-poisson}
+
+\chapter{Exponential Hawkes: Excitation, Inhibition, and Covariates}\label{ch:hawkes}
+\input{chapters/ch05-hawkes}
+
+\chapter{Untrusted and Censored Deal Times}\label{ch:censoring}
+\input{chapters/ch06-censoring}
+
+\chapter{Goodness of Fit, Model Comparison, and Calibration Discipline}\label{ch:gof}
+\input{chapters/ch07-gof}
+
+\part{The Covariate Problem}
+\chapter{The Stale-Covariate Problem}\label{ch:stale}
+\input{chapters/ch08-stale}
+
+\part{Discrete-Time and Ranking Alternatives}
+\chapter{Temporal Buckets and Gradient Boosting}\label{ch:buckets}
+\input{chapters/ch09-buckets}
+
+\chapter{Ranking Objectives: Who Gets Funded Next}\label{ch:ranking}
+\input{chapters/ch10-ranking}
+
+\part{The Open Universe}
+\chapter{Deals from Companies We Cannot See}\label{ch:universe}
+\input{chapters/ch11-universe}
+
+\part{Synthesis}
+\chapter{From Model Output to Investment Decisions}\label{ch:decision}
+\input{chapters/ch12-decision}
+
+\chapter{Implementation Roadmap}\label{ch:roadmap}
+\input{chapters/ch13-roadmap}
+
+\appendix
+\chapter{Notation}\label{app:notation}
+\input{chapters/app-notation}
+
+\chapter{Data Dictionary: PitchBook and FactSet Columns}\label{app:columns}
+\input{chapters/app-columns}
+
+\chapter{Synthetic-Rehearsal Results Carried into This Document}\label{app:results}
+\input{chapters/app-results}
+
+\backmatter
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

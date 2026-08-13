@@ -1,0 +1,838 @@
+% ch11-universe — deals from companies we cannot see: (C6), (C2), the outside
+% option, the external ground component, and honest accounting of unseen mass
+
+\section{Two populations, one deal stream}\label{ch11:sec:populations}
+
+Every model developed so far has quietly assumed that we know who could
+receive the next deal. This chapter is about the two ways that assumption
+fails. First, deals arrive from firms that are simply not in the tracked
+universe: the deal row exists, carries a date and a sector, and is flagged
+\code{company\_universe = 'Out of Universe'}, but the firm has no
+companies-table row, no covariates, and no history --- defect (C6) of
+\cref{ch:data}. Second, deals arrive from firms that will be in the
+universe tomorrow but are invisible today: a firm enters observation
+\emph{by raising}, so the tracked population is selected on the very event
+we model --- defect (C2). Neither failure is small. In the synthetic
+rehearsal, roughly $27\%$ of all deals went to firms outside the current
+risk set, and the share sat at $23$--$25\%$ in held-out test windows
+(\cref{app:results}). A mark factor that ignores this mass overstates
+every tracked firm's probability by a factor of roughly $1.3$--$1.4$; a
+ground model that ignores it cannot forecast sector totals honestly. The
+remedy of this chapter is structural, not cosmetic: an explicit outside
+option in the mark factor, an external component in the ground process, a
+model-free audit of the unseen mass, and an entry model for the population
+side of (C2).
+
+We first fix what is and is not observed, in the notation of
+\cref{def:ch02:market}.
+
+\begin{definition}[Tracked and untracked populations; observed stream]\label{def:ch11:universes}
+The firm universe splits as $\firms \cup \firms^{\dagger}$: the
+\emph{tracked} universe $\firms$ (a companies-table row, covariates
+$\tilde\xcov_i$, an event history $N_i$) and the \emph{untracked}
+remainder $\firms^{\dagger}$ (no row, no covariates, no attributable
+history). The observed deal stream is
+\begin{equation}\label{eq:ch11:observed}
+\big\{(t_m,\, s_m,\, \iota_m)\big\}_{m\ge 1},
+\qquad
+\iota_m \;=\;
+\begin{cases}
+i_m, & i_m \in \firms,\\[2pt]
+\text{`Out of Universe'}, & i_m \in \firms^{\dagger},
+\end{cases}
+\end{equation}
+together with deal marks $\dmark_m$: the time and sector of every deal are
+recorded, but firm identity is recorded only on $\firms$. Operationally, a
+deal is \emph{untracked} if its universe flag says so \emph{or} if its
+firm makes its first-ever appearance in the data at $t_m$ (no prior
+attributable history existed at $t_m^-$).
+\end{definition}
+
+\begin{assumption}[Complete sector stream]\label{asm:ch11:complete}
+Every deal row carries a deal time and a sector label; no deal is dropped
+from the stream for being untracked. Sector labels are correct up to the
+small mislabel noise documented in \cref{app:columns}, whose treatment
+(hygiene rules; the group-level variant of
+\cref{ch11:sec:outside}) is orthogonal to universe membership.
+\end{assumption}
+
+\Cref{asm:ch11:complete} is a statement about the vendor's delivery
+format, and it is the load-bearing asymmetry of this chapter: sector-level
+ground counts are \emph{complete} --- every deal has a sector --- while
+firm-level attribution is complete only on $\firms$. The consequence
+deserves to be stated as a result, because it silently decides which
+layers of the architecture (C6) can hurt.
+
+\begin{proposition}[Attribution asymmetry]\label{prop:ch11:asymmetry}
+Under \cref{asm:ch11:complete}, with the exact factorization of
+\cref{thm:ch03:groundmark}:
+\begin{enumerate}[label=(\roman*)]
+\item The ground factor --- the likelihood of times and sectors, with
+sector intensities $\Lam_s(t)$ built from sector-level histories and
+exogenous covariates --- is a functional of fully observed data. Every
+ground-process estimand and estimator is invariant to (C6): the ground
+layer is immune.
+\item The mark factor is not. Let $\pi_{s,t} = \Prob(i_{\text{next}}
+\notin \riskset_s(t) \st \text{deal in } s \text{ at } t, \Ftm)$ be the
+probability that the next deal in $s$ goes outside the tracked risk set.
+A mark factor fitted on tracked-attributed deals only estimates the
+conditional law $\Prob(i \st \text{deal}, i \in \riskset_s(t))$, and for
+every tracked firm $i$,
+\begin{equation}\label{eq:ch11:inflation}
+\Prob\big(i \st \mathrm{deal\ in\ } s,t \big)
+ \;=\;
+ (1 - \pi_{s,t})\;
+ \Prob\big(i \st \mathrm{deal\ in\ } s,t,\; i \in \riskset_s(t)\big).
+\end{equation}
+Reading the restricted model's output as an absolute probability
+overstates every tracked firm by the factor $(1-\pi_{s,t})^{-1}$.
+\item Any firm-level intensity assembled from the two layers,
+$\lam_i(t) = \Lam_{s(i)}(t)\,\Prob(i \st \mathrm{deal})$, inherits the
+inflation of (ii) multiplicatively, as do all horizon probabilities
+(target T3) built from it.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+(i) By \cref{thm:ch03:groundmark} the ground factor of the log-likelihood
+is $\sum_m \log \Lam_{s_m}(t_m) - \sum_s \int_0^{\Tend} \Lam_s(u)\dd u$,
+which depends on the data only through the pairs $(t_m, s_m)$ and the
+exogenous covariate paths. By \cref{asm:ch11:complete} these are observed
+for every deal, untracked or not; hence the ground likelihood, its
+maximizer, and any functional of the fitted $\Lam_s$ are unchanged by the
+loss of firm identities. (The caveat --- that $\Lam_s$'s history term must
+itself be built from \emph{all} deals --- is exactly the histories rule of
+\cref{ch11:sec:ground}; violate it and immunity is forfeited.)
+(ii) The event $\{i\} \subseteq \{i \in \riskset_s(t)\}$ for
+$i \in \riskset_s(t)$, so the chain rule gives
+$\Prob(i) = \Prob(i \in \riskset)\,\Prob(i \st i \in \riskset)
+= (1-\pi_{s,t}) \Prob(i \st i \in \riskset)$. A likelihood evaluated only
+on deals with $i_m \in \riskset$ is, term by term, the likelihood of the
+conditional law given $\riskset$-membership; its MLE targets that
+conditional law, not the absolute one.
+(iii) Multiply (ii) by $\Lam_s(t)$; the marking theorem for marked point
+processes \citep[Ch.~6]{daley2003} identifies
+$\Lam_s(t)\Prob(i\st\mathrm{deal})$ as firm $i$'s intensity, and the
+factor $(1-\pi_{s,t})^{-1}$ carries through every monotone functional of
+$\lam_i$, including $p_i(t,\horizon)$.
+\end{proof}
+
+At the rehearsal's test-window shares, $\pi \approx 0.23$--$0.25$, the
+inflation in \cref{eq:ch11:inflation} is $30$--$33\%$ on every tracked
+firm --- uniform enough to leave within-sector \emph{rankings} intact
+(which is why \cref{ch:ranking} could defer the issue) but fatal to any
+absolute probability, any cross-sector comparison in which $\pi_{s,t}$
+differs by sector, and any sector total decomposed by firm.
+\Cref{prop:ch11:asymmetry} is also one more argument for the two-layer
+architecture of \cref{thm:ch03:groundmark}: the defect ledger of
+\cref{tab:ch02:defects} assigns (C6) to the mark layer \emph{alone},
+so the timing deliverable (T2) survives on sector-complete counts while
+the identity deliverable (T1) is repaired where it is broken --- in the
+mark factor, by the outside option of \cref{ch11:sec:outside}.
+
+\section{Newcomers are not entrants}\label{ch11:sec:newcomer}
+
+Before building the repair, one distinction must be carved into the
+chapter, because every downstream interpretation depends on it.
+
+\begin{warning}[Newcomer $\ne$ entrant]\label{warn:ch11:entrant}
+The \emph{newcomer probability} $\pi_{s,t}$ is the probability that the
+next deal's firm is not in the current tracked risk set --- equivalently,
+that the deal's firm has no attributable prior appearance in the data.
+This is an \emph{observable}: every deal either matches a tracked history
+or it does not, so $\pi_{s,t}$ can be estimated, calibrated, and audited.
+The \emph{entrant probability} --- the probability that a genuinely new
+economic entity enters the market --- is \emph{not identified} from this
+data without an entry model and auxiliary coverage information, because a
+first appearance conflates two channels: economic entry (a firm's first
+raise ever) and first-time \emph{tracking} of an old firm (vendor
+coverage catching up). The two channels are an unidentified mixture: in
+the rehearsal, untracked incumbents accounted for roughly $12\%$ of
+out-of-universe deals --- a nontrivial slice of the $\sim 27\%$ newcomer
+share --- and
+separating the channels with oracle labels changed the likelihood by only
+$+0.003$ nats (\cref{app:results}). The conflation therefore costs almost
+nothing in fit and cannot be detected by fit; what it costs, permanently,
+is every compositional claim: ``entry accelerated in 2021,'' ``new
+company formation shifted to fintech,'' ``the entrant cohort of 2020 is
+larger than 2019's'' are all unsupported unless the coverage channel is
+modeled or measured. Policy: in code, documentation, and reporting, this
+repository says \emph{newcomer}, never \emph{entrant}, for the observable;
+\emph{entrant} is reserved for the entry-model constructs of
+\cref{ch11:sec:entry}, always with their identification caveats attached.
+\end{warning}
+
+The warning has a converse worth stating: because the two channels are
+indistinguishable in likelihood, a single outside option that absorbs
+both loses essentially nothing as a \emph{predictive} device. The
+architecture below therefore models the newcomer mass as one bucket and
+defers the decomposition to the entry model and the coverage audit, which
+are the only places it can honestly live.
+
+\section{The mark factor with an outside option}\label{ch11:sec:outside}
+
+\subsection{The extended risk set}\label{ch11:sec:extended}
+
+The repair to the mark factor is a one-row change with exact semantics.
+Extend each sector's risk set with an \emph{outside option} $\lozenge_s$:
+\begin{equation}\label{eq:ch11:extendedset}
+\riskset^{+}_s(t) \;=\; \riskset_s(t) \cup \{\lozenge_s\},
+\end{equation}
+and give the outside option a score built from \emph{context} covariates
+only --- nothing firm-level exists on that branch by construction:
+\begin{equation}\label{eq:ch11:outsidescore}
+\score_{\lozenge_s}(t) \;=\; v\T g_{s,t},
+\qquad
+g_{s,t} = \big[\text{trailing newcomer share},\ \text{sector deal volume},\
+\text{macro as-ofs},\ \text{vintage/era effects},\ 1\big],
+\end{equation}
+while tracked firms keep their ranker scores $\score_i(t) =
+\bcoef\T\zfeat_i(t)$ from \cref{ch:ranking}. The mark distribution is the
+softmax over the extended set,
+\begin{equation}\label{eq:ch11:extendedsoftmax}
+\Prob\big(\dmark = a \st \text{deal in } s,t,\ \Ftm\big)
+ \;=\;
+ \frac{e^{\score_a(t)}}
+      {e^{\score_{\lozenge_s}(t)} + \sum_{j \in \riskset_s(t)} e^{\score_j(t)}},
+\qquad a \in \riskset^{+}_s(t),
+\end{equation}
+so that $\pi_{s,t} = \Prob(\lozenge_s \st \cdot)$ is produced by the same
+softmax that produces firm probabilities. The next proposition says this
+is not a heuristic patch but the \emph{correct} conditional model of the
+observable mark when the next deal may go outside $\firms$.
+
+\begin{proposition}[The collapsed mark model is exact]\label{prop:ch11:collapse}
+Let $P^{*}(\cdot \st s,t,\Ftm)$ be the true next-deal firm distribution
+on $\firms \cup \firms^{\dagger}$, and define the collapsed mark
+$\tilde\dmark = i$ if $i \in \riskset_s(t)$ and $\tilde\dmark =
+\lozenge_s$ otherwise. Then:
+\begin{enumerate}[label=(\roman*)]
+\item $\tilde\dmark$ is fully observed for \emph{every} deal, including
+untracked ones; the extended-softmax likelihood built from
+\cref{eq:ch11:extendedsoftmax} is the exact mark-factor likelihood of the
+collapsed marked process --- no approximation is introduced by the
+collapse, and no deal is dropped.
+\item The family \cref{eq:ch11:extendedsoftmax} is well specified for the
+collapsed law: for any categorical distribution with full support on
+$\riskset^{+}_s(t)$ there exist scores realizing it (logits equal
+log-probabilities up to an additive constant), and the parameterization
+adds only the outside score \cref{eq:ch11:outsidescore}; identification
+is up to the usual location shift, with the outside option playing the
+role of the outside good's alternative-specific constant
+\citep{mcfadden1974,train2009}.
+\item Estimation is unchanged: the log-likelihood is the standard
+conditional-choice form of \cref{ch:ranking} with one extra row per
+choice set, and its MLE targets the KL projection of the true collapsed
+law onto the family. In particular the tracked-firm probabilities it
+outputs are \emph{absolute} --- the inflation of
+\cref{eq:ch11:inflation} is removed by construction, since
+$\Prob(i \st \cdot) = (1-\pi_{s,t}) \cdot
+\mathrm{softmax}_{\riskset_s(t)}(\score)_i$ holds identically in the
+extended model.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+(i) The collapse map $a \mapsto \tilde\dmark$ is a deterministic,
+measurable coarsening of the mark space. For a tracked deal we observe
+$i_m$ and hence $\tilde\dmark_m$; for an untracked deal we observe
+precisely the event $\{i_m \notin \riskset_{s_m}(t_m)\}$, which \emph{is}
+$\tilde\dmark_m = \lozenge_{s_m}$. The likelihood of a coarsened mark is
+the pushforward of $P^*$ under the collapse, and
+\cref{eq:ch11:extendedsoftmax} is a density for exactly that pushforward;
+nothing unobservable enters. What is lost is only resolution
+\emph{within} $\firms^{\dagger}$ and among out-of-pool firms --- which
+the data does not carry anyway.
+(ii) Given target probabilities $(p_a)_{a \in \riskset^+}$ with
+$p_a > 0$, set $\score_a = \log p_a + c$: the softmax returns $(p_a)$
+for any $c$, and conversely the softmax determines scores up to $c$
+--- the standard bijection between positive categorical laws and score
+differences. Restricting $\score_{\lozenge}$ to the span of $g_{s,t}$
+makes the family parametric in the usual sense; whether the \emph{true}
+$\pi_{s,t}$ lies in that span is an empirical question answered by the
+calibration protocol below, not by the algebra.
+(iii) Adding one alternative to a conditional-logit choice set changes
+neither the objective's form, nor its concavity in the linear-in-features
+parameterization, nor the softmax gradient; misspecified-model MLE
+converges to the KL projection under the usual regularity. The displayed
+identity is the chain rule applied inside the softmax:
+conditioning \cref{eq:ch11:extendedsoftmax} on $\{a \ne \lozenge_s\}$
+cancels the outside term from the denominator.
+\end{proof}
+
+Two estimation remarks. First, at newcomer shares of $23$--$27\%$ the
+outside option is not a rare event, so the intercept bias of rare-event
+logistic estimation \citep{kingzeng2001} is minor; if per-sector shares
+in thin sectors fall to a few percent, the Firth correction
+\citep{firth1993} costs one line and removes the concern. Second, the
+context features in \cref{eq:ch11:outsidescore} are exactly the
+covariates that made the newcomer share \emph{calibratable over time} in
+the rehearsal: with the enriched context specification, quarterly
+newcomer-share forecasts calibrated to within $\pm 2$pp on test
+quarters, the standing acceptance target (\cref{app:results}). The trailing newcomer share
+must be computed on an expanding or trailing window strictly before $t$
+(\cref{prot:ch02:pit}), and the vintage/era terms exist to absorb the
+coverage drift of \cref{ch11:sec:drift} rather than let it contaminate
+the macro loadings.
+
+\subsection{The architecture is a two-stage classifier, recognized}\label{ch11:sec:twostage}
+
+The committed factorization --- ground process for sector timing, mark
+factor for firm-given-sector with an outside option --- should be
+recognized as an instance of a familiar design pattern: \emph{predict the
+group first, then the member within the group, with an outlier class}.
+
+\begin{proposition}[Two-stage equivalence]\label{prop:ch11:twostage}
+Given a deal at $t$, let $\Lam(t) = \sum_{s} \Lam_s(t)$ be the
+superposed ground intensity. Then for any tracked firm $i$ with sector
+$s(i)$,
+\begin{equation}\label{eq:ch11:chain}
+\Prob\big(i \st \mathrm{deal\ at\ } t, \Ftm\big)
+ \;=\;
+ \underbrace{\frac{\Lam_{s(i)}(t)}{\Lam(t)}}_{\mathrm{stage\ 1:\ sector}}
+ \;\times\;
+ \underbrace{\frac{e^{\score_i(t)}}
+   {e^{\score_{\lozenge_{s(i)}}(t)} + \sum_{j\in\riskset_{s(i)}(t)} e^{\score_j(t)}}}_{\mathrm{stage\ 2:\ firm\ or\ outlier}},
+\end{equation}
+and the residual mass $\sum_s \frac{\Lam_s(t)}{\Lam(t)}\pi_{s,t}$ is the
+probability the deal goes outside the tracked universe altogether. Thus
+the two-layer model \emph{is} the two-stage sector$\to$firm classifier
+with a per-sector outlier bucket; conversely, any such two-stage
+classifier with strictly positive stage probabilities defines a valid
+mark distribution on $\bigcup_s \riskset^{+}_s(t)$.
+\end{proposition}
+
+\begin{proof}
+By the marking theorem for the superposition of sector streams
+\citep[Ch.~6]{daley2003}, conditional on a deal at $t$ the sector is
+distributed as $\Lam_s(t)/\Lam(t)$; multiplying by the conditional firm
+law \cref{eq:ch11:extendedsoftmax} is the chain rule. The converse
+direction is immediate: nonnegative stage probabilities that sum to one
+compose, by the same chain rule, into a categorical law on the disjoint
+union of extended risk sets.
+\end{proof}
+
+The equivalence earns its display for one practical reason: it makes the
+\emph{group-level variant} a first-class alternative rather than an
+architectural upheaval. Sector labels carry mislabel noise
+(\cref{asm:ch11:complete}; \cref{app:columns}), and at the finest
+granularity a mislabeled deal both pollutes one sector's ground counts
+and lands in the wrong choice set. Collapsing sectors into industry
+groups is another measurable coarsening of the mark --- the same quotient
+construction as \cref{prop:ch11:collapse} --- so stage 1 may equally
+predict the industry \emph{group} and stage 2 rank firms within the
+group's (larger) risk set, with one outlier bucket per group. Mislabels
+that stay within a group then cancel entirely. The trade is variance for
+bias: coarser groups mean larger softmax denominators and weaker
+sector-specific context in \cref{eq:ch11:outsidescore}. The decision
+between granularities belongs to the goodness-of-fit machinery of
+\cref{ch:gof} applied per level; the mathematics is level-agnostic,
+provided --- and this is a hard constraint --- ground and mark layers use
+the \emph{same} partition, or \cref{eq:ch11:chain} silently stops being
+a probability distribution.
+
+\subsection{Calibration of the outside option is a deliverable}\label{ch11:sec:calibration}
+
+With the outside option in place, the newcomer share stops being a
+nuisance and becomes a first-class model output: $\pi_{s,t}$ is a
+predicted probability, realized outcomes are observed for every deal, and
+the pair supports exactly the calibration discipline of \cref{ch:gof}.
+
+\begin{protocol}[Reliability of the outside option]\label{prot:ch11:reliability}
+On every evaluation window: (a) per quarter and per sector, compare the
+average predicted $\pi_{s,t}$ over deals against the realized newcomer
+share, reporting the mean absolute error (rehearsal reference: $3$--$4$pp
+with context covariates, $6$--$9$pp for a constant;
+\cref{app:results}); (b) pool deals into bins by predicted $\pi$ and
+report a reliability diagram with binomial bands; (c) report the same by
+era, so that coverage drift (\cref{ch11:sec:drift}) is visible as an
+era-structured miscalibration rather than averaged away. Failures of (a)
+with stable context covariates are escalated to the coverage audit
+(\cref{prot:ch11:coverage}) \emph{before} any model change.
+\end{protocol}
+
+\begin{decision}{D11.1 --- outside option in the next ranker revision}
+The next revision of the mark-factor ranker extends every choice set with
+the outside-option row \cref{eq:ch11:extendedset}--\cref{eq:ch11:outsidescore}:
+context features on the $\lozenge_s$ row only, firm features on tracked
+rows only, one shared softmax. This extends
+\modrepo{sector\_ranker.py}'s risk-set construction and mirrors the
+synthetic loader's \code{build\_choice\_sets(newcomer\_context=True)}
+path, with \code{experiments/exp28\_newcomer\_designs.py} (designs
+N1--N4) as prior art. Rationale: \cref{prop:ch11:asymmetry} (the
+restricted model's probabilities are inflated by $(1-\pi)^{-1}$),
+\cref{prop:ch11:collapse} (the extension is exact and costs nothing in
+estimation), and the measured calibration gain of context covariates.
+Reversal trigger: if on real data the realized newcomer share falls below
+$2\%$ in every sector and era \emph{and}
+\cref{prot:ch11:reliability} shows a constant share calibrates within
+1pp, the outside option may be frozen to an intercept-only score ---
+removed it is not, since \cref{eq:ch11:inflation} holds at any $\pi>0$.
+\end{decision}
+
+\section{The ground process: the external component and the histories rule}\label{ch11:sec:ground}
+
+\subsection{Decomposing the immigrant intensity}\label{ch11:sec:mudecomp}
+
+On the ground layer, (C6) and (C2) appear not as missing labels but as a
+component of intensity that no tracked-firm bookkeeping can generate.
+Write the sector ground intensity in Hawkes form
+(\cref{ch:hawkes}) and split the baseline:
+\begin{equation}\label{eq:ch11:mudecomp}
+\Lam_s(t)
+ \;=\;
+ \underbrace{\mub_s^{\mathrm{tr}}(t) + \mub_s^{\mathrm{ext}}(t)}_{\mub_s(t)}
+ \;+\; \sum_{m:\, t_m < t} \kernel_{s s_m}(t - t_m),
+\end{equation}
+where $\mub_s^{\mathrm{tr}}$ carries the part of the immigrant intensity
+attributable to the tracked population's state and
+$\mub_s^{\mathrm{ext}}$ is the \emph{external component}: deal flow from
+firms we cannot see, driven by the context covariates $g_{s,t}$ of
+\cref{eq:ch11:outsidescore} (and, once \cref{ch11:sec:entry} exists, by
+cohort-based newcomer supply). The decomposition is not identified by the
+ground layer alone --- both components are baselines --- but it is pinned
+by the mark layer through the marking theorem:
+
+\begin{corollary}[Newcomer substream intensity]\label{cor:ch11:split}
+If the outside-option probability $\pi_{s,t}$ of
+\cref{eq:ch11:extendedsoftmax} is predictable, then the newcomer deals of
+sector $s$ form a point process with conditional intensity
+$\pi_{s,t}\,\Lam_s(t)$, and the tracked-attributed deals one with
+intensity $(1-\pi_{s,t})\,\Lam_s(t)$. The sector total decomposes
+exactly as
+\begin{equation}\label{eq:ch11:newintensity}
+\Lam_s(t) \;=\; \underbrace{(1-\pi_{s,t})\Lam_s(t)}_{\text{tracked}}
+\;+\; \underbrace{\pi_{s,t}\Lam_s(t)}_{\text{newcomer}},
+\end{equation}
+which is the position-dependent thinning of the ground process by the
+mark factor \citep[Ch.~5]{daley2003}.
+\end{corollary}
+
+\Cref{eq:ch11:newintensity} is the honest version of a sector forecast:
+a predicted quarterly total \emph{with its newcomer fraction attached},
+rather than a tracked-only total silently presented as the market. It is
+also the Hawkes--Oakes immigrant/offspring split
+\citep{hawkesoakes1974} read at the mark level: the newcomer substream is
+the immigrant channel of the branching representation, arriving from
+outside the tracked system's genealogy. One rehearsal finding tempers the
+interpretation: when the two substreams were fitted separately, the
+\emph{newcomer} stream carried the larger apparent excitation radius
+($0.30$ against $0.08$--$0.11$ for repeats; \cref{app:results}) --- entry
+waves are where latent common factors live, so apparent ``excitation'' on
+the newcomer stream must be read as clustering of unknown origin, in line
+with the frailty-inflation verdict of \cref{ch:hawkes}
+(\cref{app:results}: fitted branching ratios are upper bounds).
+
+\subsection{The histories rule, and the price of breaking it}\label{ch11:sec:histories}
+
+The excitation term in \cref{eq:ch11:mudecomp} raises the operational
+question with the sharpest teeth in this chapter: \emph{which deals enter
+the history sum?} Untracked deals are real events; they move the sector's
+state and excite future deal flow exactly as tracked deals do. The rule
+is therefore:
+
+\begin{decision}{D11.2 --- histories include all deals}
+Every history functional in every fitter --- lagged sector counts in the
+weekly GLM, exponential-kernel sums in the event-time fitters, trailing
+volume covariates, cooldown clocks at sector level --- is computed from
+the \emph{complete} deal stream, untracked deals included. Only
+\emph{firm-level attribution} (risk-set membership, firm histories
+$N_i$, firm covariates) is restricted to $\firms$. Rationale:
+\cref{prop:ch11:thinning} below --- dropping untracked deals from
+histories understates excitation by a factor of about the tracked share
+and distorts the decay estimate --- and \cref{prop:ch11:asymmetry}(i),
+whose immunity claim is conditional on exactly this rule. Reversal
+trigger: none; this is an accounting identity about what an event is, not
+a tunable choice.
+\end{decision}
+
+The bias when the rule is broken can be derived exactly in the linear
+case. Model the loss of untracked deals as independent thinning: each
+event is retained (tracked) with probability $q = 1-p$ independently of
+everything else --- optimistic, since real coverage is not independent of
+firm type, but sufficient to sign and size the effect.
+
+\begin{proposition}[Thinning bias in the branching ratio]\label{prop:ch11:thinning}
+Let $N$ be a stationary linear Hawkes process with immigrant rate
+$\mub$, kernel $\kernel$ with branching ratio
+$\branch = \int_0^\infty \kernel < 1$, and let $N^{q}$ be its
+independent thinning with retention $q = 1-p$
+\citep[Ch.~11]{daley2003}. Then:
+\begin{enumerate}[label=(\roman*)]
+\item (Rates) $N^q$ has mean rate
+$\bar\lam^{q} = q\,\mub/(1-\branch)$: thinning scales the mean by $q$
+exactly.
+\item (First generation) In the Hawkes--Oakes cluster representation
+\citep{hawkesoakes1974}, the expected number of \emph{retained} direct
+offspring of a retained event is $q\branch = (1-p)\branch$. Any
+estimator that identifies branching by attributing observed events to
+observed parents --- the declustering/EM estimand
+\citep{veenschoenberg2008} --- therefore targets first-generation mass
+scaled by $(1-p)$.
+\item (All generations) The expected number of retained descendants (all
+generations) of a retained event is $q\branch/(1-\branch)$; matching the
+total-progeny identity $\branch_{\mathrm{app}}/(1-\branch_{\mathrm{app}})
+= q\branch/(1-\branch)$ gives
+\begin{equation}\label{eq:ch11:kappaapp}
+\branch_{\mathrm{app}} \;=\; \frac{(1-p)\,\branch}{1 - p\branch}
+ \;\in\; \big[(1-p)\branch,\ \branch\big),
+\end{equation}
+again $(1-p)\branch$ to first order in $\branch$. In both readings the
+apparent branching ratio is understated, and the missing excitation mass
+reappears as an inflated apparent baseline:
+$\mub_{\mathrm{app}} = \bar\lam^{q}(1-\branch_{\mathrm{app}})
+= q\mub/(1-p\branch) > q\mub$.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+(i) The stationary mean of a subcritical linear Hawkes solves
+$\bar\lam = \mub + \branch\bar\lam$, giving $\mub/(1-\branch)$ (sum the
+geometric cascade of generations, $\mub\sum_{k\ge0}\branch^k$).
+Independent thinning multiplies the first moment measure by $q$
+\citep[Ch.~11]{daley2003}.
+(ii) In the cluster representation each event, independently of
+everything else, produces direct offspring as an inhomogeneous Poisson
+process with mean $\branch$. The retention marks are i.i.d.\
+Bernoulli$(q)$, independent of the genealogy and of each other; by
+Wald's identity the expected number of retained direct offspring is
+$q\branch$, and conditioning on the parent's own retention changes
+nothing by independence of the marks.
+(iii) Generation-$k$ descendants of a fixed event have expected count
+$\branch^k$; each is retained with probability $q$ independently, so the
+expected retained progeny is $q\sum_{k\ge1}\branch^k =
+q\branch/(1-\branch)$. Solving the displayed identity for
+$\branch_{\mathrm{app}}$ gives \cref{eq:ch11:kappaapp}; monotonicity in
+$q$ and the bounds follow by inspection ($q=1$ recovers $\branch$). The
+baseline claim is (i) combined with
+$\mub_{\mathrm{app}} = \bar\lam^q(1-\branch_{\mathrm{app}})$ and
+$1-\branch_{\mathrm{app}} = (1-\branch)/(1-p\branch)$.
+\end{proof}
+
+Two remarks complete the picture. First, the \emph{decay} is distorted
+alongside the scale: a retained grandchild whose intermediate parent was
+dropped presents to the fitter as a direct child at the \emph{sum} of two
+kernel lags, so the apparent kernel is contaminated by convolution powers
+$\kernel^{*k}$ --- heavier-tailed than $\kernel$ --- and a fitted
+exponential decay $\decay$ is dragged toward slower values. Since
+\cref{ch:gof} already shows $\decay$ is the fragile parameter
+(the $\branch$--$\decay$ ridge), history thinning attacks the model
+exactly where it is weakest. Second, the repository's actual failure mode
+is the \emph{mixed} case --- sector counts complete
+(\cref{asm:ch11:complete}) but the history term built from tracked deals
+only, as happens whenever a fitter joins deals to the companies table and
+drops non-matches. Then the excitation covariate is a $q$-scaled, noisy
+version of the true excitation state: an errors-in-variables regression
+that attenuates the excitation coefficient and reroutes the missing mass
+into the baseline and into any covariate correlated with activity --- the
+same understatement, arrived at by a different door. The
+covariates-dominate verdict of \cref{app:results} already leaves
+excitation only decimal points of likelihood to live on;
+\cref{prop:ch11:thinning} says that breaking the histories rule takes a
+$(1-p)$-sized bite out of precisely those decimal points.
+
+\section{Unseen mass: the model-free audit}\label{ch11:sec:unseen}
+
+Everything so far trusts the model to measure the outside world through
+$\pi_{s,t}$. Good practice demands an estimate of the unseen mass that
+does not pass through the model at all, so that model and audit can
+disagree informatively. The classical tool is exactly fitted to our
+question: \emph{what is the probability that the next deal comes from a
+firm we have not seen before?}
+
+Fix a sector and a window containing $N$ deals, and regard the firm
+identities as draws $X_1,\dots,X_N$ from an unknown distribution
+$(p_i)$ over the (countable, partly invisible) firm population. Let
+$N_r$ be the number of firms appearing exactly $r$ times in the window,
+and let the \emph{missing mass} $M_0 = \sum_i p_i \ind{i \notin
+\{X_1,\dots,X_N\}}$ be the probability mass of firms not seen at all.
+The Good--Turing estimator \citep{good1953} is
+\begin{equation}\label{eq:ch11:gt}
+\widehat M_0 \;=\; \frac{N_1}{N},
+\end{equation}
+the fraction of deals going to firms seen exactly once.
+
+\begin{proposition}[Good--Turing is nearly unbiased]\label{prop:ch11:gt}
+If $X_1,\dots,X_N$ are i.i.d.\ (exchangeability suffices), then
+\[
+\E\big[\widehat M_0\big] \;=\; \E\big[M_0^{(N-1)}\big]
+\qquad\text{and}\qquad
+0 \;\le\; \E\big[\widehat M_0\big] - \E\big[M_0^{(N)}\big]
+ \;=\; \sum_i p_i^2 (1-p_i)^{N-1}
+ \;\le\; \tfrac{1}{N}\big(1-\tfrac1N\big)^{N-1} \;\le\; \tfrac{1}{2N},
+\]
+where $M_0^{(n)}$ is the missing mass of a sample of size $n$: the
+estimator is unbiased for the missing mass of a sample one draw smaller,
+hence biased upward for $M_0^{(N)}$ by at most $O(1/N)$.
+\end{proposition}
+
+\begin{proof}
+Leave one out. By exchangeability,
+\[
+\E\Big[\frac{N_1}{N}\Big]
+ = \frac1N \sum_{n=1}^{N} \Prob\big(X_n \text{ is a singleton in } X_{1:N}\big)
+ = \Prob\big(X_N \notin \{X_1,\dots,X_{N-1}\}\big),
+\]
+since $X_N$ is a singleton in the full sample precisely when its firm is
+absent from the other $N-1$ draws. Conditioning on the first $N-1$
+draws, that probability is $\E[\sum_i p_i \ind{i \notin X_{1:N-1}}] =
+\E[M_0^{(N-1)}]$, which proves the identity; the estimator answers
+``will the \emph{next} deal come from an unseen firm'' almost by
+definition. For the bias, $\E[M_0^{(n)}] = \sum_i p_i(1-p_i)^{n}$, so
+\[
+\E\big[\widehat M_0\big] - \E\big[M_0^{(N)}\big]
+ = \sum_i p_i\big[(1-p_i)^{N-1} - (1-p_i)^{N}\big]
+ = \sum_i p_i^2 (1-p_i)^{N-1}
+ \le \max_{x\in[0,1]} x(1-x)^{N-1} \sum_i p_i,
+\]
+and the maximum is attained at $x = 1/N$ with value
+$\frac1N(1-\frac1N)^{N-1} \le \frac1{2N}$ for $N\ge2$
+(and $\to (eN)^{-1}$). When exchangeability fails the identity fails
+with it: this is the assumption to watch, not the algebra.
+\end{proof}
+
+The proof makes the operative assumption explicit: exchangeability of
+deals \emph{within the window}. On this data that is violated by
+everything this document models --- excitation, macro dynamics, coverage
+drift --- so the estimator is applied on \emph{rolling windows per
+sector}, short enough that within-window dynamics are second-order,
+long enough that $N_1$ is not noise; the smoothing practice of
+\citet{galesampson1995} applies when small counts make the raw
+frequencies-of-frequencies ragged. Two further caveats. The window
+convention must match the functional: $N_1/N$ on a trailing window
+estimates the window-relative unseen mass, which is the right comparator
+for a model probability evaluated under the same convention ---
+first-ever appearance versus first-in-window appearance are different
+events, and the audit must fix one and compute both sides accordingly.
+And GT estimates a \emph{probability mass}, not a population count. For
+the count question --- how many fundable firms are we not seeing? --- the
+Chao lower bound \citep{chao1984} on the number of distinct firms $S$
+active in the window is
+\begin{equation}\label{eq:ch11:chao}
+\widehat S_{\mathrm{Chao}} \;=\; S_{\mathrm{obs}} + \frac{N_1^2}{2N_2}
+ \;\le\; S \quad\text{(in expectation, as a lower bound)},
+\end{equation}
+valid as a floor precisely under the abundance heterogeneity that is
+certain to hold here (firms differ wildly in deal propensity), which is
+the honest direction: the invisible pool is \emph{at least} this large.
+
+\begin{protocol}[Good--Turing versus the model]\label{prot:ch11:gtaudit}
+Standing diagnostic, run with every evaluation campaign and reported
+alongside \cref{prot:ch11:reliability}: per sector and rolling window,
+(a) compute $\widehat M_0 = N_1/N$ and $\widehat S_{\mathrm{Chao}}$ from
+the raw deal stream --- no model involved; (b) compute the model's
+average predicted outside-option mass over the same deals under the same
+window convention; (c) report the paired series and their gap. Agreement
+within the binomial noise band is a nontrivial consistency check
+(two estimators of one functional, one parametric and one not);
+a drifting gap with stable context covariates is escalated to the
+coverage audit of \cref{prot:ch11:coverage} before any refit.
+\end{protocol}
+
+\begin{decision}{D11.3 --- unseen-mass audit ships with the evaluation harness}
+The GT/Chao audit of \cref{prot:ch11:gtaudit} is implemented once, in the
+shared evaluation layer (planned \modrepo{eval/unseen\_mass.py}), and
+run by default in every campaign --- not as an occasional notebook.
+Rationale: it is the only estimate of the outside world that does not
+share assumptions with the model it audits, and it is nearly free
+(counting singletons). Reversal trigger: none anticipated; if window
+choice proves contentious, the audit gains a sensitivity panel over
+window lengths rather than being dropped.
+\end{decision}
+
+\section{Modeling entry: cohorts on the Lexis diagram}\label{ch11:sec:entry}
+
+Defect (C2) has appeared so far as a missing-mass problem. Its population
+face is different: the tracked universe is \emph{selected on having
+raised}, so the data is silent about the reservoir of founded-but-not-yet-funded
+firms from which tomorrow's newcomers arrive. An \emph{entrant-profile
+module} models what can be modeled about that reservoir: the intensity of
+\emph{first observed rounds}, organized by founding cohort.
+
+The natural coordinate system is the Lexis diagram \citep{keiding1990}:
+calendar time $t$ on one axis, firm age $a = t - c$ (time since founding,
+cohort $c$) on the other; firms travel along unit-slope lines, and a
+first observed round at age $a$ is a point on that line --- observed only
+if it falls inside the data window (firms whose first raise postdates
+June 2024 are invisible entirely: right truncation of entry, the
+mirror image of (C1)). Because the number of not-yet-funded firms in a
+cohort is unobserved, only the \emph{aggregate} first-round intensity is
+identified, and that is what the module fits:
+\begin{equation}\label{eq:ch11:cohort}
+\lam^{\mathrm{entry}}_{s,c}(t)
+ \;=\;
+ \exp\!\big(\alpha_s + \phi_{\mathrm{era}(c)} + f_s(t - c)
+ + \bcoef\T \xcov^{\mathrm{mac}}_{\mathrm{pub}}(t)\big),
+\qquad
+\mub_s^{\mathrm{ext}}(t) \;\supseteq\; \sum_{c \le t} \lam^{\mathrm{entry}}_{s,c}(t),
+\end{equation}
+with $f_s$ an age profile (entry hazards peak in the first years after
+founding), $\phi$ era-of-founding effects (the dry-powder vintages), and
+macro as-ofs on the calendar axis. Founding dates come from the
+companies table --- available, with (C4)-grade noise, for firms once they
+are tracked --- so the cohort structure is estimable from each firm's
+\emph{first appearance}, the one moment at which entry-relevant features
+are observed.
+
+What the module buys is exactly two things. First, \emph{honest sector
+totals}: with \cref{eq:ch11:cohort} feeding
+$\mub_s^{\mathrm{ext}}$, the decomposition
+\cref{eq:ch11:newintensity} becomes a forecast of incumbent
+\emph{plus} newcomer intensity with the newcomer part driven by cohort
+supply rather than extrapolated share --- the difference matters whenever
+era effects move (a 2021-vintage cohort bulge produces newcomer flow for
+years). Second, \emph{cohort-based forecasts of newcomer supply}:
+questions like ``how much first-round flow should sector $s$ expect next
+year given the founding activity of 2022--2024'' become answerable, with
+the era effects carrying the dry-powder cycle.
+
+What it cannot buy must be stated with equal clarity: \emph{firm-level
+prediction for unseen firms}. A firm with no covariates admits no
+firm-level score; no entry model changes that. The honest statement of
+the module's output is a \emph{sector-level newcomer intensity} together
+with a mark distribution over \emph{observable-at-entry} features ---
+stage, geography, sector, and the deal-time profile measured at first
+appearance --- learned from tracked firms at their first rounds. That
+learned distribution is a \emph{selection} distribution (features
+conditional on having entered), which supports predicting the profile of
+the next entrant; it says nothing about the latent population of firms
+that have not raised and may never (\cref{warn:ch11:entrant} applies in
+full: the ``entry'' intensity \cref{eq:ch11:cohort} is estimated from
+first \emph{appearances} and inherits the coverage channel unless the
+audit of \cref{ch11:sec:drift} clears it). The rehearsal adds a
+caution: newcomer utility was dominated by the alternative-specific
+constant and the context/pool-size terms rather than by entrant-profile
+quality (\cref{app:results}: ASC $6.86$ on regime A against
+observable-profile weights an order of magnitude smaller) --- effort
+belongs in $g_{s,t}$ and the cohort structure, not in rich profile
+models.
+
+\begin{decision}{D11.4 --- a planned \code{entrants/} module, scoped by identification}
+The repository plans an \modrepo{entrants/} module implementing
+\cref{eq:ch11:cohort}: cohort--age--era first-round intensities per
+sector, an observable-at-entry mark distribution estimated at first
+appearances, and the coupling of both into
+$\mub_s^{\mathrm{ext}}$ and the outside-option features $g_{s,t}$. The
+module's API exposes sector-level newcomer intensity and entrant-profile
+distributions only --- it deliberately has no per-firm scoring surface,
+so the identification limit is enforced by the interface rather than by
+discipline. Rationale: the honest-totals and cohort-supply gains above;
+the interface constraint is \cref{warn:ch11:entrant} made structural.
+Reversal trigger: acquisition of auxiliary coverage data (a second
+vendor, or vendor backfill metadata) that identifies the
+entrant-versus-untracked split would justify promoting the module to a
+genuine entry model with compositional claims.
+\end{decision}
+
+\section{Two-sided universe drift}\label{ch11:sec:drift}
+
+One final structural fact cuts across everything above: the universe
+boundary itself moves, from both sides. Firms cross into $\firms$ as
+PitchBook's coverage expands, and coverage has expanded materially over
+2011--2024 --- tracking improves, backfill happens, whole segments
+(regions, stages) arrive in waves. The untracked share is therefore
+time-varying \emph{for reasons that are not market dynamics}: a declining
+\code{off\_universe\_share} is what improving coverage looks like, and it
+is also exactly what a genuine shift toward incumbent-dominated deal flow
+would look like. Every quantity in this chapter --- $\pi_{s,t}$, the GT
+mass, the cohort intensities, the era effects of
+\cref{eq:ch11:cohort} --- confounds the two explanations unless coverage
+is audited first.
+
+\begin{protocol}[Coverage audit by era]\label{prot:ch11:coverage}
+The loader reports \code{off\_universe\_share} by sector and by era
+(fixed calendar blocks) as a first-class output, on synthetic and real
+data alike (\cref{ch:data} already requires the aggregate; this protocol
+requires the era breakdown). Any trend in the series is treated as a
+coverage artifact \emph{candidate} until examined: check for step
+changes aligned with vendor events rather than market events, for
+divergence between the untracked share and the GT newcomer mass
+(\cref{prot:ch11:gtaudit}) --- which respond differently to backfill ---
+and for era-localized failures of \cref{prot:ch11:reliability}.
+\end{protocol}
+
+\begin{decision}{D11.5 --- coverage audit precedes entry claims}
+No claim about entry dynamics --- trends in newcomer share, cohort sizes,
+era effects in \cref{eq:ch11:cohort} --- is reported, internally or
+externally, until \cref{prot:ch11:coverage} has been run on the relevant
+eras and the trend has survived it. Rationale: the drifting-share
+tripwire is the one diagnostic that doubles as a data-quality monitor;
+its most likely cause on this vendor's history is coverage, not the
+market, and \cref{warn:ch11:entrant} already establishes that the data
+cannot arbitrate by itself. Reversal trigger: none; this is an ordering
+constraint on analysis, and it costs one audit per campaign.
+\end{decision}
+
+\section{Defect declarations and the ranking interface}\label{ch11:sec:defects}
+
+Per \cref{tab:ch02:defects} and decision D2.1, this chapter \emph{owns}
+(C2) and (C6), and its models relate to the ledger as follows.
+\emph{(C6)}: the ground layer is robust under
+\cref{asm:ch11:complete} and the histories rule
+(\cref{prop:ch11:asymmetry}); the extended mark factor \emph{corrects}
+the defect exactly at the collapsed-mark resolution
+(\cref{prop:ch11:collapse}); fitters that break the histories rule are
+vulnerable with signed bias --- excitation understated by a factor
+$\approx(1-p)$, baseline inflated, decay dragged slow
+(\cref{prop:ch11:thinning}). \emph{(C2)}: the outside option absorbs
+its deal-stream face; the entry module models its population face at
+sector level under the stated identification limits; compositional
+claims remain vulnerable permanently absent auxiliary coverage data
+(\cref{warn:ch11:entrant}), and the vulnerability is accepted and
+fenced by D11.4/D11.5 rather than assumed away. \emph{(C1)}: robust ---
+all windows and spells here inherit the censoring treatment of
+\cref{ch:data,ch:censoring}; right truncation of entry is handled by
+construction in \cref{eq:ch11:cohort}. \emph{(C3)}: not corrected here,
+and the interaction matters: unlabeled dead firms \emph{deflate}
+tracked-firm probabilities by padding the softmax denominator, while a
+missing outside option \emph{inflates} them
+(\cref{eq:ch11:inflation}); the two biases can partially cancel in
+aggregate metrics, and this document forbids reading such cancellation
+as health --- the two defects are diagnosed separately
+(\cref{ch:ranking} for (C3), \cref{prot:ch11:reliability} here).
+\emph{(C4)}: sector mislabels perturb \cref{asm:ch11:complete}
+marginally and motivate the group-level variant of
+\cref{ch11:sec:twostage}; date jitter is immaterial to shares at weekly
+resolution. \emph{(C5)}: the outside-option score
+\cref{eq:ch11:outsidescore} uses only context covariates, which are
+never stale; the tracked rows inherit the treatment of \cref{ch:stale}
+unchanged.
+
+The interface with the ranking metrics of \cref{ch:ranking} must be
+fixed explicitly, because the outside option changes what recall can
+mean. Newcomer deals have no tracked target to recall: including them in
+the denominator of recall@$K$ mechanically caps the metric at
+$1-\pi$ and makes scores incomparable across eras with different
+coverage. The coordinated protocol is therefore: recall@$K$ and MRR are
+computed on tracked-attributed deals only, exactly as \cref{ch:ranking}
+specifies; the newcomer mass is reported \emph{alongside} as the
+calibrated $\pi_{s,t}$ output under \cref{prot:ch11:reliability}; and
+every ranking report carries both numbers, so that a model cannot buy
+apparent recall by silently wishing the outside world away, nor be
+penalized for deals no tracked-universe model could have named.
+
+\begin{codehooks}
+\emph{Mark factor.} \modrepo{sector\_ranker.py} gains the extended risk
+set \cref{eq:ch11:extendedset}: one outside-option row per choice set
+carrying the context features \cref{eq:ch11:outsidescore}, mirroring
+\code{synthetic/loaders.py}'s
+\code{build\_choice\_sets(newcomer\_context=True)}; prior art and
+reference fits in \code{experiments/exp28\_newcomer\_designs.py}
+(N1 context score, N2 entrant moments, N3 two-step, N4
+immigrant/offspring split).
+\emph{Ground process.} The histories rule (D11.2) binds
+\modrepo{sector\_stability.py}, the event-time fitters in
+\modrepo{eventtime/}, and the interval-censored tools in
+\modrepo{mbpp/}: history terms consume the complete deal stream; the
+external baseline component of \cref{eq:ch11:mudecomp} enters as
+covariates until \modrepo{entrants/} exists.
+\emph{Audits.} \modrepo{eval/unseen\_mass.py} (to be written) implements
+\cref{prot:ch11:gtaudit} (Good--Turing mass, Chao floor, model
+comparison) and the reliability report of \cref{prot:ch11:reliability};
+\modrepo{data/audits.py} extends its universe-share check to the by-era
+breakdown of \cref{prot:ch11:coverage}.
+\emph{Entry.} The planned \modrepo{entrants/} module implements the
+cohort--age--era intensities \cref{eq:ch11:cohort} and the
+observable-at-entry mark distribution, exposing sector-level outputs
+only (D11.4).
+\end{codehooks}

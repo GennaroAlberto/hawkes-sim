@@ -1,0 +1,438 @@
+\chapter{Data: Schemas, Deal Types, and Point-in-Time Engineering}
+\label{ch:data}
+
+Every modelling decision in Parts~I--III is downstream of two facts about the data: the
+PitchBook asset is a \emph{transaction log with attached snapshots}, not a panel; and the
+FactSet feed is \emph{published with lags}, so the value that existed on a date is not the
+value that was knowable on that date. This chapter fixes the schemas, formalizes the
+point-in-time discipline that governs every join in the manual, and quantifies the defects
+(missingness, noise, duplication) that each later chapter must survive. Readers who skip
+it will misread at least the leakage warnings of Chapters~\ref{ch:success}
+and~\ref{ch:xgb} and the deduplication conventions of Chapter~\ref{ch:hawkes}.
+
+\section{The PitchBook asset: three tables}
+\label{sec:data-pitchbook}
+
+The vendor delivers three relations. The \texttt{companies} table has one row per firm in
+the \emph{tracked universe}; its columns are \emph{current} snapshots, refreshed by the
+vendor, with no history. The \texttt{deals} table has one row per transaction and is the
+only genuinely dated object: everything we treat as a time series of firm state is derived
+from it. The \texttt{investors} relation links firms to investors with a start date. The
+join keys are \texttt{company\_id} (all three tables), \texttt{deal\_id}, and
+\texttt{investor\_id}. Table~\ref{tab:data-fields} groups the fields by function rather
+than by table, because the functional grouping is what determines how each field may be
+used: identifiers key the joins, deal terms and capital-structure fields are legitimate
+dated observations, financials-at-deal are noisy state measurements, and firmography is a
+mix of static facts and forbidden end-of-sample snapshots
+(Section~\ref{sec:data-pit}).
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lp{9.6cm}}
+\toprule
+Group (table) & Fields \\
+\midrule
+Identifiers &
+\texttt{company\_id}, \texttt{deal\_id}, \texttt{investor\_id},
+\texttt{company\_name}, \texttt{investorname}, \texttt{deal\_date},
+\texttt{investorsince} \\
+Industry, universe (deals) &
+\texttt{primary\_industry\_sector}, \texttt{primary\_industry\_group},
+\texttt{primary\_industry\_code}, \texttt{company\_universe},
+\texttt{current\_financing\_status} \\
+Deal terms (deals) &
+\texttt{deal\_type}, \texttt{deal\_type2}, \texttt{deal\_type3}, \texttt{deal\_class},
+\texttt{deal\_status}, \texttt{deal\_size}, \texttt{deal\_size\_status},
+\texttt{pre\_money\_valuation}, \texttt{post\_valuation},
+\texttt{post\_valuation\_status}, \texttt{pct\_acquired}, \texttt{vc\_round},
+\texttt{vc\_round\_up\_down\_flat}, \texttt{type\_of\_stock}, \texttt{sellers} \\
+Capital structure (deals) &
+\texttt{total\_invested\_capital}, \texttt{total\_invested\_equity}, \texttt{debt},
+\texttt{total\_new\_debt}, \texttt{total\_debt}, \texttt{raised\_to\_date},
+\texttt{total\_raised\_to\_date}, \texttt{total\_investor\_ownership} \\
+Financials at deal (deals) &
+\texttt{revenue}, \texttt{ebitda}, \texttt{gross\_profit}, \texttt{net\_income},
+\texttt{valuation\_ebitda}, \texttt{valuation\_revenue}, \texttt{valuation\_cash\_flow},
+\texttt{deal\_size\_ebitda}, \texttt{deal\_size\_revenue},
+\texttt{deal\_size\_cash\_flow}, \texttt{revenue\_growth\_since\_last\_deal},
+\texttt{number\_of\_employees} \\
+Firmography (companies) &
+\texttt{description}, \texttt{year\_founded}, \texttt{hq\_location},
+\texttt{hq\_country}, \texttt{hq\_region}, \texttt{hq\_sub\_region},
+\texttt{employees}, \texttt{financing\_status}, \texttt{business\_status},
+\texttt{ownership\_status}, \texttt{company\_universe},
+\texttt{total\_money\_raised}, \texttt{last\_financing\_date},
+\texttt{last\_financing\_size}, \texttt{last\_financing\_valuation} \\
+Investor relation &
+\texttt{company\_id}, \texttt{investor\_id}, \texttt{investorname},
+\texttt{investorstatus}, \texttt{investorsince} \\
+\bottomrule
+\end{tabular}
+\caption{Field inventory grouped by function. The grouping, not the source table,
+determines admissible use: dated deal fields may enter features via the construction of
+Section~\ref{sec:data-pit}; snapshot firmography largely may not.}
+\label{tab:data-fields}
+\end{table}
+
+\section{Deal-type heterogeneity}
+\label{sec:data-dealtypes}
+
+The single most consequential schema fact is that \texttt{deal\_class} partitions the
+\texttt{deals} table into transaction types that populate \emph{different subsets of
+fields}. The main classes are venture capital rounds (angel through late-stage,
+identified by \texttt{vc\_round}), M\&A and buyout transactions (control changes,
+identified by \texttt{pct\_acquired} and \texttt{sellers}), and debt financings (general
+debt, mezzanine, refinancing). A fourth operational bucket --- later-stage growth/PE
+minority deals --- behaves as a hybrid of the first two. Treating the table as
+homogeneous, e.g.\ pooling \texttt{deal\_size} across classes, mixes a Series~A cheque
+with a leveraged buyout price and a term loan, three quantities with different units of
+economic meaning. Table~\ref{tab:data-classfields} summarizes typical field population by
+class in our synthetic mirror, calibrated to vendor experience.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{5.6cm}ccc}
+\toprule
+Field group & VC round & M\&A / buyout & Debt \\
+\midrule
+\texttt{deal\_size}, \texttt{deal\_status}          & populated & populated & populated \\
+Round structure (\texttt{vc\_round}, up/down/flat,
+  \texttt{type\_of\_stock})                          & populated & n.a.      & n.a. \\
+\texttt{pre\_money\_valuation}, \texttt{post\_valuation} & sparse & populated & n.a. \\
+\texttt{pct\_acquired}, \texttt{sellers}             & sparse    & populated & n.a. \\
+Debt fields (\texttt{debt}, \texttt{total\_new\_debt},
+  \texttt{total\_debt})                              & n.a.      & populated & populated \\
+Financials at deal (\texttt{revenue}, \texttt{ebitda},
+  \texttt{net\_income})                              & sparse    & populated & sparse \\
+Multiples (\texttt{valuation\_ebitda},
+  \texttt{deal\_size\_revenue}, \dots)               & sparse    & populated & n.a. \\
+\texttt{total\_investor\_ownership}                  & populated & sparse    & n.a. \\
+Cumulative capital (\texttt{raised\_to\_date},
+  \texttt{total\_raised\_to\_date})                  & populated & sparse    & sparse \\
+\bottomrule
+\end{tabular}
+\caption{Typical field population by \texttt{deal\_class}. ``Sparse'' means present on a
+minority of rows (often mechanically: a seed round has no EBITDA to report); ``n.a.''
+means the field is undefined for the class, not missing at random.}
+\label{tab:data-classfields}
+\end{table}
+
+Three modelling implications follow, and we invoke them repeatedly.
+
+\begin{enumerate}
+\item \textbf{Type-specific measurement models.} A mark model for \texttt{deal\_size}
+must be fit per class (or with class interactions throughout): VC sizes are
+round-indexed and roughly log-normal within round, buyout sizes scale with EBITDA via a
+multiple, debt sizes scale with collateral. Pooled moments are meaningless. The same
+holds for missingness: an empty \texttt{ebitda} on a seed round is structural (n.a.), on
+a buyout it is informative missingness.
+\item \textbf{M\&A and IPO are absorbing.} A majority acquisition or listing removes the
+firm from the private universe: its counting process $N_i(t)$ stops, not because
+intensity fell but because the state space was exited. Deal prediction is therefore a
+\emph{competing-risks} problem --- the hazards of ``next VC round'', ``acquired'', and
+``fails'' compete for the same firm-time --- previewed here and developed with risk sets
+in Chapter~\ref{ch:hawkes}; the selection effects that absorption induces on any
+survivors-only analysis are treated in Chapter~\ref{ch:selection}.
+\item \textbf{Debt deals inform capital structure, not growth.} A refinancing changes
+\texttt{total\_debt} and default risk but carries little signal about revenue growth; a
+new venture round carries a valuation mark. In the success models of
+Chapters~\ref{ch:success}--\ref{ch:xgb}, debt events enter as capital-structure
+covariates, never as success outcomes.
+\end{enumerate}
+
+\section{FactSet Standardized Economics}
+\label{sec:data-factset}
+
+The macro feed arrives in long format with schema
+(\texttt{series\_code}, \texttt{ref\_date}, \texttt{publish\_date}, \texttt{value}):
+one row per observation of a series about a reference period, stamped with the date the
+figure became public. We use five series (Table~\ref{tab:data-macro-series}). The
+distinction between \texttt{ref\_date} and \texttt{publish\_date} is the entire content
+of this section: the March CPI describes March but is knowable only in mid-April.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+Code & Series & Frequency & Publication lag \\
+\midrule
+\texttt{FFUNDT}    & policy target rate       & daily (step function) & same day \\
+\texttt{FFUND}     & effective overnight rate & daily                 & next business day \\
+\texttt{CPI\_RAW}  & consumer price index, level & monthly            & $\approx 2$ weeks \\
+\texttt{CPI\_YOY}  & CPI, year-on-year change & monthly               & $\approx 2$ weeks \\
+\texttt{RUNEMP}    & unemployment rate        & monthly               & $\approx 1$ week \\
+\bottomrule
+\end{tabular}
+\caption{Macro series used throughout, FactSet Standardized Economics convention.}
+\label{tab:data-macro-series}
+\end{table}
+
+\paragraph{As-of join semantics.}
+For a series with rows $(r_k, p_k, v_k)$ (reference date, publish date, value), the
+\emph{as-of value} at calendar time $t$ is
+\begin{equation}
+\label{eq:data-asof}
+x^{\mathrm{asof}}_t \;=\; v_{k(t)}, \qquad
+k(t) \;=\; \arg\max_k \,\{\, r_k : p_k \le t \,\},
+\end{equation}
+i.e.\ the most recent \emph{reference} among rows already \emph{published}; ties in
+$r_k$ (revisions) resolve to the latest $p_k \le t$. Joining on
+$r_k \le t$ instead --- the default of most dataframe as-of joins --- silently grants the
+model up to two weeks of foresight on CPI, which is material for deal-timing models at
+weekly resolution (Chapters~\ref{ch:poisson}--\ref{ch:hawkes}). We also carry the
+staleness $t - r_{k(t)}$ as a feature: it is admissible (it is computable at $t$) and
+lets the model discount old readings. Figure~\ref{fig:data-macro} shows the synthetic
+feed as published.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.85\textwidth]{fig_macro}
+\caption{The synthetic macro feed \emph{as published}: policy target and effective rate
+(daily), CPI year-on-year and unemployment (monthly steps, right-shifted by their
+publication lags). The step timing, not the level path, is what a point-in-time model
+sees.}
+\label{fig:data-macro}
+\end{figure}
+
+\section{Point-in-time discipline, formalized}
+\label{sec:data-pit}
+
+Let $\mathcal{G}_t$ denote the sigma-algebra generated by all data rows published
+strictly before $t$: deal rows with \texttt{deal\_date} $< t$ (subject to the jitter
+caveat of Section~\ref{sec:data-quality}), macro rows with \texttt{publish\_date} $< t$,
+and static firmography known at first tracking. This is the observational filtration in
+the sense of point-process theory \cite{daley2003}, and it is the only information a
+deployed model possesses.
+
+\begin{definition}[Admissible feature process]
+\label{def:data-admissible}
+A feature process $(Z_t)_{t \ge 0}$ is \emph{admissible} if $Z_t$ is
+$\mathcal{G}_{t}$-measurable for every $t$, i.e.\ computable from data published before
+$t$. A supervised training pair $(Z_{\tau}, Y)$ is admissible if $Z_\tau$ is admissible
+at the information date $\tau$ and $Y$ is a function of data published after $\tau$.
+\end{definition}
+
+\begin{warning}[Snapshot columns are forbidden]
+\label{warn:data-snapshot}
+\sloppy
+Several \texttt{companies} columns are \emph{end-of-sample snapshots} that reflect the
+state of the firm at data delivery, not at any historical $t$:
+\texttt{last\_financing\_date}, \texttt{last\_financing\_size},
+\texttt{last\_financing\_valuation}, \texttt{total\_money\_raised},
+\texttt{financing\_status}, \texttt{business\_status}, and
+\texttt{ownership\_status}. Using them as features violates
+Definition~\ref{def:data-admissible} at every date before delivery. The leakage is vicious
+because it is plausible: \texttt{business\_status} $=$ ``out of business'' predicts
+failure spectacularly in backtests and not at all in production. Snapshot columns may be
+used only for end-of-sample label construction and for auditing.
+\end{warning}
+
+The admissible substitute is \emph{last observation carried forward} (LOCF) over past
+deals. For firm $i$ with deal times $t_{i,1} < t_{i,2} < \dots$ and per-deal marks
+$m_{i,k}$ (size, valuation, employees, round number),
+\begin{equation}
+\label{eq:data-locf}
+Z_{i,t} \;=\; \Big( m_{i,K_i(t)},\; t - t_{i,K_i(t)},\; K_i(t) \Big),
+\qquad K_i(t) = \max\{k : t_{i,k} < t\},
+\end{equation}
+with an explicit ``no prior deal'' state when $K_i(t) = 0$. The elapsed time
+$t - t_{i,K_i(t)}$ is itself a first-class feature: firm state measured at events decays
+in relevance, and every model in Parts~II--III uses staleness explicitly. Cumulative
+fields (\texttt{raised\_to\_date}) are recomputed from past rows rather than read from
+the snapshot, so that the two constructions can be cross-checked for consistency.
+
+\section{Data quality and missingness}
+\label{sec:data-quality}
+
+The synthetic mirror injects the defects below at rates calibrated to vendor experience;
+all downstream chapters quote robustness against them. Table~\ref{tab:data-quality}
+summarizes the defects and which method each one threatens.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lcp{6.0cm}}
+\toprule
+Defect & Rate & Main downstream consequence \\
+\midrule
+\texttt{deal\_size} undisclosed & 28\% & MNAR: small deals hide; mark models need a
+missingness indicator (Ch.~\ref{ch:hawkes}) \\
+\texttt{deal\_size} estimated only & 15\% & multiplicative error $\approx 18\%$;
+errors-in-variables attenuation in size regressions (Ch.~\ref{ch:xgb}) \\
+valuation missing & 55\% & valuation-based proxies unusable for half the sample
+(Ch.~\ref{ch:us}) \\
+sector mislabelled & $\approx 3\%$ & contaminates cross-sector excitation estimates
+(Ch.~\ref{ch:hawkes}) \\
+duplicate records & $\approx 1.2\%$ & spurious zero-lag self-excitation; inflates
+$\kappa$ if not removed \\
+date jitter (announced vs.\ closed) & up to 6 days & biases decay-rate estimates;
+motivates interval censoring (Ch.~\ref{ch:censored}) \\
+out-of-universe deals (no \texttt{companies} row) & $\approx 12\%$ & no firmography
+covariates; selection into tracking (Ch.~\ref{ch:selection}) \\
+\bottomrule
+\end{tabular}
+\caption{Defect rates in the synthetic mirror, calibrated to vendor experience, with the
+chapter where each consequence is handled.}
+\label{tab:data-quality}
+\end{table}
+
+Two defects deserve elaboration. First, size missingness is not ignorable: disclosure
+correlates negatively with deal size and with the firm being early-stage, so a
+complete-case mean overstates typical deal size; every size model carries
+$\ind{\texttt{deal\_size\_status} = \text{disclosed}}$ as a covariate and, where the
+target is the size itself, a two-part (disclosure, size $\mid$ disclosed) specification.
+Second, duplicates and jitter interact badly with self-excitation: a duplicated deal at
+lag zero to six days is observationally similar to genuine fast excitation, so
+deduplication must precede any Hawkes fit.
+
+\begin{definition}[Deduplication rule]
+\label{def:data-dedup}
+Two \texttt{deals} rows are merged if they share \texttt{company\_id}, have
+\texttt{deal\_date}s within 3 days, and have compatible \texttt{deal\_class}. The
+surviving row takes the earlier date and, field by field, the non-missing value (the
+larger completeness count breaking conflicts).
+\end{definition}
+
+The 3-day window trades off missed duplicates against merged genuine deals: in the
+synthetic mirror, it removes 96\% of injected duplicates while merging under 0.1\% of
+true distinct pairs, and the residual bias on the branching ratio is below the bootstrap
+noise reported in Chapter~\ref{ch:selection}.
+
+\subsection{Entity resolution and identifier hygiene}
+\label{sec:data-entity}
+
+Deduplication (Definition~\ref{def:data-dedup}) removes copies of the same transaction;
+entity resolution removes copies of the same \emph{firm} or \emph{investor}, and its
+failures are worse because they persist across the whole history rather than at one
+date. Three rules govern identifier use. First, \texttt{company\_id} is authoritative
+but not immortal: vendors occasionally retire an identifier and reissue the firm under
+a new one (re-registration, cross-border redomiciliation, relisting after
+restructuring). The symptom is an event history that stops dead while a near-namesake
+starts from nothing in the same sector and region; the repair is a vendor crosswalk
+where one exists, and otherwise a conservative merge requiring simultaneous agreement
+on name, country, and \texttt{year\_founded}. An unrepaired split truncates durations
+and biases every timing model of Part~III toward short histories. Second, never
+\emph{decide} a merge on names. \texttt{company\_name} varies by legal suffix,
+stripped diacritics, and renamings; fuzzy matching produces false merges (``Alpha
+Capital'' vs.\ ``Alpha Capital Partners'') as readily as false splits. Name similarity
+may propose candidate pairs for review; identifiers and structured fields decide.
+Third, investors duplicate by design: one economic investor appears as a management
+company, as fund vehicles I/II/III, and as regional entities, each with its own
+\texttt{investor\_id}. Features that count distinct investors or measure investor
+experience roll vehicles up to the management company; any analysis of co-investment
+structure must state its rollup, because the rollup changes the network. Finally,
+referential integrity is checked mechanically at every build: each
+\texttt{deals.company\_id} resolves in \texttt{companies} or is flagged
+out-of-universe (the $\approx 12\%$ of Table~\ref{tab:data-quality}); each
+\texttt{investor\_id} in the investor relation resolves; and \texttt{investorsince}
+never predates \texttt{year\_founded}. Violating rows are quarantined rather than
+silently dropped, so that their rate can be monitored across vendor deliveries.
+
+\section{Worked example: constructing the weekly modelling panel}
+\label{sec:data-worked}
+
+The constructions of this chapter are best fixed by running them once, end to end, on
+a small window. The target is the weekly panel consumed by
+Chapters~\ref{ch:poisson}--\ref{ch:hawkes}: on a weekly grid $t_1 < t_2 < \dots$
+(Friday closes), a firm-week feature array, an activity mask, and an event list. Five
+passes produce these from the raw tables; each pass exists to prevent a specific
+failure, named as we go.
+
+\begin{enumerate}
+\item \textbf{Deduplication pass.} Apply Definition~\ref{def:data-dedup} to
+\texttt{deals} before anything else reads the table, logging row counts before and
+after. \emph{Failure prevented:} duplicate rows at lags of 0--6 days masquerade as
+fast self-excitation and inflate the branching ratio
+(Section~\ref{sec:data-quality}); they also double-count capital in the cumulative
+fields recomputed in pass 3.
+\item \textbf{As-of macro join.} For each grid date $t$ and each series of
+Table~\ref{tab:data-macro-series}, attach the as-of value (\ref{eq:data-asof}) and
+the staleness $t - r_{k(t)}$. Table~\ref{tab:data-asof-example} traces
+\texttt{CPI\_YOY} through three consecutive grid dates around the April publication:
+the March figure (reference 2019-03-31, published 2019-04-10) is invisible on
+2019-04-05 and governs the two later weeks with growing staleness.
+\emph{Failure prevented:} joining on \texttt{ref\_date} attaches the March print to
+the 2019-04-05 row --- five days of foresight on this series, up to two weeks in
+general.
+\item \textbf{LOCF firm panel.} For each firm $i$ and grid date $t$, build $Z_{i,t}$
+of (\ref{eq:data-locf}): the marks of the last deal strictly before $t$, the elapsed
+time since it, the deal count $K_i(t)$, and cumulative capital recomputed by summing
+past deal rows, with an explicit no-prior-deal state when $K_i(t) = 0$.
+\emph{Failure prevented:} reading firm state from the \texttt{companies} snapshot
+columns leaks end-of-sample status (Warning~\ref{warn:data-snapshot}); LOCF over
+dated rows is the admissible substitute.
+\item \textbf{Active mask.} Set $a_{i,t} = 1$ iff firm $i$ is tracked and unabsorbed
+at $t$: its first observed deal (or vendor add date) precedes $t$ and no absorbing
+M\&A, IPO, or failure event occurred before $t$
+(Section~\ref{sec:data-dealtypes}). \emph{Failure prevented:} pre-tracking weeks
+pretend the firm was at risk while it was invisible, and post-absorption weeks count
+firm-time in which no event could occur; both distort intensity estimates, which is
+the risk-set discipline formalized in Chapters~\ref{ch:hawkes}
+and~\ref{ch:selection}.
+\item \textbf{Event list.} Emit the surviving deals as
+(\texttt{company\_id}, \texttt{deal\_date}, \texttt{deal\_class}, marks), restricted
+to the classes the model in question treats as events, with debt deals routed to
+covariates rather than outcomes. \emph{Failure prevented:} pooling refinancings with
+venture rounds mixes units of economic meaning
+(Section~\ref{sec:data-dealtypes}).
+\end{enumerate}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lllcc}
+\toprule
+Grid date $t$ & Latest publication $\le t$ & Reference month & Value (\%) & Staleness (days) \\
+\midrule
+2019-04-05 & 2019-03-13 & 2019-02 & 1.9 & 36 \\
+2019-04-12 & 2019-04-10 & 2019-03 & 2.1 & 12 \\
+2019-04-19 & 2019-04-10 & 2019-03 & 2.1 & 19 \\
+\bottomrule
+\end{tabular}
+\caption{Three weeks of the as-of join (\ref{eq:data-asof}) for \texttt{CPI\_YOY}.
+The publication lag makes the February figure the newest \emph{knowable} reading on
+2019-04-05 although March has ended; the staleness $t - r_{k(t)}$ resets at each
+publication and then grows by 7 days per week.}
+\label{tab:data-asof-example}
+\end{table}
+
+The output is three aligned objects --- the feature array over firm-weeks with
+$a_{i,t} = 1$, the mask itself, and the event list --- and nothing else crosses into
+the modelling code. Before release, the following audit runs mechanically; any failed
+item blocks the build.
+
+\begin{enumerate}
+\item \textbf{Dedup accounting.} The merge rate of pass 1 is compared with the
+expected $\approx 1.2\%$ of Table~\ref{tab:data-quality}; a large deviation signals a
+changed vendor delivery, not a modelling fact.
+\item \textbf{No macro foresight.} Every joined macro row satisfies
+\texttt{publish\_date} $< t$; the assertion runs on the joined output, not on trust
+in the join code.
+\item \textbf{LOCF causality.} For a random sample of firm-weeks, delete all raw rows
+dated on or after $t$ and rebuild $Z_{i,t}$; the rebuilt values must be identical.
+\item \textbf{Mask consistency.} Every event falls in a firm-week with
+$a_{i,t} = 1$, and no firm has $a_{i,t} = 1$ after an absorbing event.
+\item \textbf{Snapshot blocklist.} No column of Warning~\ref{warn:data-snapshot}
+appears in the feature array, enforced by name against a schema blocklist; the
+recomputed cumulative capital is reconciled against the end-of-sample snapshot, with
+discrepancies logged.
+\end{enumerate}
+
+\section{EU versus US coverage: panel versus events}
+\label{sec:data-euus}
+
+The schemas above are common to both regimes; what differs is what can be attached to
+them. For European firms, statutory registry filings supply a yearly fundamentals panel
+$F_{i,y}$ with near-complete coverage --- an \emph{observation of the state between
+deals}. For US firms, the deal rows of this chapter are essentially all there is: state
+is measured only at the firm's own transactions, through the sparse financials-at-deal
+group of Table~\ref{tab:data-fields}. This is the axis of the manual announced in
+Chapter~\ref{ch:problem}. Part~I (Chapters~\ref{ch:success}--\ref{ch:causal}) exploits
+the EU panel for supervised and causal analysis of success; Part~II
+(Chapter~\ref{ch:us}) asks what the deal marks alone can proxy; Part~III
+(Chapters~\ref{ch:poisson}--\ref{ch:selection}) embraces the event-only view and models
+the deal stream itself. All three parts share the point-in-time constructions
+(\ref{eq:data-asof}) and (\ref{eq:data-locf}) verbatim.

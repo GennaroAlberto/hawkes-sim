@@ -1,0 +1,156 @@
+% ch13-roadmap — implementation roadmap
+
+\section{Reading the roadmap}\label{ch13:sec:reading}
+
+This chapter converts the document's decisions into ordered engineering
+work on \modrepo{}. Each phase lists its modules (existing, extended, or
+new), the chapter that owns the mathematics, and the \emph{gate} that
+must pass before the phase is called done. Gates come from the
+evaluation constitution of \cref{ch:gof}: every new fitter passes a
+parameter-recovery rehearsal on synthetic data generated from its own
+family (and a misspecified stress world where one exists), every likelihood
+passes analytic-vs-numeric gradient checks at the tolerances fixed in
+\cref{ch:codeplan}, and every data
+transformation passes its audit. Phases are ordered by the dependency
+structure of the mathematics, not by expected impact. The expected
+impact ordering --- covariates first, risk-set truthfulness above all,
+excitation last --- is a working hypothesis; the protocols of
+\cref{ch:codeplan} test it, and \cref{ch:results-synth,ch:results-spain}
+record the outcomes.
+
+\section{Phase 0 --- the real-data spine}\label{ch13:sec:phase0}
+
+\emph{Owns: \cref{ch:data,ch:censoring,ch:universe}. Everything else
+blocks on this.}
+
+\begin{enumerate}[label=P0.\arabic*,leftmargin=3.2em]
+\item \modrepo{data/pitchbook.py}: the adapter from raw PitchBook
+deals/companies/investors extracts (2011--June 2024) to the fitter-ready
+arrays of \code{synthetic/loaders.py} --- weekly sector counts, as-of
+macro matrix, LOCF firm features \emph{with staleness ages}
+(\cref{ch:stale}, D8.1), at-risk masks, event list with universe flags.
+The synthetic loader's array contract is frozen as the interface;
+\cref{app:columns} is the column contract.
+\item \modrepo{data/audits.py}: the defect-ledger validation suite of
+\cref{ch:data} --- open-spell retention, entry-date consistency, as-of
+join look-ahead test, duplicate-collapse idempotence, coverage-share
+report by era (\cref{ch:universe}), date-quality audit separating
+announced/closed/backfilled dates (\cref{ch:censoring}).
+\item Honest-resolution decision executed: the date audit fixes the
+modeling resolution (expected: weekly) per D6.1.
+\end{enumerate}
+
+\emph{Gate}: audits green on the real extract; a data note recording
+coverage share, date-quality composition, and staleness-age
+distributions by sector --- the empirical face of
+\cref{tab:ch02:defects}.
+
+\section{Phase 1 --- baselines that must be beaten}\label{ch13:sec:phase1}
+
+\emph{Owns: \cref{ch:poisson,ch:buckets,ch:stale} (R1),
+\cref{ch:ranking} (linear).}
+
+\begin{enumerate}[label=P1.\arabic*,leftmargin=3.2em]
+\item Sector ground baseline: seasonal + macro NHPP via the binned GLM
+equivalence (\cref{ch:poisson}), then the negative-binomial noise
+upgrade (D4.2); held-out NLL ladder vs.\ random and historical-mean
+baselines established as the standing leaderboard (\cref{ch:gof}).
+\item \modrepo{panel/}: the bucketed panel builder of \cref{ch:buckets}
+--- disjoint buckets per horizon $\horizon \in \{26, 52, 104\}$ weeks,
+censoring-aware labels, point-in-time features including staleness ages
+and interactions (R1), leakage audits.
+\item \modrepo{models/xgb\_horizon.py}: per-horizon XGBoost classifiers
+with temporal early stopping and mandatory post-hoc calibration
+(D9.5); reliability reports into \modrepo{eval/}.
+\item Ranker on real data: the existing linear risk-set ranker
+(\modrepo{sector\_ranker.py}) with staleness features, evaluated by the
+recall@$K$ protocol of \cref{ch:ranking} --- this is the first real
+sourcing-list prototype.
+\end{enumerate}
+
+\emph{Gate}: the covariates-vs-excitation decomposition (protocol B2,
+\cref{ch:codeplan}) run on real data --- a nats-ladder note comparing
+seasonal, macro, and history-augmented sector models, recorded in
+\cref{ch:results-spain}; horizon models calibrated within
+tolerance; recall@$K$ baseline numbers frozen for all later
+comparisons.
+
+\section{Phase 2 --- the committed architecture}\label{ch13:sec:phase2}
+
+\emph{Owns: \cref{ch:hawkes,ch:censoring,ch:ranking,ch:universe}.}
+
+\begin{enumerate}[label=P2.\arabic*,leftmargin=3.2em]
+\item Sector-level continuous-time Hawkes at honest resolution via the
+MBPP likelihood (\modrepo{mbpp/} already implements the machinery;
+wire it to the real arrays); excitation reported with the
+upper-bound protocol; the $\branch$--$\decay$ ridge diagnostics of
+\cref{ch:gof} standing.
+\item Grouped-softmax XGBoost objective (\cref{ch:ranking}'s
+gradient/Hessian derivation) so the ranker's score function gains
+interactions while keeping the conditional-likelihood family --- the
+planned response if benchmark B1 (\cref{ch:codeplan}) shows a material
+win for the boosted variant.
+\item Outside option $\lozenge_s$ in the risk set (\cref{ch:universe},
+D11.x): newcomer share becomes a calibrated output; recall@$K$
+denominators split tracked vs.\ newcomer per protocol; Good--Turing and
+coverage audits wired into \modrepo{eval/}.
+\item \modrepo{eval/}: the consolidated harness of \cref{ch:gof} ---
+NLL ladders, PIT/dispersion, time-rescaling, rolling-origin driver,
+recall@$K$/MRR with era-blocked uncertainty --- replacing per-experiment
+ad hoc scripts.
+\item \modrepo{decision/}: the composition layer of \cref{ch:decision}
+(weekly artifacts, caveat propagation, VoI logging).
+\end{enumerate}
+
+\emph{Gate}: end-to-end weekly run on real data producing the three
+deliverables of \cref{ch:decision}; a full evaluation campaign note,
+recorded in \cref{ch:results-spain}, with every metric attached to
+its protocol.
+
+\section{Phase 3 --- escalations, each behind its trigger}\label{ch13:sec:phase3}
+
+\emph{Owns: \cref{ch:stale} (R2--R4), \cref{ch:ranking} (PL),
+\cref{ch:universe} (entrants), \cref{ch:hawkes} (signed kernels,
+frailty).}
+
+\begin{enumerate}[label=P3.\arabic*,leftmargin=3.2em]
+\item \modrepo{covstate/}: the supervised drift dataset from
+consecutive-deal pairs and the imputation API (R2), then the OU/Kalman
+state layer supplying $\Sigma(\staleage)$ (R3); joint modeling (R4)
+strictly behind the attenuation-gap trigger of \cref{ch:stale}.
+\item Plackett--Luce likelihood for multi-deal sector-weeks (D10.x);
+LambdaMART challenger benchmarked, not adopted, unless it beats the
+likelihood family on the consumed metric two campaigns running.
+\item \modrepo{entrants/}: cohort entry intensities on the Lexis
+diagram (\cref{ch:universe}), unlocking honest sector-total decompositions.
+\item Signed continuous-time kernels (route (b) of \cref{ch:hawkes})
+and latent-frailty models: only if a consuming question requires a
+structural continuous-time inhibition or contagion claim that routes
+(a)/(c) cannot express --- each with its own recovery rehearsal first.
+\end{enumerate}
+
+\emph{Gate}: per item, the trigger that justified it, measured before
+and after.
+
+\section{Decision registry}\label{ch13:sec:registry}
+
+The numbered decisions (D$x$.$y$ boxes) of
+\cref{ch:question,ch:data,ch:poisson,ch:hawkes,ch:censoring,ch:gof,ch:stale,ch:buckets,ch:ranking,ch:universe,ch:decision}
+form the registry against which pull requests are reviewed: a change
+that contradicts a decision box must either be rejected or arrive
+together with a documented reversal --- trigger met, evidence
+attached, box amended in this document. The document itself is
+versioned with the code; \cref{ch:results-synth,ch:results-spain}
+append new campaign verdicts rather than overwriting old ones, so the
+evidentiary trail stays auditable.
+
+\begin{codehooks}
+New top-level modules by phase: \modrepo{data/} (P0),
+\modrepo{panel/} and \modrepo{models/xgb\_horizon.py} (P1),
+\modrepo{eval/} and \modrepo{decision/} and the grouped-softmax
+objective (P2), \modrepo{covstate/} and \modrepo{entrants/} (P3).
+Existing modules extended in place: \modrepo{sector\_ranker.py}
+(staleness features, outside option, PL), \modrepo{sector\_stability.py}
+(NB noise), \modrepo{mbpp/} (real-data wiring). The synthetic world
+(\code{synthetic/}) remains the rehearsal stage for every gate.
+\end{codehooks}

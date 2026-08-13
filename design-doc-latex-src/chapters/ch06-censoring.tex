@@ -1,0 +1,886 @@
+% ch06-censoring — untrusted and censored deal times: error models,
+% right censoring under history dependence, interval censoring, and the
+% mean-intensity (MBPP) route of Rizoiu et al. (2022). Owns defect (C4).
+
+\section{What the dates are, and what we choose to trust}\label{ch06:sec:defect}
+
+\Cref{ch:data} recorded, as defect (C4), that the event times $t_m$ of
+\cref{def:ch02:market} are not delivered to us. What PitchBook delivers is a
+recorded date $\hat t_m$ produced by an editorial process: announced versus
+closed dates that differ by days, back-filled records whose dates were
+reconstructed after the fact (often rounded to a month or quarter boundary),
+and duplicate rows collapsed by the hygiene rules of
+\cref{prot:ch02:pit}. Every continuous-time likelihood in
+\cref{ch:poisson,ch:hawkes} consumes $t_m$ as if it were exact; this chapter
+decides what to do when it is not. The thesis is stated once and defended
+throughout: \emph{the correct response to untrusted positions is to choose
+the observation resolution honestly, and to use likelihoods that consume
+only what we trust --- counts of events on intervals, never positions within
+them.} The count is an editorial fact we can audit; the timestamp is an
+editorial choice we cannot.
+
+We formalize the corruption with three assumptions, kept deliberately weak.
+
+\begin{assumption}[Bounded date jitter]\label{asm:ch06:jitter}
+Each deal $m$ has a true time $t_m$ and a recorded time
+$\hat t_m = t_m + \eps_m$ with $\abs{\eps_m} \le \delta_m \le \delta$ for a
+known trust radius $\delta$. Nothing else is assumed about the errors
+$\eps_m$: they may be dependent on each other, on the process, and on the
+marks; they need not be centered. The bound $\delta$ is an output of the
+date audit (\cref{ch06:sec:decisions}), not a modeling choice.
+\end{assumption}
+
+\begin{assumption}[Recording conventions]\label{asm:ch06:convention}
+The recorded date decomposes as
+$\hat t_m = t_m + b(r_m) + \eps_m$, where $r_m \in
+\{\text{closed},\allowbreak \text{announced},\allowbreak
+\text{backfilled}\}$ is an observable record type, $b(\cdot)$ is a
+systematic convention offset with $b(\text{closed}) = 0$, and backfilled
+records may additionally exhibit \emph{heaping}: rounding to calendar
+boundaries, visible as excess mass on month and quarter starts. After
+auditing to a single convention (subtracting an estimated $b$, flagging
+heaped records), the residual error satisfies \cref{asm:ch06:jitter} with a
+type-specific $\delta_m$.
+\end{assumption}
+
+\begin{assumption}[Count completeness]\label{asm:ch06:complete}
+After the deduplication of \cref{prot:ch02:pit}, every in-window deal of the
+tracked process appears exactly once in the record. Corruption lives in the
+\emph{position} $\hat t_m$, never in the \emph{multiplicity}. (Thinning of
+the record --- events missing entirely --- is a different defect: (C6) for
+out-of-universe attribution, (C3) for unobserved exits. This chapter is
+orthogonal to both; see \cref{ch06:sec:decisions}.)
+\end{assumption}
+
+The deliberate weakness of \cref{asm:ch06:jitter} --- adversarial, possibly
+dependent errors --- is what makes the induced modeling choice sharp. If the
+$\eps_m$ were i.i.d.\ with a known density we could deconvolve; we refuse to
+assume that, because announced-versus-closed offsets are systematic, not
+noise. Under adversarial bounded jitter the only event-level statements that
+survive are set-membership statements, and the following proposition is the
+complete list of what we keep.
+
+\begin{proposition}[What bounded jitter leaves invariant]\label{prop:ch06:jitterrobust}
+Let $0 = o_0 < o_1 < \cdots < o_J = \Tend$ be a partition into bins
+$I_j = (o_{j-1}, o_j]$ of width $\horizon = o_j - o_{j-1}$, let
+$C_j = \#\{m : t_m \in I_j\}$ be the true bin counts and
+$\hat C_j = \#\{m : \hat t_m \in I_j\}$ the observed ones. Under
+\cref{asm:ch06:jitter,asm:ch06:complete}:
+\begin{enumerate}[label=(\roman*)]
+\item every event observed in bin $j$ has its true time in the dilated bin
+$(o_{j-1}-\delta,\, o_j+\delta]$;
+\item $\abs{\hat C_j - C_j} \le
+\#\{m : \min_k \abs{t_m - o_k} \le \delta\}$ restricted to the two
+boundaries of $I_j$: only events within $\delta$ of a bin boundary can be
+miscounted, and only into an adjacent bin;
+\item if the process has locally bounded mean rate
+$\sup_t \E[\lam(t)] \le \bar\lam_{\sup}$, then
+$\E\abs{\hat C_j - C_j} \le 4\delta\,\bar\lam_{\sup}$, so the expected
+miscounted \emph{fraction} per bin is of order $4\delta/\horizon$;
+\item counts over unions of consecutive bins are more robust still:
+transfers across interior boundaries cancel, leaving only the two outer
+boundaries.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+(i) is immediate from $\abs{\hat t_m - t_m}\le\delta$. (ii): an event with
+$t_m \in I_j$ and $\hat t_m \notin I_j$ requires $\hat t_m$ on the far side
+of $o_{j-1}$ or $o_j$, hence $\abs{t_m - o_k}\le\delta$ for a boundary of
+$I_j$; conversely for events entering $I_j$. (iii): by (ii) and the mean-measure
+bound $\E\,\#\{m: t_m \in A\} = \int_A \E[\lam] \le
+\abs{A}\,\bar\lam_{\sup}$, the expected number of events within $\delta$ of
+a fixed boundary is at most $2\delta\,\bar\lam_{\sup}$; each bin has two
+boundaries. Comparing with $\E C_j \asymp \horizon\bar\lam$ gives
+the fraction. (iv): an event transferred from $I_j$ to $I_{j+1}$ leaves the
+count of $I_j \cup I_{j+1}$ unchanged.
+\end{proof}
+
+The induced choice is now forced. Any inference that reads event
+\emph{positions} at scales comparable to $\delta$ is reading editorial
+noise; any inference that reads \emph{counts} on bins of width
+$\horizon \gg \delta$ is reading the process, up to a boundary-transfer
+error of controlled order $4\delta/\horizon$ that vanishes as the resolution
+coarsens. We therefore commit to modeling at resolution no finer than the
+trust radius --- in practice $\horizon \ge$ several multiples of $\delta$ ---
+at which point \emph{the data is, by construction, interval-censored count
+data}, and the rest of this chapter builds the likelihoods that consume
+exactly that and nothing more. One reassurance before the hard work: the
+mark factor of \cref{eq:ch01:groundmark} conditions on a deal occurring and
+compares candidates within a risk set, so it consumes dates only through
+risk-set membership and coarse ordering; jitter at the scale of days is
+invisible to it (\cref{ch:ranking} quantifies this). It is the ground
+process --- the timing factor --- that absorbs (C4), which is why this
+chapter is about intensities.
+
+\section{Right censoring with history-dependent intensities}\label{ch06:sec:rightcens}
+
+Before interval censoring, we settle right censoring --- defect (C1) --- for
+the Hawkes case, because a doubt naturally arises there that does not arise
+for Poisson models. For an NHPP the censored-window contribution
+$\exp(-\int\lam)$ involves a deterministic function, and the argument of
+\cref{ch:poisson} is elementary. For a Hawkes process the intensity is
+random and feeds on the history: one might worry that the survival factor
+for the window $(t_{\text{last}}, \Tend]$ secretly depends on events we have
+not seen, or that the ABGK independent-censoring argument breaks. It does
+not, and the reason --- predictability --- is worth stating precisely,
+because it is the same property that will \emph{fail} to rescue us under
+interval censoring.
+
+\begin{assumption}[Independent, noninformative censoring]\label{asm:ch06:indcens}
+Let $N$ be a counting process with $\Ft$-intensity
+$\atrisk(t)\lam(t;\thetamodel)$ as in \cref{def:ch02:intensity}. There is an
+enlarged filtration $\mathcal{G}_t \supseteq \Ft$ carrying the censoring
+information such that (i) the $\mathcal{G}_t$-intensity of $N$ is still
+$\atrisk(t)\lam(t;\thetamodel)$; (ii) the censoring indicator
+$C(t)\in\{0,1\}$ (e.g.\ $C(t)=\ind{t \le \tau}$ for a censoring time
+$\tau$) is $\mathcal{G}_t$-predictable; (iii) the censoring mechanism's
+factor in the full likelihood does not involve $\thetamodel$
+\citep[III.2]{abgk1993}. Administrative censoring at the fixed date
+$\Tend$ (June 2024) satisfies all three with $\mathcal{G}=\F$ and
+$C(t)=\ind{t\le\Tend}$.
+\end{assumption}
+
+\begin{theorem}[Censored-window validity for history-dependent intensities]\label{thm:ch06:rightcensor}
+Under \cref{asm:ch06:indcens}, with $\lam$ any $\mathcal{G}$-predictable
+intensity --- in particular the Hawkes intensity
+$\lam(t) = \mub(t) + \sum_{t_m < t} \kernel(t - t_m)$, which depends on the
+realized history:
+\begin{enumerate}[label=(\roman*)]
+\item the observed process $N^{o}(t) = \int_0^t C(u)\dd N(u)$ has
+$\mathcal{G}_t$-intensity $C(t)\,\atrisk(t)\,\lam(t;\thetamodel)$;
+\item the likelihood of the observed data factorizes as the Jacod
+likelihood \cref{eq:ch02:jacod} evaluated with intensity
+$C\atrisk\lam$, times a factor free of $\thetamodel$; the first factor is
+therefore a genuine partial likelihood, and a censored spell contributes
+exactly its survival factor
+$\exp\!\big({-}\!\int_{\text{spell}} \lam\big)$ --- no term dropped, no
+term invented;
+\item the score of this partial likelihood is a $\mathcal{G}$-martingale
+evaluated at $\Tend$, so the estimation theory of \cref{ch:foundations}
+(unbiased score, information identities, asymptotic normality) applies
+unchanged.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+(i) $M = N - \int \atrisk\lam\dd u$ is a local $\mathcal{G}$-martingale by
+\cref{asm:ch06:indcens}(i). The process $C$ is bounded and
+$\mathcal{G}$-predictable by (ii), so the stochastic integral
+$\int_0^t C \dd M = N^{o}(t) - \int_0^t C\atrisk\lam \dd u$ is again a local
+$\mathcal{G}$-martingale; since $\int C\atrisk\lam\dd u$ is predictable and
+nondecreasing, it is the compensator of $N^{o}$, i.e.\ $C\atrisk\lam$ is the
+intensity of the observed process. Observe what the proof used: boundedness
+and predictability of $C$, predictability of $\lam$ --- \emph{nowhere} that
+$\lam$ is deterministic. History dependence is immaterial because
+predictability is preserved under enlargement by
+\cref{asm:ch06:indcens}(i); this is the ABGK III.2 argument verbatim.
+(ii) is the standard likelihood factorization for counting processes with
+the intensity from (i) \citep[II.7, III.2]{abgk1993}: the full likelihood is
+the product integral of the observed-jump and survival factors for $N^{o}$
+times the censoring factor, and (iii) removes the latter from the
+maximization. (iii) follows because the score is
+$\int_0^{\Tend} \partial_{\thetamodel}\log\lam \,(\dd N^{o} -
+C\atrisk\lam\dd u)$, a stochastic integral of a predictable process against
+the martingale of (i).
+\end{proof}
+
+What, then, is genuinely different from the Poisson case? Only this: the
+survival factor is now \emph{random} --- but it is a functional of the
+\emph{observed} data alone. The next proposition makes the spec's
+``depends on the unobserved post-censoring events only through ---
+nothing'' precise.
+
+\begin{proposition}[Locality of the compensator]\label{prop:ch06:locality}
+Let $\tau \le \Tend$ be the censoring time of \cref{asm:ch06:indcens} and
+let $\lam$ be the Hawkes intensity with causal kernel ($\kernel$ supported
+on $(0,\infty)$). For every $t \le \tau$, $\lam(t)$ is measurable with
+respect to $\Hist_{t^-}$, the history of events \emph{strictly before} $t$;
+consequently the integrated compensator
+$\Lam(\tau) = \int_0^{\tau}\lam(u)\dd u$ is measurable with respect to the
+observed history $\Hist_{\tau}$, and the survival factor
+$e^{-\Lam(\tau)}$ is a deterministic functional of the data we possess.
+Events in $(\tau, \infty)$ --- observed or not --- enter neither the event
+terms nor the compensator of \cref{thm:ch06:rightcensor}(ii).
+\end{proposition}
+
+\begin{proof}
+$\lam(t) = \mub(t) + \sum_{t_m < t}\kernel(t - t_m)$ involves only event
+times $t_m < t \le \tau$, all of which are uncensored under
+\cref{asm:ch06:complete}; measurability of the integral follows from joint
+measurability of the predictable path $u \mapsto \lam(u)$ on $(0,\tau]$ and
+Tonelli. The claim is exactly the statement that the compensator up to a
+stopping time is determined by the pre-stopping-time path --- the defining
+property of predictability, which the Hawkes feedback respects because the
+kernel is causal.
+\end{proof}
+
+\begin{warning}[Completeness of the pre-censoring record is now load-bearing]\label{warn:ch06:missingpast}
+For a Poisson model, an event missing from the record costs exactly its own
+two terms (one jump term, one sliver of compensator); the rest of the
+likelihood is untouched. For a Hawkes model, a missing past event corrupts
+the intensity \emph{path} at every later time: the reconstructed
+$\lam(t)$ omits a kernel contribution $\kernel(t - t_m)$, so every
+subsequent event term and the entire survival factor are evaluated at the
+wrong intensity. The bias has no universal sign --- the fitted baseline
+$\mub$ and branching scale $\branch$ reapportion the missing excitation ---
+which is precisely why \cref{asm:ch06:complete} (counts complete, positions
+untrusted) is the boundary of this chapter's mandate: it protects the
+history that the intensity feeds on. Where completeness itself fails, we
+are in (C3)/(C6) territory and no date discipline repairs it.
+\end{warning}
+
+\section{Interval censoring for Poisson models: exactness}\label{ch06:sec:icpoisson}
+
+Coarsening event times to bin counts is interval censoring by construction.
+For the Poisson rung of the ladder this costs \emph{no approximation at
+all} --- only resolution. We restate the binned-likelihood theorem of
+\cref{ch:poisson} in the form needed here, and prove it by a route chosen
+deliberately: the same configuration integral, evaluated for a
+history-dependent intensity in the next section, is exactly where
+tractability dies.
+
+\begin{proposition}[Binned NHPP likelihood is exact]\label{prop:ch06:binnedpoisson}
+Let $N$ be an NHPP with deterministic, locally integrable intensity
+$\lam(t;\thetamodel)$ on $(0,\Tend]$, and let $I_1,\dots,I_J$ partition
+$(0,\Tend]$ with $\Lam_j(\thetamodel) = \int_{I_j}\lam(u;\thetamodel)\dd u$.
+Then the bin counts $C_1,\dots,C_J$ are independent with
+$C_j \sim \mathrm{Poisson}(\Lam_j)$, and the log-likelihood of the
+interval-censored data,
+\begin{equation}\label{eq:ch06:binnedpoisson}
+\loglik_{\mathrm{IC}}(\thetamodel)
+ \;=\;
+ \sum_{j=1}^{J}\Big( C_j \log \Lam_j(\thetamodel) - \Lam_j(\thetamodel)
+ - \log C_j! \Big),
+\end{equation}
+is the \emph{exact} likelihood of what was observed --- not an
+approximation to the event-time likelihood but the correct likelihood of
+the coarsened data. Moreover, if $\lam(\cdot;\thetamodel)$ is constant on
+each bin (the weekly piecewise-constant models of \cref{ch:poisson}), the
+counts are sufficient for $\thetamodel$ and coarsening loses nothing; in
+general the loss is confined to the within-bin shape of $\lam$.
+\end{proposition}
+
+\begin{proof}
+Start from the density of the ordered event times under the full model: for
+$n$ events at $0 < t_1 < \cdots < t_n \le \Tend$,
+$f(t_{1:n}) = \prod_{m=1}^{n}\lam(t_m)\,
+e^{-\int_0^{\Tend}\lam(u)\dd u}$. The probability of the count vector
+$C_{1:J}$ (with $n = \sum_j C_j$) is the integral of $f$ over the
+configuration region
+$\mathcal{A}(C_{1:J}) = \{\,0<t_1<\cdots<t_n\le\Tend :
+\#\{m: t_m \in I_j\} = C_j \ \forall j\,\}$. Because $\lam$ is
+deterministic, the integrand is a product of factors each depending on one
+coordinate only, so the ordered integral factorizes across bins, and within
+bin $j$ the ordered integral of $\prod\lam$ over the $C_j$-dimensional
+ordered simplex equals $\Lam_j^{C_j}/C_j!$. Hence
+$\Prob(C_{1:J}) = \prod_j \big(\Lam_j^{C_j}/C_j!\big)\,e^{-\Lam_j}$, which
+is \cref{eq:ch06:binnedpoisson} and simultaneously the independence and
+Poisson-marginal claims. Sufficiency under piecewise-constant $\lam$ is the
+factorization criterion applied to \cref{eq:ch06:binnedpoisson}: the
+likelihood depends on the data only through $C_{1:J}$.
+\end{proof}
+
+\begin{corollary}[For NHPP calibration, untrusted dates cost only resolution]\label{cor:ch06:resolutiononly}
+Under \cref{asm:ch06:jitter,asm:ch06:complete}, fitting any NHPP of
+\cref{ch:poisson} on bin counts at resolution $\horizon \gg \delta$ uses an
+exact likelihood (\cref{prop:ch06:binnedpoisson}) applied to data whose
+corruption is bounded by \cref{prop:ch06:jitterrobust}(iii). No
+approximation enters anywhere; the entire price of (C4) is the inability to
+resolve $\lam$ within bins --- a price we were going to pay anyway by
+modeling weekly.
+\end{corollary}
+
+This is the sense in which the weekly sector GLM of the current
+two-layer architecture (\modrepo{sector\_stability.py}) is already fully
+(C4)-compliant: it never consumed positions in the first place. The
+classical ancestor of likelihoods under grouped and censored observation is
+\citet{turnbull1976}; what is distinctive in our setting is not grouping
+per se but the interaction of grouping with \emph{dependence}, which is the
+next section's subject.
+
+\section{Interval censoring for Hawkes: where exactness dies}\label{ch06:sec:ichawkes}
+
+Run the proof of \cref{prop:ch06:binnedpoisson} again with the Hawkes
+intensity. The density of the ordered times is still the Jacod product, so
+the exact interval-censored likelihood is still a configuration integral:
+\begin{equation}\label{eq:ch06:icexact}
+\lik_{\mathrm{IC}}(\thetamodel)
+ \;=\;
+ \int_{\mathcal{A}(C_{1:J})}
+ \prod_{m=1}^{n} \lam\big(t_m \st \Hist_{t_m^-};\thetamodel\big)\;
+ \exp\!\Big({-}\!\int_0^{\Tend}\!\lam\big(u \st \Hist_{u^-};
+ \thetamodel\big)\dd u\Big)\;
+ \dd t_1 \cdots \dd t_n,
+\end{equation}
+with $\lam(t\st\Hist_{t^-}) = \mub(t) + \sum_{t_m < t}\kernel(t-t_m)$ and
+$n = \sum_j C_j$. But now the factorization step fails, for the precise
+reason the model was chosen: the intensity at $t_m$ depends on the
+\emph{positions} of all earlier events, including those in earlier bins and
+those in the same bin. The integrand does not separate across bins, the
+within-bin integrals are not simplex moments of a fixed function, and
+\cref{eq:ch06:icexact} is an $n$-dimensional integral --- at the scale of
+this dataset, dimension $\sim 5\times 10^4$ --- over a
+combinatorially-constrained region, with no product structure to exploit.
+Data augmentation (imputing positions by MCMC or EM over
+\cref{eq:ch06:icexact}) is possible in principle and is how the Bayesian
+literature treats small problems \citep{rasmussen2013}; at our scale, and
+for a likelihood that must be refit across sectors, splits, and rehearsal
+campaigns, it is not a workable primary route. The likelihood requires
+event positions inside bins \emph{because intensity feeds back on
+history}; interval censoring withholds exactly that. Something must give,
+and the honest thing to give up is the randomness of the intensity ---
+replacing it by its mean --- rather than the honesty of the resolution.
+
+\section{The mean-intensity route}\label{ch06:sec:mbpp}
+
+This section is the chapter's centerpiece: the \emph{mean behavior Poisson
+process} (MBPP) of \citet{rizoiu2022}, implemented in
+\modrepo{mbpp/}. The idea is to fit, instead of the intractable
+interval-censored Hawkes likelihood, the exact interval-censored likelihood
+of the NHPP whose deterministic intensity is the \emph{expected} Hawkes
+intensity. The parameters $(\mub,\branch,\decay)$ are shared, the first
+moments are matched exactly, and the price --- discarded dependence and
+overdispersion --- is stated, bounded, and paid with open eyes.
+
+\subsection{The mean intensity and its Volterra equation}\label{ch06:sec:volterra}
+
+\begin{theorem}[Renewal equation for the mean intensity]\label{thm:ch06:volterra}
+Let $N$ be a Hawkes process on $[0,\Tend]$ with intensity
+$\lam(t) = \mub(t) + \int_{(0,t)}\kernel(t-u)\dd N(u)$, where $\mub$ is
+deterministic, locally bounded, and $\kernel \ge 0$ with
+$\int_0^\infty \kernel = \branch < 1$. Then the mean intensity
+$\lambar(t) \defeq \E[\lam(t)]$ is finite and satisfies the linear Volterra
+equation of the second kind
+\begin{equation}\label{eq:ch06:volterra}
+\lambar(t) \;=\; \mub(t) \;+\; \int_0^{t} \kernel(t-u)\,\lambar(u)\dd u .
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+\emph{Step 1 (finiteness).} By the cluster representation of
+\cref{ch:hawkes} \citep{hawkesoakes1974}, $N$ is the superposition of
+immigrant events arriving with rate $\mub$ and, per event, an independent
+Galton--Watson cascade with offspring mean $\branch < 1$; the expected
+total progeny per immigrant is $1/(1-\branch)$, so
+$\E N(t) \le \int_0^t \mub(u)\dd u \,/\, (1-\branch) < \infty$, and
+$\lambar(t) \le \mub(t) + \branch\decay \,\E N(t) < \infty$ for the
+exponential kernel (and similarly for any bounded kernel).
+
+\emph{Step 2 (martingale property of the compensator).} For any
+\emph{nonnegative predictable} integrand $H$, the defining property of the
+intensity gives the compensator formula
+$\E\int_0^t H(u)\dd N(u) = \E \int_0^t H(u)\lam(u)\dd u$, both sides
+possibly infinite \citep[II.4]{abgk1993}; this is the statement
+$\E[\dd N(u)] = \lambar(u)\dd u$ made rigorous. Fix $t$ and apply it to the
+deterministic (hence predictable) integrand $H(u) = \kernel(t-u)\ind{u<t}$:
+\[
+\E\!\int_{(0,t)} \kernel(t-u)\dd N(u)
+ \;=\; \E\!\int_0^{t} \kernel(t-u)\,\lam(u)\dd u
+ \;=\; \int_0^{t} \kernel(t-u)\,\lambar(u)\dd u ,
+\]
+the last step by Tonelli (nonnegative integrand) and Step 1. Taking
+expectations through
+$\lam(t) = \mub(t) + \int_{(0,t)}\kernel(t-u)\dd N(u)$ yields
+\cref{eq:ch06:volterra}.
+\end{proof}
+
+Note what was used: only the compensator formula --- the same martingale
+structure that powers every likelihood in this document --- plus
+subcriticality for finiteness. No stationarity, no exponential form, no
+constant baseline.
+
+\begin{theorem}[Existence, uniqueness, Neumann series]\label{thm:ch06:neumann}
+Under the hypotheses of \cref{thm:ch06:volterra},
+\cref{eq:ch06:volterra} has exactly one locally bounded solution on
+$[0,\Tend]$, namely
+\begin{equation}\label{eq:ch06:neumann}
+\lambar \;=\; \mub + R * \mub,
+\qquad
+R \;\defeq\; \sum_{n\ge 1} \kernel^{*n},
+\qquad
+\int_0^\infty R \;=\; \frac{\branch}{1-\branch},
+\end{equation}
+where $\kernel^{*n}$ is the $n$-fold convolution power. Picard iteration
+$\lambar_{k+1} = \mub + \kernel * \lambar_k$, $\lambar_0 = \mub$, converges
+to it geometrically:
+$\sup_{[0,\Tend]}\abs{\lambar_k - \lambar} \le
+\branch^{\,k+1}\,(1-\branch)^{-1} \sup_{[0,\Tend]}\mub$.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+The map $\Phi(f) = \mub + \kernel * f$ on
+$(L^\infty[0,\Tend], \norm{\cdot}_\infty)$ satisfies
+$\norm{\Phi(f)-\Phi(g)}_\infty \le \norm{\kernel}_{L^1}
+\norm{f-g}_\infty = \branch\norm{f-g}_\infty$, a contraction since
+$\branch<1$; Banach's fixed point theorem gives existence, uniqueness among
+bounded solutions, and the geometric rate. Unrolling the iteration gives
+the Neumann series \cref{eq:ch06:neumann}, whose mass identity follows from
+$\norm{\kernel^{*n}}_{L^1} = \branch^n$ and geometric summation. The
+general theory of Volterra equations --- including the resolvent
+formalism, $L^1$ well-posedness, and what survives when
+$\branch \ge 1$ locally --- is \citet{gripenberg1990}. When
+$\branch \uparrow 1$ the geometric rate degrades as $(1-\branch)^{-1}$ and
+at criticality the series diverges: the mean-intensity route inherits
+exactly the stability boundary of the process itself.
+\end{proof}
+
+The resolvent $R$ has a probabilistic reading that connects back to
+\cref{ch:hawkes}: $\kernel^{*n}$ is the arrival density of $n$-th
+generation offspring, so \cref{eq:ch06:neumann} says the mean intensity is
+the immigrant rate plus the expected arrival rate of descendants of all
+generations --- the cluster representation, averaged.
+
+\subsection{Exponential kernel: closed form}\label{ch06:sec:closedform}
+
+\begin{proposition}[Closed form for the exponential kernel]\label{prop:ch06:expclosed}
+Let $\kernel(t) = \branch\decay e^{-\decay t}$ and $\mub(t)\equiv\mub$
+constant, with $\branch\in(0,1)$, $\decay>0$. Then
+\begin{equation}\label{eq:ch06:expclosed}
+\lambar(t)
+ \;=\;
+ \mub \;+\; \frac{\branch\decay\,\mub}{(1-\branch)\decay}
+ \Big(1 - e^{-(1-\branch)\decay\, t}\Big)
+ \;=\;
+ \mub \;+\; \frac{\branch\,\mub}{1-\branch}
+ \Big(1 - e^{-(1-\branch)\decay\, t}\Big),
+\end{equation}
+so $\lambar$ relaxes from $\lambar(0)=\mub$ to the stationary level
+$\lambar(\infty) = \mub/(1-\branch)$ at the \emph{effective relaxation
+rate} $r = (1-\branch)\decay$. Equivalently, the resolvent is itself
+exponential, $R(t) = \branch\decay\, e^{-(1-\branch)\decay t}$, and for
+\emph{time-varying} $\mub(\cdot)$ the solution is the single convolution
+$\lambar = \mub + R*\mub$; the integrated version
+$\bar\Lam(t) = \int_0^t \lambar$ obeys the same equation,
+$\bar\Lam = \int_0^\cdot \mub + \kernel * \bar\Lam$.
+\end{proposition}
+
+\begin{proof}
+Write $\lambar(t) = \mub + g(t)$ with
+$g(t) = \int_0^t \branch\decay\, e^{-\decay(t-u)}\lambar(u)\dd u$. The
+kernel's exponential form makes $g$ differentiable with
+\[
+g'(t) \;=\; \branch\decay\,\lambar(t) \;-\; \decay\, g(t)
+ \;=\; \branch\decay\big(\mub + g(t)\big) - \decay\, g(t)
+ \;=\; \branch\decay\,\mub \;-\; (1-\branch)\decay\, g(t),
+\]
+a linear ODE with $g(0)=0$, solved by
+$g(t) = \dfrac{\branch\decay\,\mub}{(1-\branch)\decay}
+\big(1 - e^{-(1-\branch)\decay t}\big)$; adding $\mub$ gives
+\cref{eq:ch06:expclosed}. \emph{Sanity checks.} At $t=0$ the excitation has
+not started: $\lambar(0)=\mub$. As $t\to\infty$,
+$\lambar \to \mub + \branch\mub/(1-\branch) = \mub/(1-\branch)$ --- the
+immigrant rate times the mean cluster size, agreeing with the cluster
+representation and with the stationary Hawkes mean of \cref{ch:hawkes};
+and substituting the constant $\mub/(1-\branch)$ into
+\cref{eq:ch06:volterra} verifies it is the fixed point. For the resolvent
+claim, either solve $R = \kernel + \kernel * R$ by the same ODE argument or
+sum the Erlang series
+$\kernel^{*n}(t) = \branch^n \decay^n t^{n-1}e^{-\decay t}/(n-1)!$
+directly; then $\lambar = \mub + R*\mub$ is
+\cref{eq:ch06:neumann}. The equation for $\bar\Lam$ follows by integrating
+\cref{eq:ch06:volterra} and Fubini.
+\end{proof}
+
+The repository implements exactly this structure
+(\modrepo{mbpp/core.py}): the impulse response
+$R(t) = \branch\decay e^{(\branch-1)\decay t}$ is Eq.~(14) of
+\citet{rizoiu2022}; their Theorems~1--2 and Corollary~3 give
+$\lambar = s + R * s$ and $\bar\Lam = S + R * S$ in closed form for every
+exogenous input $s(\cdot)$ in \modrepo{mbpp/exogenous.py} (constant,
+rectangle, piecewise-constant, sinusoidal, impulse trains, and
+covariate-driven baselines), with a numerical finite-convolution solver for
+kernels without closed forms (power-law). The relaxation rate
+$r = (1-\branch)\decay$ of \cref{prop:ch06:expclosed} will reappear twice:
+as the decay rate of cross-bin count correlation, and as the parameter
+whose product with the bin width governs the $\branch$--$\decay$ ridge.
+
+\subsection{The MBPP working likelihood, and precisely what it discards}\label{ch06:sec:mbpplik}
+
+\begin{definition}[Mean behavior Poisson process and IC likelihood]\label{def:ch06:mbpp}
+The MBPP associated with a Hawkes model $(\mub,\kernel)$ is the NHPP with
+deterministic intensity $\lambar(\cdot)$ solving
+\cref{eq:ch06:volterra}. Its interval-censored log-likelihood on the
+partition of \cref{prop:ch06:jitterrobust} is the exact Poisson form
+\cref{eq:ch06:binnedpoisson} with means
+$\bar\Lam_j(\thetamodel) = \int_{I_j}\lambar(u;\thetamodel)\dd u$:
+\begin{equation}\label{eq:ch06:mbppll}
+\loglik_{\mathrm{MBPP}}(\thetamodel)
+ \;=\;
+ \sum_{j=1}^{J} \Big( C_j \log \bar\Lam_j(\thetamodel)
+ \;-\; \bar\Lam_j(\thetamodel) \Big) \;+\; \text{const},
+\end{equation}
+maximized over $\thetamodel = (\mub, \branch, \decay, \dots)$
+(\modrepo{mbpp/interval\_censored.py}, \code{fit\_mbpp\_ic}).
+\end{definition}
+
+Because precision about approximations is this document's currency, we
+state exactly what \cref{eq:ch06:mbppll} gets right and wrong when the data
+is generated by the Hawkes process itself.
+
+\emph{Exact: the first moments.} By \cref{thm:ch06:volterra} and the
+compensator formula, $\E C_j = \E\int_{I_j}\lam = \bar\Lam_j$
+\emph{exactly}, for every $j$, transient or stationary. Consequently the
+expected score of \cref{eq:ch06:mbppll} at the true parameters is
+$\sum_j (\E C_j/\bar\Lam_j - 1)\partial_{\thetamodel}\bar\Lam_j = 0$: the
+MBPP maximum-likelihood estimator is an M-estimator with an unbiased
+estimating equation --- a moment-matching estimator dressed as a
+likelihood --- and is consistent under the usual regularity and ergodicity
+conditions for correctly specified means. \citet[Prop.~8]{rizoiu2022} give
+the population version: the expected IC log-likelihood is (up to constants)
+the generalized Kullback--Leibler divergence between the true interval
+means and the model's interval compensators, minimized exactly at
+parameters reproducing the true means --- identifiability is preserved
+\emph{in the KL sense}, to the extent that the interval means themselves
+separate the parameters (they pin $\mub$ and $\branch$ through levels and
+transients; how much of $\decay$ they retain is
+\cref{ch06:sec:ridge}).
+
+\emph{Discarded: the second moments.} Two falsehoods are asserted by
+\cref{eq:ch06:mbppll}. First, that $C_j$ is Poisson --- but the Hawkes
+random compensator $\int_{I_j}\lam$ has been replaced by its expectation,
+and the law of total variance charges for it:
+$\Var(C_j) = \E[\text{(martingale variation)}] + \Var\big(\textstyle
+\int_{I_j}\lam\big) + \text{cross terms} > \E C_j$. Second, that
+$C_1,\dots,C_J$ are independent --- but excitation propagates across bin
+boundaries, and for the exponential kernel the count autocovariance decays
+geometrically with lag at exactly the AR root $e^{-r\horizon}$,
+$r = (1-\branch)\decay$. The next proposition quantifies the first
+falsehood; the second is smallest precisely when bins are wide relative to
+the relaxation time $1/r$.
+
+\begin{proposition}[Hawkes bin counts are overdispersed]\label{prop:ch06:overdisp}
+For a stationary Hawkes process with $\kernel = \branch\decay
+e^{-\decay t}$, $\branch\in(0,1)$, constant $\mub$, let
+$F(\horizon) = \Var(C_j)/\E(C_j)$ be the Fano factor of a bin of width
+$\horizon$. Then
+\begin{equation}\label{eq:ch06:fano}
+F(\horizon) \;\longrightarrow\; 1 \quad (\horizon \to 0),
+\qquad
+F(\horizon) \;\longrightarrow\; \frac{1}{(1-\branch)^2}
+\quad (\horizon \to \infty),
+\end{equation}
+and $F(\horizon) > 1$ for all $\horizon > 0$: true bin counts are strictly
+overdispersed relative to the Poisson law asserted by
+\cref{eq:ch06:mbppll}, by a factor approaching $(1-\branch)^{-2}$ for wide
+bins.
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+\emph{Wide bins.} By the cluster representation
+\citep{hawkesoakes1974}, $N$ is a superposition of i.i.d.\ clusters
+attached to Poisson($\mub$) immigrants; the total cluster size $S$ is the
+total progeny of a Galton--Watson process with Poisson($\branch$)
+offspring, for which $\E S = (1-\branch)^{-1}$ and
+$\Var S = \branch(1-\branch)^{-3}$. Cluster durations have finite mean
+(exponential delays), so as $\horizon\to\infty$ the count over a bin is,
+up to boundary terms of $O(1)$ against a mean of $O(\horizon)$, a compound
+Poisson sum $\sum_{i\le K} S_i$ with $K\sim$ Poisson($\mub\horizon$);
+hence
+$F \to \E S^2/\E S = \big(\Var S + (\E S)^2\big)/\E S =
+\branch(1-\branch)^{-2} + (1-\branch)^{-1} = (1-\branch)^{-2}$.
+\emph{Narrow bins.} $\E[C_j(C_j-1)] = \iint_{I_j^2}\rho_2 = O(\horizon^2)$
+for the (bounded) second-order product density $\rho_2$ of the stationary
+process, while $\E C_j = \Theta(\horizon)$, so
+$F = 1 + O(\horizon) \to 1$. Strict inequality for all $\horizon$ follows
+from positivity of the covariance density of a self-exciting process with
+nonnegative kernel \citep{hawkes1971,daley2003}. What breaks if
+$\branch \ge 1$: $\E S = \infty$ and the Fano factor diverges --- another
+face of the stability boundary.
+\end{proof}
+
+\begin{warning}[MBPP standard errors are optimistic]\label{warn:ch06:optimisticse}
+The observed-information standard errors of \cref{eq:ch06:mbppll} (as
+reported by \code{fit\_mbpp\_ic}) price the counts as Poisson and
+independent. By \cref{prop:ch06:overdisp} the true variance is up to
+$(1-\branch)^{-2}$ larger per bin --- at the rehearsal's
+$\branch\approx0.35$ a ceiling of $\approx 2.4$, i.e.\ na\"ive standard
+errors up to $\approx (1-\branch)^{-1}\approx1.5\times$ too small --- and
+positive cross-bin correlation compounds the understatement. (This
+$2.4$ is a derived variance ceiling, unrelated to the $2.4\times$
+branching-ratio inflation under latent frailty recorded in
+\cref{app:results}.) Remedies, in committed order: (i) sandwich
+(robust M-estimation) covariance, $\Fisher^{-1} V \Fisher^{-1}$ with $V$
+the empirical score variance --- valid because the estimating equation is
+unbiased regardless of the working variance \citep[Ch.~5]{vandervaart1998};
+(ii) a negative-binomial working likelihood with variance
+$\bar\Lam_j + \bar\Lam_j^2/\nu$ when the dispersion diagnostic of
+\cref{ch:gof} (Pearson statistic, \modrepo{mbpp/gof.py}) exceeds the
+predicted Fano band; (iii) the Bayesian route of \modrepo{mbpp/bayes.py},
+whose posterior exhibits the $\branch$--$\decay$ ridge as a correlation
+instead of hiding it in a scalar. Never report the na\"ive SEs alone.
+\end{warning}
+
+\emph{When is the mean-intensity replacement good?} Three regimes, all of
+which hold for our intended use. (i) \emph{Aggregation over many
+low-feedback units:} sector-level counts superpose many firms' sparse
+streams; superpositions of many sparse, weakly dependent point processes
+are close to Poisson \citep[Ch.~9]{daley2003}, so the Poisson working law
+is close to true even before the mean replacement. (ii) \emph{Subcritical,
+moderate $\branch$:} the entire second-moment error is bounded by the Fano
+ceiling $(1-\branch)^{-2}$, which is $O(1)$ and known; the fitted
+$\branch$ on this data lives near $0.3$--$0.4$, far from the boundary.
+(iii) \emph{Bin width at or beyond the kernel half-life:} the neglected
+cross-bin dependence has AR root $e^{-r\horizon}$, small once
+$\horizon \gtrsim 1/r$; and within-bin position information --- the thing
+MBPP cannot use --- was already destroyed by (C4). The regime where MBPP is
+\emph{bad} is the mirror image: a single high-$\branch$ stream at fine
+resolution, where one should be fitting the event-time likelihood of
+\cref{ch:hawkes} instead --- on verified dates.
+
+\subsection{What survives aggregation: $\branch$ yes, $\decay$ no}\label{ch06:sec:ridge}
+
+The stationary interval mean is
+$\bar\Lam_j = \mub\horizon/(1-\branch)$: it contains $\branch$ and
+\emph{no trace of} $\decay$. All $\decay$-information in counts therefore
+lives in temporal structure --- transients of
+\cref{eq:ch06:expclosed} and cross-bin autocovariances --- and both enter
+only through the relaxation root $e^{-r\horizon}$. The rehearsal campaigns
+made this quantitative (inherited results, \cref{app:results}): the
+Fisher information for $\decay$ carried by counts decays like
+$\horizon^{2}e^{-2(1-\branch)\decay\horizon}$ --- exponentially in the bin
+width --- so binning does not merely blur the timescale, it erases it. At
+daily bins the misspecified regime-B world ($\decay = \ln 2/7$ per day)
+was recovered unbiased; at weekly bins ($\approx$ one half-life)
+essentially nothing was lost; at 28-day bins ($\approx 4$ half-lives) the
+$\decay$ estimate was biased low by $\sim20\%$ \emph{with a deceptively
+small spread} --- the signature of an unidentified direction collapsing
+onto a ridge --- while $\branch$, read from first moments, stayed within
+$0.28$--$0.38$ of its true $0.35$ at every width. Hence the standing rule,
+inherited as a veto: \emph{bucket width $\le$ one kernel half-life is safe
+for $\decay$; $\ge$ four half-lives destroys timing; $\branch$ and
+covariate effects survive any width}. The Bayesian implementation
+(\modrepo{mbpp/bayes.py}) is the honest reporting vehicle on the ridge: a
+flat-prior posterior on $(\branch,\decay)$ stays wide along $\decay$ and
+tight along $\branch$, and a $\decay$ prior from a verified-date subset
+tightens it legitimately.
+
+\begin{warning}[Never claim timing precision finer than the honest resolution]\label{warn:ch06:timingclaims}
+A $\decay$ fitted from weekly counts is a ridge coordinate, not a
+measurement. Design consequence, binding on every downstream consumer
+(\cref{ch:decision}): no model output may assert within-week timing
+structure --- expected response times, decay half-lives, ``momentum
+windows'' --- unless $\decay$ was estimated from a verified-date subset at
+event-time resolution, and the honest resolution of the input data is
+reported next to any timing claim. The corresponding failure mode is
+seductive precisely because the fit \emph{converges}: the optimizer happily
+returns a $\decay$ with a small na\"ive SE while sliding along the ridge.
+\end{warning}
+
+\section{Single untrusted dates as one-bin censoring}\label{ch06:sec:onebin}
+
+The machinery above treats wholesale aggregation. The same logic handles
+retail corruption: a \emph{single} deal whose date is trusted only to
+$\pm\delta_m$ is an event observed in the one-off interval
+$I_m = (\hat t_m - \delta_m,\, \hat t_m + \delta_m]$, i.e.\ a private
+one-bin censoring. Mixed records --- verified dates for some deals,
+windows for others --- then call for a mixed likelihood.
+
+\begin{proposition}[Exact mixed likelihood, Poisson case]\label{prop:ch06:mixedpoisson}
+Let $N$ be an NHPP with deterministic intensity $\lam$, and suppose the
+record consists of (a) verified events at exact times
+$\{t_m\}_{m\in\mathcal{V}}$ and (b) untrusted events known only to lie in
+windows $\{I_m\}_{m\in\mathcal{U}}$, one event per window, where the
+windows are pairwise disjoint and contain no verified events (overlapping
+windows are first merged into a single interval carrying its total count,
+reducing to \cref{prop:ch06:binnedpoisson} locally), and (c) the assertion,
+by \cref{asm:ch06:complete}, that no further events occurred in
+$(0,\Tend]$. The exact log-likelihood of this record is
+\begin{equation}\label{eq:ch06:mixed}
+\loglik_{\mathrm{mix}}(\thetamodel)
+ \;=\;
+ \sum_{m\in\mathcal{V}} \log\lam(t_m;\thetamodel)
+ \;+\;
+ \sum_{m\in\mathcal{U}} \log \Lam(I_m;\thetamodel)
+ \;-\;
+ \int_0^{\Tend}\lam(u;\thetamodel)\dd u,
+\qquad
+\Lam(I) = \int_I \lam .
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+The restrictions of an NHPP to disjoint sets are independent. Partition
+$(0,\Tend]$ into the windows $\{I_m\}_{m\in\mathcal U}$ and their
+complement $B$. On $B$ the observation is exact: points at
+$\{t_m\}_{m\in\mathcal V}$ and none elsewhere, with density
+$\prod_{\mathcal V}\lam(t_m)\, e^{-\Lam(B)}$. On each $I_m$ the
+observation is the event $\{N(I_m)=1\}$, with probability
+$\Lam(I_m)e^{-\Lam(I_m)}$. Multiplying and collecting exponents (the
+$\Lam$'s add to $\int_0^{\Tend}\lam$ over the partition) gives
+\cref{eq:ch06:mixed}. Every factor is exact; no within-window position was
+used.
+\end{proof}
+
+So for Poisson calibration, mixed trust costs nothing but the windows'
+internal resolution: verified deals keep their full event terms, untrusted
+deals degrade gracefully to interval terms, and the survival factor is
+common. For Hawkes the by-now-familiar obstacle returns --- the intensity
+after an untrusted event depends on where in $I_m$ it actually happened ---
+and the exact mixed likelihood is again a configuration integral over
+$\prod_{m\in\mathcal U} I_m$. The committed practical recipe, flagged as
+an approximation, mirrors the MBPP construction locally: keep exact terms
+where dates are verified, and push untrusted events through their
+\emph{expected} kernel contribution. Concretely, define the smeared
+intensity
+\begin{equation}\label{eq:ch06:smeared}
+\tilde\lam(t;\thetamodel)
+ \;=\;
+ \mub(t)
+ \;+\; \sum_{m\in\mathcal{V}:\, t_m<t} \kernel(t - t_m)
+ \;+\; \sum_{m\in\mathcal{U}} \frac{1}{\abs{I_m}}
+ \int_{I_m} \kernel(t-u)\,\ind{u<t}\dd u,
+\end{equation}
+(the untrusted event's excitation averaged uniformly over its window, with
+only the past part of the window contributing), and maximize \cref{eq:ch06:mixed} with
+$\tilde\lam$ in place of $\lam$. This is exact as $\branch\to0$
+(Poisson limit), errs only in the untrusted events' second-order feedback
+terms, and must be validated by the protocol of \cref{ch06:sec:validation}
+before use --- the same discipline as the MBPP itself. When untrusted
+events are dense in some sector-period, the recipe degenerates gracefully:
+merge that period's windows into bins and the untrusted sum in
+\cref{eq:ch06:mixed} becomes the MBPP likelihood \cref{eq:ch06:mbppll}
+restricted to that period.
+
+\section{The validation loop}\label{ch06:sec:validation}
+
+Every approximation admitted in this chapter --- the mean-intensity
+replacement, the mixed-likelihood smearing, the choice of resolution ---
+is validated by the same closed loop, which the repository already
+implements for the MBPP (\modrepo{mbpp/ic\_simulate.py}) and which is
+hereby made the standing acceptance test.
+
+\begin{protocol}[Simulate exactly, censor, refit, compare]\label{prot:ch06:icloop}
+\leavevmode
+\begin{enumerate}[label=(\alph*)]
+\item \emph{Simulate exactly} from the continuous-time Hawkes model at the
+fitted (or stress) parameters: the cluster/branching construction of
+\citet{hawkesoakes1974} (\code{simulate\_separable\_hawkes}), or exact
+simulation by \citet{dassioszhao2013}, or Ogata thinning
+\citep{ogata1981,lewisshedler1979} --- never from the MBPP itself, which
+would assume the conclusion.
+\item \emph{Censor as production does}: collapse event times to the
+production partition with \code{interval\_censor}; optionally inject
+adversarial jitter at the audited $\delta$ before binning, to certify
+\cref{prop:ch06:jitterrobust} empirically.
+\item \emph{Refit with the production likelihood}
+(\code{fit\_mbpp\_ic} and variants; the mixed recipe of
+\cref{ch06:sec:onebin} where applicable).
+\item \emph{Compare}: (1) parameter recovery --- $\branch$ must be
+recovered within Monte Carlo bands at every candidate resolution;
+$\decay$ only at resolutions the ridge rule permits, and its failure at
+coarse bins must \emph{reproduce} the known low-bias signature, not
+surprise us; (2) SE honesty --- the ratio of Monte Carlo spread to
+reported SE is the empirical dispersion factor, to be compared against the
+Fano prediction of \cref{prop:ch06:overdisp} and repaired per
+\cref{warn:ch06:optimisticse}; (3) fit diagnostics --- Pearson dispersion
+and PIT-style count calibration \citep{czado2009} via
+\modrepo{mbpp/gof.py}, with the event-time time-rescaling check
+\citep{brown2002} reserved for verified-date subsets
+(\cref{ch:gof}).
+\item \emph{Gate}: a resolution/likelihood pair is admitted for real-data
+use only after passing (d) in the synthetic world at matched sample sizes
+--- the transfer convention of \cref{ch02:sec:synthetic}.
+\end{enumerate}
+\end{protocol}
+
+\section{Defect declaration and commitments}\label{ch06:sec:decisions}
+
+Per \cref{tab:ch02:defects} and decision D2.1, this chapter \emph{owns
+(C4)} and relates to the rest of the ledger as follows.
+\emph{(C1) corrected here}: \cref{thm:ch06:rightcensor,prop:ch06:locality}
+establish that right censoring costs nothing for history-dependent
+intensities when open spells are kept, closing the Hawkes case left open by
+\cref{warn:ch02:openspells}. \emph{(C2) respected mechanically}: every
+integral and every bin in this chapter starts at the entry time
+$\entry_i$ where firm-level objects are involved; the selection content of
+(C2) is owned by \cref{ch:universe}. \emph{(C3) vulnerable, out of
+scope}: nothing here repairs contaminated risk sets --- sector-level count
+likelihoods are largely insulated (sectors do not die), but any firm-level
+use of these tools inherits (C3) with the deflation bias documented in
+\cref{ch:data}, owned by \cref{ch:poisson,ch:buckets,ch:ranking}.
+\emph{(C5) orthogonal}: covariates enter the MBPP through the exogenous
+input $s(\cdot)$ (\modrepo{mbpp/exogenous.py}); their staleness is
+\cref{ch:stale}'s problem and its remedies compose with everything here.
+\emph{(C6) robust at sector level}: sector deal counts include
+out-of-universe deals, so sector-level MBPP consumes complete counts;
+firm-attributable applications inherit (C6) as thinning, in tension with
+\cref{asm:ch06:complete}, and are owned by \cref{ch:universe}.
+
+\begin{decision}{D6.1 --- the honest-resolution rule}
+The observation resolution for continuous-time ground-process modeling on
+PitchBook 2011--2024 is \emph{weekly}. Daily resolution is permitted only
+for subsets whose closed dates the date audit certifies with
+$\delta \le 1$ day; back-filled and announced-only records never qualify.
+Rationale: \cref{prop:ch06:jitterrobust} (boundary-transfer error
+$\sim 4\delta/\horizon$), \cref{asm:ch06:convention} (announced-vs-closed
+spreads of days, heaping in backfills), and the ridge rule of
+\cref{ch06:sec:ridge} (weekly $\approx$ one half-life of the regime-B
+kernel: safe for $\branch$, marginal for $\decay$). Reversal trigger: a
+data vintage whose audit certifies $\delta \le 1$ day for a sector's
+majority of deals moves that sector to daily; conversely, evidence of
+heaping beyond month boundaries (quarter-level backfill) forces that
+segment to monthly.
+\end{decision}
+
+\begin{decision}{D6.2 --- MBPP is the committed aggregation likelihood}
+Any sector-level continuous-time Hawkes model fitted on binned counts uses
+the MBPP interval-censored likelihood \cref{eq:ch06:mbppll}
+(\code{fit\_mbpp\_ic} and variants), with standard errors repaired per
+\cref{warn:ch06:optimisticse} (sandwich by default; negative-binomial or
+Bayesian escalation on a failed dispersion check), and with every fit
+gated by \cref{prot:ch06:icloop}. Rationale: exact first moments
+(\cref{thm:ch06:volterra}), KL-sense identifiability
+\citep{rizoiu2022}, closed forms for the exponential kernel
+(\cref{prop:ch06:expclosed}), and a bounded, quantified price
+(\cref{prop:ch06:overdisp}) --- against an exact alternative
+\cref{eq:ch06:icexact} that is computationally out of reach. Reversal
+trigger: if dispersion diagnostics persistently exceed the Fano ceiling
+$(1-\hat\branch)^{-2}$ (pointing at latent-frailty variance the MBPP
+cannot absorb), the sector-level count model reverts to the discrete
+autoregressive count family of \cref{ch:buckets}
+\citep{fokianos2009}, which models the conditional variance directly.
+\end{decision}
+
+\begin{decision}{D6.3 --- event-time likelihoods reserved for verified dates}
+The exact event-time likelihood of \cref{ch:hawkes} (and the time-rescaling
+diagnostics that need it) may be fitted only on date-audit-verified
+subsets; $\decay$ estimated anywhere else is prior-constrained from such a
+subset or fixed (decay banks). Mixed records use
+\cref{eq:ch06:mixed}: exactly for Poisson
+(\cref{prop:ch06:mixedpoisson}), with the flagged smeared-intensity recipe
+\cref{eq:ch06:smeared} for Hawkes. Rationale:
+\cref{warn:ch06:timingclaims} --- timing claims must trace to data that
+contains timing. Reversal trigger: none for the principle; the boundary of
+``verified'' moves with the date audit.
+\end{decision}
+
+\begin{codehooks}
+The mathematics of this chapter maps onto \modrepo{mbpp/} as follows.
+\emph{\code{core.py}}: the MBPP object --- kernels, the resolvent/impulse
+response $R(t)=\branch\decay e^{(\branch-1)\decay t}$ of
+\cref{prop:ch06:expclosed}, closed-form and numeric solutions of
+\cref{eq:ch06:volterra}, interval compensators $\bar\Lam_j$, and the
+Proposition-6/7 compensator bounds used for forecasting.
+\emph{\code{interval\_censored.py}}: the IC likelihood
+\cref{eq:ch06:mbppll} (\code{ic\_ll}), the SSE/Bregman alternative, and
+the fitting family \code{fit\_mbpp\_ic} /
+\code{\_multi} / \code{\_covariates} / \code{\_sumexp} /
+\code{\_excitation}, plus \code{forecast\_counts}.
+\emph{\code{exogenous.py}}: the exogenous inputs $s(\cdot)$ ---
+piecewise-constant, covariate-driven, impulse, LHPP --- through which
+\cref{ch:stale}'s covariates and \cref{ch:poisson}'s baselines enter.
+\emph{\code{ic\_simulate.py}}: the branching simulator and
+\code{interval\_censor}, powering \cref{prot:ch06:icloop}.
+\emph{\code{gof.py}}: Pearson/dispersion diagnostics for counts and
+time-rescaling residuals for verified-date subsets;
+\emph{\code{bayes.py}}: the posterior treatment of the
+$\branch$--$\decay$ ridge. \emph{To be written}:
+\modrepo{data/date\_audit.py} --- the audit behind
+\cref{asm:ch06:jitter,asm:ch06:convention}: classify each deal date as
+closed/announced/backfilled, estimate convention offsets $b(r)$, detect
+month/quarter heaping, emit per-event trust radii $\delta_m$ and the
+verified-date flags consumed by D6.1/D6.3 --- and the sandwich-covariance
+wrapper for \code{fit\_mbpp\_ic} required by
+\cref{warn:ch06:optimisticse}.
+\end{codehooks}

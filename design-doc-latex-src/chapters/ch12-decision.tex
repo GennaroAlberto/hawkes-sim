@@ -1,0 +1,167 @@
+% ch12-decision — from model output to investment decisions
+
+\section{Closing the loop with Chapter 1}\label{ch12:sec:loop}
+
+\Cref{ch:question} defined worth by the value-of-information identity
+\cref{eq:ch01:voi}: a model output matters only through the action it
+improves. The intervening chapters built the outputs --- a sector-level
+ground intensity (\cref{ch:poisson,ch:hawkes,ch:censoring}), a
+firm-level conditional ranker with an outside option
+(\cref{ch:ranking,ch:universe}), horizon event probabilities
+(\cref{ch:buckets}), all under the evaluation constitution of
+\cref{ch:gof} and the covariate honesty of \cref{ch:stale}. This chapter
+specifies the \emph{decision layer}: the small set of composed,
+consumable deliverables, the decision rules that consume them, and the
+feedback loop that measures whether the whole apparatus is earning its
+keep. The layer is deliberately thin --- it contains no new statistical
+estimation, only composition, thresholds, and reporting --- because every
+quantity it consumes arrives already calibrated and already
+uncertainty-qualified; anything thicker would smuggle modeling into a
+place with no likelihood to check it.
+
+\section{The three deliverables}\label{ch12:sec:deliverables}
+
+\subsection{The sourcing list (T1 + T3)}
+
+The headline deliverable is a per-sector ranked list, refreshed weekly:
+for each sector $s$ at time $\tau$, the top-$K$ tracked firms by
+conditional next-deal probability $\hat p(i \mid s, \tau)$
+(\cref{ch:ranking}), each annotated with its horizon probabilities
+$\hat p_i(\tau, \horizon)$ for $\horizon \in \{$6M, 1Y, 2Y$\}$
+(\cref{ch:buckets}), its staleness age $\staleage_i(\tau)$ and last-known
+covariates (honesty about the information state, \cref{ch:stale}), and
+the sector's calibrated newcomer share $\hat p(\lozenge_s)$
+(\cref{ch:universe}). The two probability columns answer different
+questions and must not be merged: the ranker column is \emph{relative}
+(who, given a deal), the horizon column is \emph{absolute} (whether,
+within $\horizon$). A firm can top the ranker while all horizon
+probabilities are low because the sector itself is quiet; the pairing is
+exactly what tells the desk to watch rather than act.
+
+\begin{proposition}[Optimality of the top-$K$ sourcing rule]\label{prop:ch12:topk}
+Suppose diligence capacity allows opening at most $K$ files in sector
+$s$, each opened file on firm $i$ yields expected utility $b \cdot
+\ind{i \text{ raises within } \horizon}$ minus cost $c$, with $b, c$
+constant across firms, and outcomes are as modeled. Then the expected-utility-maximizing
+selection is the top-$K$ firms by $\hat p_i(\tau,\horizon)$, and opening
+the $k$-th file is worthwhile iff $\hat p_{(k)}(\tau,\horizon) \ge c/b$.
+\end{proposition}
+
+\begin{proof}
+Expected utility of a selection $A$, $|A| \le K$, is $\sum_{i \in A}
+\big(b\, \hat p_i(\tau,\horizon) - c\big)$, additive in members; it is
+maximized by taking the firms with the largest positive terms, which are
+the top-ranked ones by $\hat p_i$, truncated at $K$ or at the threshold
+$\hat p_i \ge c/b$, whichever binds first. The threshold form is the
+classical cost--benefit decision boundary for calibrated probabilities;
+the argument fails exactly when $\hat p$ is uncalibrated, which is why
+\cref{ch:buckets} makes calibration mandatory, and when utilities
+interact across firms (portfolio effects), which is out of scope by
+\cref{ch12:sec:scope}.
+\end{proof}
+
+The ranking-only analogue --- expected recall of the next deals is
+maximized by ranking on conditional probability --- was proved as the
+top-$K$ optimality lemma of \cref{ch:ranking}. Together the two results
+say: \emph{under the model, the list is the decision}; everything else
+is threshold arithmetic supplied by the desk's own $c/b$.
+
+\subsection{Sector pacing (T2)}
+
+For capital-deployment pacing the deliverable is the predictive
+distribution of sector deal counts over the next 4--13 weeks: mean paths
+with predictive intervals, produced by simulating the fitted ground
+process forward (\cref{ch:hawkes,ch:censoring} simulators; scenario or
+bootstrapped macro paths per \cref{ch:data}), with dispersion honestly
+propagated (negative-binomial noise where adopted, \cref{ch:poisson}).
+Every pacing chart carries two inherited caveats as fixed footnotes: the
+fitted branching mass is an upper bound on contagion
+(\cref{ch:hawkes}), and timing resolution is bounded below by the honest
+resolution of \cref{ch:censoring} --- no intra-week timing claims.
+
+\subsection{Deal-terms context (T4)}
+
+Mark regressions --- round size, up/down/flat probability, valuation
+step conditional on a deal --- contextualize a candidate: the same
+gradient-boosting stack as \cref{ch:buckets} applied to deal-level
+targets from \cref{app:columns}, with staleness features and the
+undisclosed-size selection handled per the data dictionary's imputation
+rules (\code{deal\_size\_status} is itself informative and enters as a
+feature, never silently imputed away). Terms models are context, not
+gates: they refine the utility $b$ in \cref{prop:ch12:topk}, firm by
+firm, when the desk wants probability-weighted expected terms rather
+than a flat $b$.
+
+\section{Scope: what the decision layer refuses to do}\label{ch12:sec:scope}
+
+\begin{decision}{D12.1 --- no silent portfolio optimization}
+The decision layer outputs ranked lists, calibrated probabilities, and
+predictive count distributions. It does \emph{not} output buy/pass
+verdicts, position sizes, or fund-level allocations. Rationale:
+portfolio-level utility involves correlations, capacity, and mandate
+constraints that live outside the data this document models; any such
+optimization must be a separate, owned system consuming our calibrated
+outputs. Reversal trigger: a stated fund-level objective with its own
+evaluation protocol.
+\end{decision}
+
+\begin{decision}{D12.2 --- probabilities travel with their caveats}
+Every number leaving the system carries: the model version, the
+evaluation-era metrics of \cref{ch:gof}, the risk-set definition
+(\cref{ch:ranking}), the staleness summary of the inputs
+(\cref{ch:stale}), and the newcomer share (\cref{ch:universe}). The
+reporting discipline of \cref{ch:gof} --- no hazard without its risk-set
+rule, no branching ratio without its upper-bound caveat, no newcomer
+probability sold as an entrant probability --- binds the decision layer
+most of all, because it is the layer other people quote. Reversal
+trigger: none; this is charter.
+\end{decision}
+
+\section{Measuring the value of information}\label{ch12:sec:voi}
+
+Offline metrics are proxies. The loop closes only by measuring
+\cref{eq:ch01:voi} on the workflow itself.
+
+\begin{protocol}[VoI measurement]\label{prot:ch12:voi}
+(a) \emph{Shadow deployment}: for at least one full quarter, sourcing
+lists are produced and frozen weekly but not shown to the desk; realized
+deals score them retrospectively (recall@$K$, lift over the desk's
+contemporaneous shortlists). (b) \emph{Assisted period}: lists shown;
+the desk logs which opened files originated from the list vs.\ other
+channels. (c) The VoI estimate is the difference in hit rates per opened
+file between assisted and baseline periods, era-blocked as in
+\cref{ch:gof}; secular market shifts are partially controlled by the
+shadow-period comparison. (d) Attribution is reported with its
+confounds stated --- this is an observational estimate, not a randomized
+one; if the desk's capacity permits, randomize \emph{which sectors} get
+assisted lists per quarter for a cleaner contrast.
+\end{protocol}
+
+\section{Monitoring, drift, and retraining cadence}\label{ch12:sec:monitoring}
+
+Models decay: coverage drifts (\cref{ch:universe}), macro regimes shift,
+and the 2021--2023 funding cycle sits inside our evaluation eras as a
+standing warning. The cadence is quarterly re-evaluation against the
+rolling-origin protocol of \cref{ch:gof}, with three tripwires, each
+mapped to its owning chapter: (i) calibration drift on horizon
+probabilities beyond the tolerance band of the reliability protocol
+(\cref{ch:buckets}) triggers recalibration before retraining; (ii) a
+trend in \code{off\_universe\_share} or in the Good--Turing missing mass
+(\cref{ch:universe}) triggers the coverage audit before any modeling
+response; (iii) attenuation-gap growth in covariate effects
+(\cref{ch:stale}'s gap test) escalates the staleness remedy ladder.
+Retraining without a fired tripwire is discouraged: it churns the
+desk's mental model of the lists for no measured gain.
+
+\begin{codehooks}
+The decision layer is a reporting module, not a modeling module:
+\modrepo{decision/} (to be written) composes existing outputs ---
+\code{ranker} scores from \modrepo{sector\_ranker.py} (extended with the
+outside option), horizon probabilities from \modrepo{models/xgb\_horizon.py}
+(planned, \cref{ch:buckets}), simulated count fans from the ground-process
+simulators, and terms context --- into versioned weekly artifacts
+(per-sector JSON + rendered sheets). The VoI protocol needs a tiny
+\modrepo{decision/log.py} for desk-interaction logging. Tripwire metrics
+reuse the \modrepo{eval/} harness of \cref{ch:gof}; nothing in this layer
+may compute a probability itself.
+\end{codehooks}

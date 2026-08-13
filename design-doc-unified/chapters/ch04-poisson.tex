@@ -1,0 +1,807 @@
+% ch04-poisson --- Poisson models: the baselines that must be beaten
+
+\section{Why the ladder starts here}\label{ch04:sec:role}
+
+The timing target T2 of \cref{ch:question} asks for the ground intensity
+$\lam_s(t)$: how many deals, in which sector, next week, with calibrated
+uncertainty. This chapter builds the two simplest answers --- the
+homogeneous Poisson process, which asserts that nothing is valuable to know
+beyond the level of activity, and the inhomogeneous Poisson process (NHPP)
+with covariates, which asserts that the \emph{market clock} is valuable but
+the market's own history is not. Their role in the design is adversarial.
+Every richer timing model in this document --- the
+history-modulated GLM previewed in \cref{ch04:sec:history}, the exponential
+Hawkes machinery of \cref{ch:hawkes}, the interval-censored variants of
+\cref{ch:censoring} --- is admitted into production only by beating a
+well-covariated NHPP on held-out likelihood under the protocols of
+\cref{ch:gof}. Our working hypothesis is that covariates carry most of the
+held-out gain over a seasonal baseline, and that everything added on top
+of them --- lags, excitation, cross-sector terms --- contributes far less;
+the decomposition benchmarks planned in \cref{ch:results-synth} will test
+this. A Hawkes fit whose covariate baseline
+is impoverished will absorb the macro cycle into its kernel and report
+spurious contagion; the only defense is a baseline that already knows the
+macro cycle, which is what this chapter calibrates.
+
+The second reason to start here is that this is the one rung whose
+likelihood is \emph{exactly right} under the observation scheme of
+\cref{ch:data}. At sector resolution, right censoring costs nothing
+(\cref{ch04:sec:censoring} proves this), interval censoring by weekly
+aggregation costs nothing (\cref{thm:ch04:glmequiv}), and sectors neither
+enter late nor die, so (C2) and (C3) do not bind. Calibration discipline is
+cheap at this rung. Every later deviation from it must be priced against a
+baseline whose own accounting is exact.
+
+\section{The two models and their assumptions}\label{ch04:sec:models}
+
+Throughout, units $e$ are sectors $s \in \sectors$ (the primary case) or,
+for the event-time path, tracked firms $i \in \firms$; $N_e$ is the
+counting process of \cref{def:ch02:intensity} with at-risk indicator
+$\atrisk_e$, and all likelihoods specialize the Jacod likelihood
+\cref{eq:ch02:jacod} whose martingale estimation theory is developed in
+\cref{ch:foundations}. The homogeneous model sets $\lam_e(t) \equiv \mub_e$:
+conditionally on nothing, events arrive at a constant rate, the MLE is
+$\hat\mub_e = N_e(\Tend) / \int_0^{\Tend}\atrisk_e$, and the model's only
+message is the level. It is the null model for timing; its
+calendar-dummy refinement (a rate per quarter or per season) is the
+``seasonal baseline'' against which covariate gains are measured.
+The inhomogeneous model is the first calibrated one, and we now fix its
+assumptions as numbered contracts.
+
+\begin{assumption}[Conditional Poisson structure]\label{asm:ch04:condpoisson}
+Given the covariate paths, the intensity of $N_e$ is a deterministic
+function of time: $\lam_e(t;\thetamodel) = \lam_e(t)$ measurable with
+respect to the covariate history alone, with no dependence on the internal
+history $\Hist_{t^-}$ of the deal process. Equivalently, conditionally on
+covariates, $N_e$ is an inhomogeneous Poisson process: counts over disjoint
+sets are independent, and the count over a set $A$ is Poisson with mean
+$\int_A \atrisk_e(u)\lam_e(u)\dd u$ \citep{kingman1993,daley2003}.
+\end{assumption}
+
+\begin{assumption}[Log-linear intensity]\label{asm:ch04:loglin}
+$\lam_s(t) = \exp\!\big(\bcoef\T \xcov_s(t)\big)$, where $\xcov_s(t) \in
+\R^{d}$ stacks a sector intercept (equivalently, sector dummies), the
+published as-of macro values of \cref{prot:ch02:pit}(a), and deterministic
+seasonality and calendar terms; per-sector slopes are interactions of the
+macro block with the sector dummies. The exponential link is the canonical
+one; \cref{ch04:sec:link} defends the choice against its alternatives.
+\end{assumption}
+
+\begin{assumption}[Piecewise-constant weekly covariates]\label{asm:ch04:pwconst}
+$\xcov_s(\cdot)$ is constant on the cells of a partition of $[0,\Tend]$
+into weekly bins: macro as-of series are step functions by construction
+(they jump at publication dates, which we align to the weekly grid),
+calendar terms are constant within a week, and sector dummies are constant
+always. Consequently $\lam_s(\cdot)$ is a step function.
+\end{assumption}
+
+\begin{assumption}[External covariates]\label{asm:ch04:external}
+The covariates of \cref{asm:ch04:loglin} are \emph{external} in the sense
+of \citet{kalbfleisch2002}: their evolution does not depend on the deal
+stream. Macro series, calendar terms, and sector dummies qualify. Lagged
+deal counts, exponentially filtered event streams, and any functional of
+$\Hist_{t^-}$ do \emph{not}; adding them changes the model class
+(\cref{ch04:sec:history}) and voids \cref{asm:ch04:condpoisson}.
+\end{assumption}
+
+\begin{assumption}[Spanning]\label{asm:ch04:span}
+Writing $c$ for the sector-week cells of \cref{asm:ch04:pwconst}, $w_c =
+\int_{\text{cell}} \atrisk(u) \dd u$ for the exposure of cell $c$ and
+$\xcov_c$ for its covariate vector, the family $\{\xcov_c : w_c > 0\}$
+spans $\R^{d}$; equivalently $\sum_c w_c \xcov_c \xcov_c\T \succ 0$.
+\end{assumption}
+
+\Cref{asm:ch04:condpoisson} is a known fiction --- \cref{ch04:sec:overdisp}
+measures its failure and upgrades the noise model --- while
+\cref{asm:ch04:pwconst,asm:ch04:external} are believed exactly true for
+the design of \cref{asm:ch04:loglin}, and \cref{asm:ch04:span} is checkable
+from the design matrix before any fit.
+
+\subsection{Why the exponential link}\label{ch04:sec:link}
+
+Three properties recommend $\exp$. \emph{Positivity for free}: any $\bcoef \in
+\R^{d}$ yields a valid intensity, so estimation is unconstrained smooth
+optimization --- no boundary, no barrier, no projected gradient.
+\emph{Concavity}: the log-likelihood is globally concave in $\bcoef$
+(\cref{thm:ch04:concavity}), so the fitted object is a reproducible global
+optimum rather than a local one an optimizer happened to find.
+\emph{Multiplicative interpretation}: a unit move in covariate $j$
+multiplies the rate by $e^{\bcoef_j}$ uniformly across sectors and weeks,
+so macro effects read as rate ratios --- the natural language for
+``tightening moved weekly late-stage deal flow down 12\%'' --- and sector
+dummies give sector-proportional baselines. The log link is also
+\emph{aggregation-coherent} under \cref{asm:ch04:pwconst}: binning to weeks
+leaves the functional form intact with the bin width absorbed into the
+intercept (\cref{thm:ch04:glmequiv}), which is precisely what makes the
+weekly GLM an exact NHPP calibration rather than a discretization of one.
+
+The alternatives are worth stating because the repository uses one of them.
+The \emph{identity link} $\lam = \bcoef\T\xcov$ makes effects additive ---
+deals per week per unit of covariate --- which is the natural scale for
+excitation terms with a branching interpretation, and it tolerates
+within-bin covariate variation exactly (the integral of a linear function
+is linear in the averaged covariate, so no Jensen gap ever opens). Its
+price is positivity: the likelihood is concave only on the polyhedron
+$\{\bcoef : \bcoef\T\xcov_c > 0\ \forall c\}$, the MLE can sit on the
+boundary where standard asymptotics fail \citep{selfliang1987}, and every
+fit needs constraints. The \emph{softplus link} $\lam = \log(1 +
+e^{\eta})$ keeps positivity free and grows only linearly for large $\eta$,
+which reduces the exponential extrapolation risk of the log link outside
+the training covariate support; it remains log-concave, but the
+coefficients lose their rate-ratio reading and the fit leaves standard GLM
+software. The stabilized sector layer of \cref{ch:hawkes} is a deliberate
+hybrid: exponential link for the covariate baseline (this chapter's
+object, with all three advantages), identity link for the added excitation
+term (where the branching reading and the stability constraint live).
+
+\begin{decision}{D4.1 --- exponential link for the covariate baseline}
+The covariate-driven baseline intensity of every ground-process model in
+this document uses the log-linear form of \cref{asm:ch04:loglin}.
+Rationale: unconstrained concave estimation (\cref{thm:ch04:concavity}),
+exact weekly-GLM equivalence (\cref{thm:ch04:glmequiv}), multiplicative
+macro interpretation, and sign freedom for later history terms (the
+exp-link route is one of the three legal ways to express inhibition;
+\cref{ch:hawkes}). Reversal trigger: if held-out evaluation shows
+exponential extrapolation failures --- predictions pinned at the
+support-envelope guard of \modrepo{sector\_stability.py} on more than
+isolated weeks --- the baseline link is switched to softplus and this
+chapter's concavity and equivalence results are re-derived for it (both
+survive in weakened form; the GLM packaging does not).
+\end{decision}
+
+\section{Likelihood, score, and the geometry of the optimum}\label{ch04:sec:likelihood}
+
+Under \cref{asm:ch04:condpoisson,asm:ch04:loglin}, the Jacod likelihood
+\cref{eq:ch02:jacod} specializes, for the pooled sector process on
+$[0,\Tend]$, to
+\begin{equation}\label{eq:ch04:loglik}
+\loglik(\bcoef)
+ \;=\;
+ \sum_{m} \bcoef\T \xcov_{s_m}(t_m)
+ \;-\;
+ \sum_{s\in\sectors} \int_{0}^{\Tend} \atrisk_s(u)\,
+ e^{\bcoef\T \xcov_s(u)} \dd u ,
+\end{equation}
+the sum running over observed deals $m$ with sector $s_m$ and time $t_m$.
+Under \cref{asm:ch04:pwconst} the integral collapses over cells: with
+$y_c$ the event count, $w_c$ the exposure, and $\xcov_c$ the covariate of
+cell $c$,
+\begin{equation}\label{eq:ch04:cellloglik}
+\loglik(\bcoef)
+ \;=\;
+ \sum_{c} \Big( y_c\, \bcoef\T \xcov_c \;-\; w_c\, e^{\bcoef\T \xcov_c}
+ \Big).
+\end{equation}
+Differentiating \cref{eq:ch04:cellloglik} (or \cref{eq:ch04:loglik}; the
+cell form is the general one with the integral discretized exactly):
+\begin{align}
+\nabla \loglik(\bcoef)
+ &\;=\;
+ \sum_{c} \big( y_c - w_c\, e^{\bcoef\T \xcov_c} \big)\, \xcov_c ,
+ \label{eq:ch04:score}\\
+\nabla^2 \loglik(\bcoef)
+ &\;=\;
+ -\sum_{c} w_c\, e^{\bcoef\T \xcov_c}\, \xcov_c \xcov_c\T .
+ \label{eq:ch04:hessian}
+\end{align}
+The score \cref{eq:ch04:score} is the familiar ``observed minus expected''
+weighted by covariates; evaluated at the truth it is the terminal value of
+the martingale $\int \xcov\, (\dd N - \atrisk\,\lam\,\dd t)$, which is the
+engine of the asymptotics below. The Hessian \cref{eq:ch04:hessian} does
+not involve the counts $y_c$ at all --- a canonical-link property: observed
+information equals conditional expected information, so Newton's method,
+Fisher scoring, and iteratively reweighted least squares are the same
+algorithm here.
+
+\begin{theorem}[Strict log-concavity under the exponential link]\label{thm:ch04:concavity}
+Under \cref{asm:ch04:condpoisson,asm:ch04:loglin,asm:ch04:pwconst}, the
+map $\bcoef \mapsto \loglik(\bcoef)$ of \cref{eq:ch04:cellloglik} is
+concave on all of $\R^{d}$:
+$\nabla^2\loglik(\bcoef) \preceq 0$ for every $\bcoef$. If in addition
+\cref{asm:ch04:span} holds, it is strictly concave:
+$\nabla^2\loglik(\bcoef) \prec 0$ for every $\bcoef$.
+\end{theorem}
+
+\begin{proof}
+For any $v \in \R^{d}$,
+\[
+v\T \nabla^2 \loglik(\bcoef)\, v
+ \;=\;
+ -\sum_{c} w_c\, e^{\bcoef\T\xcov_c}\, \big(v\T \xcov_c\big)^2
+ \;\le\; 0,
+\]
+since every summand is a product of nonnegative factors: concavity, with
+no condition. Equality holds iff $v\T\xcov_c = 0$ for every cell with
+$w_c > 0$ (the weights $w_c e^{\bcoef\T\xcov_c}$ are strictly positive on
+exactly those cells). Under \cref{asm:ch04:span} no $v \ne 0$ annihilates
+all exposed $\xcov_c$, so the quadratic form is strictly negative for all
+$v \neq 0$ and all $\bcoef$. When \cref{asm:ch04:span} fails --- say two
+macro series are exactly collinear over the training window --- the
+likelihood is flat along the offending direction and $\bcoef$ is
+identified only up to it; the fitted \emph{intensity} is still unique,
+which is why ridge regularization plus inference on well-identified linear
+combinations, rather than coefficient surgery, is the prescribed response
+to the near-failure that smooth, correlated macro series actually produce.
+\end{proof}
+
+\begin{corollary}[Global optimum and solver guarantees]\label{cor:ch04:global}
+Under the assumptions of \cref{thm:ch04:concavity} with
+\cref{asm:ch04:span}, the MLE, when it exists, is the unique global
+maximizer of $\loglik$, every stationary point is that maximizer, and any
+ascent method with standard line-search or trust-region safeguards ---
+Newton, Fisher scoring, L-BFGS --- converges to it from any starting
+point. Two fits of the same data that report different optima are
+evidence of a software defect, not of multimodality.
+\end{corollary}
+
+\begin{proof}
+Strict concavity on $\R^d$ makes the superlevel sets convex and any
+stationary point the unique global maximum; convergence of safeguarded
+ascent methods on smooth concave objectives with nonsingular Hessian is
+standard. The content worth stating is the last sentence: at this rung,
+optimizer nondeterminism is a bug detector. This guarantee is exactly what
+is forfeited --- first partially (block concavity), then wholly --- as
+excitation parameters with free decays enter in \cref{ch:hawkes}.
+\end{proof}
+
+\paragraph{Asymptotics.}
+At the true $\bcoef_0$ the score is a martingale integral with predictable
+variation $\Fisher(\bcoef_0) = \sum_c w_c e^{\bcoef_0\T\xcov_c} \xcov_c
+\xcov_c\T$ --- the Fisher information, equal to minus the Hessian
+\cref{eq:ch04:hessian}. Rebolledo's martingale CLT then gives
+$\hat\bcoef \approx \mathcal{N}\big(\bcoef_0, \Fisher^{-1}\big)$ as
+information accumulates, through a longer window or more sectors; this is
+the counting-process estimation theory of \citet{abgk1993} and
+\citet{andersengill1982}, and the stationary-point-process version of
+\citet{ogata1978}, specialized to the concave case. What matters
+practically is that information is \emph{pooled}: a $d$-dimensional
+$\bcoef$ needs adequate total information $\sum_c w_c
+e^{\bcoef\T\xcov_c}\xcov_c\xcov_c\T$, not adequate counts in every
+sector-week cell --- sparse cells are a separation risk
+(\cref{prop:ch04:separation}), not an asymptotics failure per se.
+
+\subsection{Existence: separation and sparse cells}\label{ch04:sec:separation}
+
+Concavity guarantees uniqueness, not existence. The Poisson analogue of
+logistic separation is the one genuine pathology of this rung.
+
+\begin{proposition}[Nonexistence of the MLE under separation]\label{prop:ch04:separation}
+Under the assumptions of \cref{thm:ch04:concavity} with
+\cref{asm:ch04:span}, the MLE fails to exist iff there is a direction
+$v \neq 0$ with
+\begin{enumerate}[label=(\roman*)]
+\item $v\T \xcov_c \le 0$ for every cell with $w_c > 0$, and
+\item $v\T \xcov_c = 0$ for every cell with $y_c > 0$.
+\end{enumerate}
+Along any such $v$ the likelihood increases strictly and monotonically to
+a finite supremum that is not attained; the fitted intensity on the cells
+with $v\T\xcov_c < 0$ degenerates to zero.
+\end{proposition}
+
+\begin{proof}
+Suppose such $v$ exists. By \cref{asm:ch04:span}, $v\T\xcov_c \ne 0$ for
+at least one exposed cell, which by (ii) has $y_c = 0$ and by (i) has
+$v\T\xcov_c < 0$. Along $\bcoef + \tau v$, the event term of
+\cref{eq:ch04:cellloglik} is constant in $\tau$ by (ii), while each
+compensator term $-w_c e^{\bcoef\T\xcov_c + \tau v\T\xcov_c}$ is
+nondecreasing in $\tau$ by (i) and strictly increasing on the cell just
+exhibited. Hence $\loglik$ increases strictly to the finite limit obtained
+by deleting the vanishing compensator terms, and no finite $\bcoef$
+attains it. Conversely, if no such $v$ exists, then along every ray
+$\bcoef + \tau v$ either some exposed cell has $v\T\xcov_c > 0$, in which
+case the compensator term drives $\loglik \to -\infty$ exponentially
+(dominating the linearly growing event term), or all exposed cells have
+$v\T\xcov_c \le 0$ with strict inequality at some event cell, in which
+case the event term drives $\loglik \to -\infty$ linearly. So $\loglik$ is
+coercive on $\R^d$ and, being continuous, attains its maximum.
+\end{proof}
+
+\begin{warning}[Sparse cells produce infinite coefficients]\label{warn:ch04:separation}
+The separating directions of \cref{prop:ch04:separation} are not exotic:
+any indicator covariate whose active cells contain \emph{zero events} ---
+a small sector crossed with a rare calendar dummy, an interaction active
+only in a few quiet weeks --- yields $v$ = minus that coordinate, and the
+fitted coefficient runs to $-\infty$ (the MLE of a zero rate). At weekly
+resolution with twelve sectors and rich calendar interactions this
+\emph{will} occur. Remedies, in the order the repository applies them: the
+ridge penalty already standard in the fitters (a strictly concave
+perturbation restores existence unconditionally; the penalty must be
+reported next to the fit); the Firth adjustment, maximizing $\loglik(\bcoef)
++ \tfrac{1}{2}\log\det\Fisher(\bcoef)$, which removes the leading-order
+bias of the MLE and keeps estimates finite \citep{firth1993}, with the
+rare-events analysis of \citet{kingzeng2001} as the companion warning
+that unpenalized rates estimated from a handful of events are biased as
+well as fragile; and design hygiene --- collapse or drop cells/dummies
+that the training window cannot inform. Related but distinct is
+\emph{extrapolation} risk: a log-linear intensity evaluated outside the
+training covariate support is an exponential extrapolation even when the
+MLE exists; the support-envelope winsorization in
+\modrepo{sector\_stability.py} is the implemented guard, and train/test
+covariate ranges are reported next to every held-out NLL
+(\cref{ch:gof}).
+\end{warning}
+
+\section{The binned-GLM equivalence theorem}\label{ch04:sec:glm}
+
+The repository fits weekly sector counts with a Poisson GLM. The following
+theorem says this \emph{is} NHPP maximum likelihood --- exactly, not
+approximately --- and identifies precisely what binning discards
+(nothing, under this chapter's assumptions).
+
+\begin{theorem}[Piecewise-constant NHPP $=$ Poisson GLM with log-exposure offset]\label{thm:ch04:glmequiv}
+Let \cref{asm:ch04:condpoisson,asm:ch04:loglin,asm:ch04:pwconst} hold, so
+that $\lam$ is constant, equal to $\lam_c = e^{\bcoef\T\xcov_c}$, on each
+cell $c$ of the weekly partition, and let $w_c = \int_{\text{cell}}
+\atrisk(u)\dd u$ be the (possibly partial) exposure of cell $c$. Then:
+\begin{enumerate}[label=(\roman*)]
+\item \emph{(Distribution.)} Conditionally on covariates and exposures,
+the cell counts are independent with
+$y_c \sim \mathrm{Poisson}\big(w_c\, e^{\bcoef\T \xcov_c}\big)$.
+\item \emph{(Likelihood identity.)} The point-process log-likelihood
+\cref{eq:ch04:loglik} and the log-likelihood of the Poisson GLM with log
+link, design vectors $\xcov_c$, and offset $\log w_c$ differ by a constant
+free of $\bcoef$:
+\begin{equation}\label{eq:ch04:glm}
+\loglik_{\mathrm{pp}}(\bcoef)
+ \;=\;
+ \sum_c \Big( y_c \log\!\big(w_c e^{\bcoef\T\xcov_c}\big)
+ - w_c e^{\bcoef\T\xcov_c} - \log y_c! \Big)
+ \;+\; \text{const}.
+\end{equation}
+\item \emph{(Sufficiency.)} The vector of cell counts $(y_c)_c$ is
+sufficient for $\bcoef$: given the counts, the event times within each
+cell are distributed as i.i.d.\ uniform draws on the at-risk subset of the
+cell, a law free of $\bcoef$.
+\end{enumerate}
+Consequently the NHPP MLE, score, observed information, and all
+likelihood-based inference coincide with those of the binned Poisson GLM;
+fitting the weekly sector count GLM is an NHPP calibration, not a
+discretization of one.
+\end{theorem}
+
+\begin{proof}
+(i) is the independent-increments property of
+\cref{asm:ch04:condpoisson} applied to the disjoint at-risk subsets of the
+cells: the count over the at-risk subset $A_c$ of cell $c$ is Poisson with
+mean $\int_{A_c} \lam_c \dd u = w_c \lam_c$
+\citep{kingman1993}.
+
+(ii) Because $\xcov$ is constant on cells, the event term of
+\cref{eq:ch04:loglik} groups as $\sum_m \bcoef\T\xcov(t_m) = \sum_c y_c\,
+\bcoef\T\xcov_c$, and the compensator integral collapses to $\sum_c w_c
+e^{\bcoef\T\xcov_c}$, giving \cref{eq:ch04:cellloglik}. Expanding the GLM
+log-likelihood on the right of \cref{eq:ch04:glm}:
+\[
+\sum_c \Big( y_c \log w_c + y_c\,\bcoef\T\xcov_c
+ - w_c e^{\bcoef\T\xcov_c} - \log y_c! \Big)
+ \;=\;
+\loglik_{\mathrm{pp}}(\bcoef)
+ + \sum_c \big( y_c \log w_c - \log y_c! \big),
+\]
+and the bracketed sum is a statistic of the data only.
+
+(iii) Conditionally on $y_c = n$, the $n$ points of a Poisson process with
+\emph{constant} rate on $A_c$ are distributed as the order statistics of
+$n$ i.i.d.\ uniforms on $A_c$, for every value of the rate
+\citep{kingman1993}; the conditional law is therefore free of $\bcoef$,
+and sufficiency follows from the factorization
+$\lik(\bcoef; \text{times}) = \lik(\bcoef; \text{counts}) \times
+p(\text{times} \st \text{counts})$. The final claims follow by
+differentiating an identity that holds up to an additive constant.
+\end{proof}
+
+\begin{corollary}[The repository's weekly GLM is an NHPP fit]\label{cor:ch04:repoglm}
+With equal-width weekly bins and fully exposed sectors ($w_c \equiv w$),
+the offset $\log w$ is absorbed into the sector intercepts, and the weekly
+sector Poisson GLM --- \code{fit\_sector\_count\_model} of
+\modrepo{sector\_stability.py} with \code{n\_lags=0}, and its vectorized
+synthetic-world twin \code{fit\_sector\_glm\_fast(n\_lags=0)} --- computes
+exactly the NHPP MLE of
+\cref{asm:ch04:loglin,asm:ch04:pwconst}. Partial exposure (a unit entering
+or leaving observation mid-week) is handled exactly by the offset, with no
+change to the estimator's form.
+\end{corollary}
+
+Two remarks bound the theorem's reach. First, parts (i) and (iii) never
+used the log link: the reduction of a piecewise-constant point process to
+independent bin counts holds for \emph{any} positive rate
+parameterization; the log link is what makes the reduced problem a
+canonical-link GLM with the concavity of \cref{thm:ch04:concavity}.
+Second, exactness requires \cref{asm:ch04:pwconst}. If covariates vary
+within a bin and the fit uses a bin-representative value $\bar\xcov_c$, a
+Jensen gap opens --- the true cell mean $\int e^{\bcoef\T\xcov(u)}\dd u$
+exceeds $w_c e^{\bcoef\T\bar\xcov_c}$ whenever $\xcov$ genuinely varies
+--- and the GLM becomes an approximation. At weekly bins with monthly
+macro series and calendar terms the gap is identically zero; the exactness
+is a property of our design, not a general fact about binning.
+
+\section{Right censoring: the complete treatment at this rung}\label{ch04:sec:censoring}
+
+What must Poisson calibration do about right censoring? The answer,
+proved here in
+both of the bookkeeping styles used by the codebase, is: \emph{nothing
+beyond keeping the censored exposure}. There is no correction term, no
+weighting, no imputation; the survival factor that a censored spell must
+contribute is already computed by the compensator integral, provided open
+spells are kept and exposure is integrated to the end of observation.
+
+\begin{proposition}[Intensity view: censoring is already in the likelihood]\label{prop:ch04:censorexact}
+Let unit $e$ be observed on $[\entry_e, C_e]$ with $C_e = \min(\Tend,
+U_e)$, where $\Tend$ is the administrative window end and $U_e$ a recorded
+exit time, and let censoring be independent in the sense of
+\cref{ch:foundations} (the intensity of $N_e$ with respect to the
+filtration enlarged by censoring information is unchanged;
+\citealp[III.2]{abgk1993}). Administrative censoring at the deterministic
+$\Tend$ is independent by construction; removal at a \emph{recorded} exit
+is valid for the cause-specific funding intensity with no independence
+assumption at all (\cref{ch:data}, defect (C3)(iii);
+\citealp{putter2007}). Then the observed-data log-likelihood is exactly
+\cref{eq:ch04:loglik} with $\atrisk_e(u) = \ind{\entry_e \le u \le C_e}$;
+in particular the event-free portion $(t_{\mathrm{last}}, C_e]$ of an open
+spell contributes
+\[
+-\int_{t_{\mathrm{last}}}^{C_e} \lam_e(u) \dd u
+\]
+to $\loglik$ --- the log of its survival factor --- and nothing else. In
+the binned form of \cref{thm:ch04:glmequiv}, the entire treatment is the
+exposure $w_c = \int_{\text{cell}} \ind{\entry_e \le u \le C_e} \dd u$:
+keeping open spells and integrating exposure to $\min(\Tend, U_e)$ is the
+complete and exact treatment of (C1).
+\end{proposition}
+
+\begin{proof}
+Under independent censoring the observed counting process $\int
+\ind{u \le C_e} \dd N_e(u)$ has intensity $\atrisk_e(t)\lam_e(t)$ with
+respect to the enlarged filtration (\cref{ch:foundations};
+\citealp[III.2]{abgk1993}), so the Jacod likelihood of the observed data
+is \cref{eq:ch02:jacod} with this intensity --- which is
+\cref{eq:ch04:loglik} restricted to $[\entry_e, C_e]$. Splitting the
+compensator integral at the observed event times isolates the term over
+$(t_{\mathrm{last}}, C_e]$, an interval containing no event: its entire
+contribution is $-\int \lam_e$, with no $\log\lam$ term to drop or
+invent. The binned statement follows from \cref{thm:ch04:glmequiv}, whose
+exposure $w_c$ integrates precisely this at-risk indicator. The
+proposition fails exactly when censoring is \emph{informative} ---
+observation ends for reasons correlated with the intensity given
+covariates. That is not (C1) but (C3), the unlabeled-exit defect: an
+unrecorded death is a censoring event we never see and therefore cannot
+put into $C_e$; \cref{ch04:sec:defects} states the resulting bias.
+\end{proof}
+
+\begin{proposition}[Waiting-time view: the same computation]\label{prop:ch04:renewal}
+Under \cref{asm:ch04:condpoisson}, for a spell starting at $a$ (an entry
+or an observed event) the waiting time to the next event has survival
+function
+\begin{equation}\label{eq:ch04:survival}
+S(c) \;=\; \Prob\big(N(a, c] = 0\big)
+ \;=\; \exp\!\Big(-\int_a^{c} \lam(u)\dd u\Big),
+ \qquad c \ge a,
+\end{equation}
+and density $f(c) = \lam(c)\, S(c)$. The likelihood assembled
+spell-by-spell --- density factors for completed spells, survival factors
+$S(C)$ for spells censored at $C$ --- equals the Jacod likelihood of
+\cref{prop:ch04:censorexact} exactly:
+\[
+\prod_{m=1}^{n} \lam(t_m)\,
+ e^{-\int_{t_{m-1}}^{t_m} \lam(u)\dd u}
+ \;\times\;
+ e^{-\int_{t_n}^{C} \lam(u)\dd u}
+ \;=\;
+ \Big(\prod_{m=1}^{n} \lam(t_m)\Big)\,
+ e^{-\int_{t_0}^{C} \lam(u)\dd u},
+\qquad t_0 = \entry .
+\]
+\end{proposition}
+
+\begin{proof}
+\Cref{eq:ch04:survival} is the Poisson count law of
+\cref{asm:ch04:condpoisson} evaluated at zero; differentiating $1 - S(c)$
+gives $f(c) = \lam(c) S(c)$. Taking logs of the displayed product, the
+survival exponents telescope over the partition $t_0 < t_1 < \cdots < t_n
+< C$ into the single compensator integral $-\int_{t_0}^{C}\lam$, and the
+event factors contribute $\sum_m \log\lam(t_m)$: this is
+\cref{eq:ch04:loglik} for the unit. The two views are therefore not two
+treatments to be reconciled but one number computed with two
+bookkeepings. Practical corollary: a spell-table implementation (one row
+per spell with a censoring flag, survival factor for flagged rows) and an
+exposure-table implementation (one row per unit-week cell with exposure
+$w_c$) must return identical log-likelihoods on the same data --- a cheap
+and mandatory cross-implementation test. In the homogeneous case
+\cref{eq:ch04:survival} is the exponential waiting time $e^{-\mub(c-a)}$,
+and the renewal view is classical survival analysis of exponential
+spells; for recurrent events the counting-process formulation is the one
+that generalizes \citep{cook2007}.
+\end{proof}
+
+\begin{corollary}[Interval censoring is free at this rung]\label{cor:ch04:intervalexact}
+Suppose deal dates are trusted only at resolution $\delta$ (the week): the
+bin of each event is correct, its position within the bin is not. Under
+the assumptions of \cref{thm:ch04:glmequiv} with bin width $\delta$, the
+binned Poisson likelihood \cref{eq:ch04:glm} is the \emph{exact}
+likelihood of the trusted data --- not an approximation --- because by
+part (iii) the within-bin positions carry no information about $\bcoef$:
+the corrupted coordinates are exactly the ancillary ones. Boundary cells
+truncated by entry or censoring retain exactness through their partial
+exposure $w_c$. None of this survives history dependence: for a Hawkes
+process the intensity after $t$ depends on the within-bin positions of
+earlier events, binning destroys likelihood information, and the
+interval-censored machinery of \cref{ch:censoring}
+\citep{rizoiu2022} becomes necessary. The contrast is the precise sense
+in which weekly aggregation is free at rung 1 and costly afterwards ---
+and it is why (C4) appears as ``robust'' in this chapter's defect table
+and as a first-class problem in \cref{ch:hawkes,ch:censoring}.
+\end{corollary}
+
+\begin{warning}[Dropping open spells is right truncation, not censoring]\label{warn:ch04:truncation}
+The exactness of
+\cref{prop:ch04:censorexact,prop:ch04:renewal} holds only if censored
+spells are \emph{kept}. Discarding them --- fitting only spells that end
+in an observed event --- conditions on the event landing in-window, which
+oversamples short gaps and biases every fitted rate upward; the
+observation scheme becomes right truncation, a different and harder
+problem \citep{kalbfleisch2002}. This restates
+\cref{warn:ch02:openspells} at the point of use. For the weekly sector
+GLM the trap is nearly impossible to fall into (every sector-week cell
+exists whether or not it contains events --- the zero counts \emph{are}
+the censored exposure), which is itself an argument for the cell
+representation; for spell-table firm-level code the trap is one careless
+\code{dropna} away, and the open-spell retention audit of
+\modrepo{data/audits.py} exists to catch it.
+\end{warning}
+
+\section{Overdispersion: from Poisson to negative binomial}\label{ch04:sec:overdisp}
+
+\Cref{asm:ch04:condpoisson} forces $\Var(y_c) = \E(y_c)$ cell by cell.
+We expect funding counts to violate this: latent heterogeneity (unmodeled
+sector-week quality, vendor coverage drift) and genuine history dependence
+both inflate variance beyond the mean. The synthetic studies of
+\cref{ch:results-synth} will measure the dispersion this produces under
+controlled misspecification. Two upgrades
+present themselves, one inferential and one distributional, and the
+design needs both for different purposes.
+
+The inferential upgrade is \emph{quasi-Poisson}: keep the mean model and
+the estimating equation \cref{eq:ch04:score}, posit $\Var(y_c) = \phi\,
+\mu_c$, estimate $\hat\phi$ by the Pearson statistic
+$\smash{\hat\phi = \tfrac{1}{n-d}\sum_c (y_c - \hat\mu_c)^2/\hat\mu_c}$,
+and scale standard errors by $\smash{\hat\phi^{1/2}}$ (or use the
+sandwich variance, which is robust to variance misspecification beyond
+the proportional form). Because the score \cref{eq:ch04:score} is
+unbiased whenever the \emph{mean} is correct, $\hat\bcoef$ keeps its
+consistency under overdispersion; only its reported precision was
+wrong. Quasi-Poisson repairs the standard errors at zero modeling cost, but
+it supplies no predictive distribution --- and the evaluation protocols
+of \cref{ch:gof} score predictive distributions (PIT, proper scoring
+rules), not point forecasts. Hence the distributional upgrade.
+
+\begin{proposition}[Gamma frailty makes a negative binomial]\label{prop:ch04:negbin}
+Let $y \st Z \sim \mathrm{Poisson}(Z\mu)$ with frailty $Z \sim
+\mathrm{Gamma}(\alpha, \alpha)$ (shape and rate $\alpha$, so $\E Z = 1$,
+$\Var Z = 1/\alpha$). Then $y$ is negative binomial:
+\begin{equation}\label{eq:ch04:nbpmf}
+\Prob(y = k)
+ \;=\;
+ \frac{\Gamma(k + \alpha)}{\Gamma(\alpha)\, k!}
+ \left(\frac{\alpha}{\alpha + \mu}\right)^{\!\alpha}
+ \left(\frac{\mu}{\alpha + \mu}\right)^{\!k},
+ \qquad k = 0, 1, 2, \ldots,
+\end{equation}
+with $\E y = \mu$ and $\Var y = \mu\,(1 + \mu/\alpha)$. As $\alpha \to
+\infty$ the law converges to $\mathrm{Poisson}(\mu)$. Moreover, with
+$\mu_c = w_c e^{\bcoef\T\xcov_c}$ and $\alpha$ fixed, the negative
+binomial log-likelihood remains concave in $\bcoef$.
+\end{proposition}
+
+\begin{proof}
+Integrating the Poisson pmf against the Gamma density,
+\[
+\Prob(y = k)
+ = \int_0^\infty \frac{e^{-z\mu}(z\mu)^k}{k!}\,
+ \frac{\alpha^\alpha z^{\alpha-1} e^{-\alpha z}}{\Gamma(\alpha)} \dd z
+ = \frac{\mu^k \alpha^\alpha}{k!\,\Gamma(\alpha)}
+ \int_0^\infty z^{k+\alpha-1} e^{-(\mu+\alpha)z} \dd z
+ = \frac{\mu^k \alpha^\alpha}{k!\,\Gamma(\alpha)}\,
+ \frac{\Gamma(k+\alpha)}{(\mu+\alpha)^{k+\alpha}},
+\]
+which rearranges to \cref{eq:ch04:nbpmf}. The moments follow from the
+tower rule: $\E y = \E[Z\mu] = \mu$ and $\Var y = \E[Z\mu] +
+\Var(Z\mu) = \mu + \mu^2/\alpha$. For $\alpha \to \infty$, $Z \to 1$ in
+probability and the mixture collapses to the Poisson. For concavity,
+write $\eta_c = \log w_c + \bcoef\T\xcov_c$; the $\bcoef$-dependent part
+of the log-likelihood per cell is $y_c\,\eta_c - (y_c +
+\alpha)\log(\alpha + e^{\eta_c})$. The first term is linear, and
+$\log(\alpha + e^{\eta}) = \logsumexp(\log\alpha, \eta)$ is convex in
+$\eta$, hence $-(y_c+\alpha)\log(\alpha + e^{\eta_c})$ is concave in the
+linear function $\eta_c$ of $\bcoef$; sums of concave functions are
+concave.
+\end{proof}
+
+The mixture derivation is not a convenience trick; it is the model's
+meaning. $Z$ is a multiplicative \emph{frailty} --- the latent common
+factor of \citet{vaupel1979}, developed for multivariate event data by
+\citet{hougaard2000} --- attached here to each sector-week cell to absorb
+heterogeneity the covariates miss. That reading also sets the limits of
+the upgrade. Independent frailties per cell fix the
+\emph{marginal} variance but assert no dynamics; if the missing structure
+is autocorrelated (a persistent latent factor, or genuine
+event-to-event excitation), Pearson residuals will still be serially
+correlated after the NB upgrade, and that residual autocorrelation ---
+not overdispersion itself --- is the escalation signal toward
+\cref{ch:hawkes}. The distinction matters because overdispersion is
+produced by frailty \emph{and} by contagion alike; a dispersion
+statistic can demand escalation but can never certify excitation. If
+clustered variance is read as contagion, branching estimates inflate;
+the frailty experiments of \cref{ch:results-synth} are designed to
+measure that inflation. The frailty-vs-contagion
+identification problem is treated properly in \cref{ch:hawkes}.
+
+\begin{decision}{D4.2 --- negative binomial is the default count noise}
+The default observation model for sector-week counts is the negative
+binomial \cref{eq:ch04:nbpmf} with mean $w_c e^{\bcoef\T\xcov_c}$ and a
+fitted dispersion $\alpha$ (per sector, unless pooling is justified by
+the diagnostics), replacing the pure Poisson wherever a predictive count
+distribution is consumed --- held-out NLL, PIT calibration, decision
+outputs. Rationale: overdispersion is expected from heterogeneity and
+history dependence (to be measured in \cref{ch:results-synth}); an exact
+frailty interpretation
+(\cref{prop:ch04:negbin}) that absorbs heterogeneity without asserting
+dynamics; preserved mean structure and $\bcoef$ interpretation;
+preserved concavity in $\bcoef$ at fixed $\alpha$. Quasi-Poisson/sandwich
+standard errors remain the reporting standard for coefficient inference
+in plain-Poisson fits. Dispersion diagnostics --- $\hat\phi$, fitted
+$1/\alpha$, and randomized PIT --- are computed with every count fit
+under the protocols of \cref{ch:gof}. Reversal triggers: if real-data
+fits drive $1/\alpha \to 0$ after the covariate baseline (equidispersion),
+the upgrade is dropped as needless; if NB residuals stay serially
+correlated, the deficiency is dynamic and the remedy is history terms
+(\cref{ch04:sec:history}, \cref{ch:hawkes}), not a fatter marginal tail.
+\end{decision}
+
+\section{History as covariates: the self-modulated GLM, previewed}\label{ch04:sec:history}
+
+One step remains inside the GLM family, and the repository's sector layer
+already uses it. Add the recent past to the design: lagged own- and
+cross-sector counts (or exponentially filtered versions of them) enter
+the linear predictor,
+\begin{equation}\label{eq:ch04:autoregression}
+\log \Lam_{s,t}
+ \;=\;
+ a_s + \bcoef\T \xcov_t
+ + \sum_{r \in \sectors} \sum_{\ell=1}^{L} b_{sr\ell}\, y_{r, t-\ell},
+\end{equation}
+which is a \emph{log-linear Poisson autoregression} --- the count time
+series family of \citet{fokianos2009}, log-linear variant
+\citet{fokianos2011}. Everything mechanical from this chapter survives:
+the parameters sit in a linear predictor, so the likelihood is concave
+(\cref{thm:ch04:concavity} verbatim), the solver guarantees of
+\cref{cor:ch04:global} hold, and the exp link grants \emph{sign freedom}
+--- negative $b$ coefficients express inhibition, one of the three legal
+routes to it catalogued in \cref{ch:hawkes}. This is rung 3 of the
+ladder. Fixed lags (or fixed-decay filters)
+play the role of a fixed kernel: they capture the predictive content of
+excitation without estimating the timescale, the one parameter
+that weekly data cannot identify (the $\branch$--$\decay$ ridge;
+\cref{ch:gof}).
+
+Two prices are paid, and both are conceptual rather than computational.
+First, lagged counts are \emph{internal} covariates
+(\cref{asm:ch04:external} is voided): the model is a legitimate
+conditional intensity and one-step-ahead prediction is clean, but
+multi-step forecasts and any scenario analysis must simulate the system
+jointly --- plugging today's history into a formula for next quarter is
+not a probability of anything \citep{kalbfleisch2002}. Second, a
+stability condition that must be stated explicitly:
+
+\begin{warning}[Stability of log-link feedback is an operating-point condition]\label{warn:ch04:loglinkstability}
+For the \emph{additive} excitation model of \cref{ch:hawkes}, with
+nonnegative lag matrices summing to $\Gmat$, subcriticality is the
+coefficient condition $\specrad{\Gmat} < 1$, enforced in
+\modrepo{sector\_stability.py} through the row-sum bound $\rhomax = 0.95$.
+That certificate does \emph{not} transfer to
+\cref{eq:ch04:autoregression}. Under the log link one past event
+multiplies next week's rate by $e^{b}$, so the marginal effect of an
+event on the conditional mean is $b\,\Lam$ --- coefficient \emph{times
+operating level}. A feedback matrix that is harmless at $0.3$ events per
+sector-week can be explosive at $3$; no inequality on the $b$'s alone,
+spectral or otherwise, certifies stability. The applicable theory is the
+contraction/ergodicity analysis of \citet{fokianos2011}, whose conditions
+constrain the feedback of \emph{bounded or slowly varying} transforms of
+the past; raw counts in the exponent sit outside the Lipschitz structure
+that the theory requires. We expect simulated log-link feedback models to
+produce metastable excursions even when the nominal spectral radius is
+subcritical; the stress tests of \cref{ch:results-synth} probe exactly
+this. Design rules that follow:
+history enters exponents only through bounded transforms (EWMA levels,
+$\log(1+\cdot)$ counts); any simulation or multi-step use of a fitted
+self-modulated GLM must verify stability \emph{at the operating point};
+and the branching reading of excitation is reserved for the additive
+parameterization. The full treatment --- both parameterizations, their
+stability certificates, and what each can and cannot claim about
+contagion --- is \cref{ch:hawkes}.
+\end{warning}
+
+\section{Defect declaration}\label{ch04:sec:defects}
+
+Per Design decision D2.1 (\cref{ch:data}), the Poisson models of this
+chapter declare their position against the defect ledger of
+\cref{tab:ch02:defects}. \Cref{tab:ch04:defects} summarizes; the signs
+are the chapter's own results.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{0.06\textwidth} p{0.26\textwidth} p{0.36\textwidth} p{0.18\textwidth}}
+\toprule
+\textbf{Defect} & \textbf{Status at this rung} & \textbf{Mechanism and
+sign} & \textbf{Treatment} \\
+\midrule
+(C1) & corrected \emph{exactly} & censored exposure contributes its
+survival factor through the compensator; no bias
+(\cref{prop:ch04:censorexact}) & this chapter \\
+\addlinespace
+(C2) & corrected mechanically & risk sets start at $\entry_i$; exposure
+$w_c$ integrates from entry. Residual selection (``firms that have
+raised'') is an interpretation limit, not a likelihood error &
+\cref{ch:universe} \\
+\addlinespace
+(C3) & \emph{vulnerable} (firm level) & unrecorded exits inflate exposure
+$w_c$ with dead time; fitted hazards \emph{deflated} (downward sign),
+worst for long-quiet firms. Sector level immune: sectors do not die &
+exposure windows, \cref{ch:buckets} \\
+\addlinespace
+(C4) & robust at weekly resolution & binned likelihood is exact; within-bin
+positions are ancillary (\cref{cor:ch04:intervalexact}); day-level jitter
+within weeks is immaterial & \cref{ch:censoring} \\
+\addlinespace
+(C5) & \emph{vulnerable} & stale firm covariates attenuate their fitted
+effects toward zero; macro covariates unaffected (published as-of, never
+stale). Bites the event-time firm path, not the sector GLM &
+\cref{ch:stale} \\
+\addlinespace
+(C6) & sector immune / firm vulnerable & sector counts are complete
+(out-of-universe deals still carry sectors); firm-attributable intensity
+misses competitors and thins counts & \cref{ch:universe} \\
+\bottomrule
+\end{tabular}
+\caption{Defect declaration for the Poisson rung (D2.1 compliance).
+``Immune''/``robust'' claims hold under this chapter's stated
+assumptions; signed vulnerabilities are accepted and carried to the
+chapters that own the remedies.}
+\label{tab:ch04:defects}
+\end{table}
+
+The asymmetry in \cref{tab:ch04:defects} between sector and firm rows is
+the quantitative reason the ground process is calibrated at sector
+resolution first: at that resolution the Poisson rung is exactly right
+under (C1), (C2), (C4) and immune to (C3), (C6), so its held-out
+likelihood is a trustworthy floor. Firm-level Poisson calibration through
+the event-time path inherits the (C3) deflation and (C5) attenuation with
+the stated signs, and every later firm-level model must beat it
+\emph{while carrying the same declared exposures}.
+
+\begin{codehooks}
+\emph{Existing.} \modrepo{sector\_stability.py}
+(\code{fit\_sector\_count\_model}): with \code{n\_lags=0} the additive
+excitation vanishes and the fit is exactly the weekly NHPP GLM of
+\cref{thm:ch04:glmequiv,cor:ch04:repoglm}; its ridge \code{l2\_beta} and
+baseline support-envelope winsorization implement the remedies of
+\cref{warn:ch04:separation}; \code{sector\_rate\_at} is the one-step
+predictor. \code{synthetic/fast\_fit.py::fit\_sector\_glm\_fast(n\_lags=0)}
+is the vectorized synthetic-world twin for the decomposition benchmarks
+planned in \cref{ch:results-synth}. \modrepo{eventtime/estimate.py}
+(\code{fit\_multivariate\_with\_covariates}) is the day-resolution NHPP
+path when excitation is disabled, with
+\modrepo{eventtime/covariates.py}
+(\code{PiecewiseConstantCovariate.integrate\_exp\_gamma}) computing the
+compensator $\int e^{\bcoef\T\xcov}$ in closed form cell by cell ---
+the continuous-time twin of the GLM offset. \emph{To be written.}
+\modrepo{sector\_negbin.py}: the D4.2 negative-binomial layer ---
+NB likelihood \cref{eq:ch04:nbpmf} with log-mean $\log w_c +
+\bcoef\T\xcov_c$, per-sector $\alpha$, quasi-Poisson $\hat\phi$ and PIT
+diagnostics emitted in the \cref{ch:gof} harness format.
+\modrepo{data/audits.py} (exposure integrity, per \cref{ch:data}):
+open-spell retention (\cref{warn:ch04:truncation}), entry-date
+consistency of $w_c$ integration limits, spell-table vs.\ exposure-table
+log-likelihood parity (\cref{prop:ch04:renewal}), and train/test
+covariate-support overlap reporting (\cref{warn:ch04:separation}).
+\end{codehooks}

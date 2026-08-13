@@ -1,0 +1,368 @@
+% ch-codeplan --- the code and test plan (operational companion to ch13)
+
+\Cref{ch:roadmap} says \emph{what} gets built and in which phase. This chapter says \emph{how} each piece is
+tested before it is trusted. It is the engineering contract behind the roadmap's gates.
+\Cref{chcp:sec:harness} fixes the four test layers and what a green result in each layer actually certifies.
+\Cref{chcp:sec:forward} states the test plan as frozen pass/fail protocols, each mapped to the roadmap phase
+that owns it. \Cref{chcp:sec:uq} summarizes the uncertainty-quantification methods and the production
+checklist. \Cref{chcp:sec:ci} closes with the continuous-integration gates and the definition of done, tied
+to the decision registry of \cref{ch13:sec:registry}. No results appear in this chapter: every protocol below
+is planned, not run. Synthetic-data verdicts will be recorded in \cref{ch:results-synth}; real-data verdicts
+will be recorded in \cref{ch:results-spain}. Evaluation-metric definitions are not restated below: the
+evaluation constitution of \cref{ch07:sec:constitution} is the sole authority on what ``calibrated'' and
+``better'' mean.
+
+\section{Testing philosophy and the four-layer harness}
+\label{chcp:sec:harness}
+
+A calibration code base fails in two distinct ways. Either the code computes the wrong number, or the code
+computes the right number for a procedure that cannot recover the truth. Conventional software tests catch
+only the first failure. We therefore run four layers of tests. Each layer certifies something the previous
+layer cannot, and the roadmap's phase gates (\cref{ch13:sec:reading}) are defined in terms of them.
+
+\paragraph{Layer 1: unit tests on hand-computable micro-examples.} Every nontrivial data transformation has a
+companion example small enough to verify by hand. Three anchor cases: (i) a three-firm choice set with known
+funding histories, where the pools, the excluded most-recently-funded firm, the newcomer row, and the winner
+labels produced by \code{build\_choice\_sets} are asserted against a worked-out table; (ii) a two-bucket
+compensator for an exponential-kernel intensity, checked against the closed-form integral to machine
+precision; (iii) deduplication on a constructed deal table containing exact duplicates, near-duplicates a few
+days apart, and legitimate consecutive-week repeats, asserting which rows survive. These tests certify
+arithmetic and indexing, nothing more. But when a recovery test fails, they let us clear the plumbing in
+minutes.
+
+\paragraph{Layer 2: equivalence tests between fast and reference fitters.} The repository ships slow,
+transparent loop fitters and vectorized fast fitters (\code{fit\_sector\_glm\_fast}, \code{fit\_choice\_fast}).
+The fast versions exploit structure: the sector GLM is separable per receiving sector, so twelve small concave
+problems replace one large one; the ranker is a padded-tensor batch over events and candidates. Speed is
+worthless if the optimum moves. On subsamples, both implementations must agree at the optimum --- same loss to
+$10^{-6}$, parameters to matching tolerance --- before a fast fitter may be used in any experiment, and the
+check is rerun whenever either implementation changes. Every new likelihood must also pass
+analytic-vs-numeric gradient checks at the same fixed tolerances.
+
+\paragraph{Layer 3: statistical recovery tests.} These are the scientific tests. We fit on synthetic data
+whose ground truth we wrote down, and a run passes when the truth lies within 2 standard errors of the
+estimate across 5 seeds. A recovery failure with passing layers 1--2 is a finding about the \emph{method} ---
+identifiability, confounding, misspecification. Findings of this kind will be recorded in
+\cref{ch:results-synth} and feed the decision registry. Recovery tests are the only layer that can certify the
+phrase ``the pipeline works,'' which is why every roadmap gate requires a recovery rehearsal before a new
+fitter touches real data.
+
+\paragraph{Layer 4: invariant and leakage audits.} Two standing assertions run over the whole feature stack.
+The point-in-time assertion recomputes every feature using only data truncated at time $t$ and requires the
+result to be bit-identical to the production value: any divergence means some path read the future. The
+oracle-isolation assertion requires that no fitting path opens \code{ground\_truth.npz} or
+\code{private\_deal\_map.csv}; oracle files are for evaluation only, and a fit that touches them is void
+regardless of its metrics. Both audits are structural: they do not check that a number is right, they check
+that it was legal to compute. On real data this layer becomes \modrepo{data/audits.py} of Phase 0
+(\cref{ch13:sec:phase0}), with the oracle role played by vendor-side fields that postdate the prediction time.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lp{5.6cm}l}
+\toprule
+Layer & What it certifies & Cadence \\
+\midrule
+Unit (micro-examples) & arithmetic and indexing of each transformation & every commit \\
+Equivalence (fast vs.\ loop) & the vectorized optimum is the reference optimum & every commit \\
+Recovery (synthetic truth) & the procedure can find truth within 2 SE, 5 seeds & nightly, small configs \\
+Invariant / leakage & features are point-in-time; oracle files untouched & blocking, every commit \\
+\bottomrule
+\end{tabular}
+\caption{The four test layers and what a green result actually means.}
+\label{chcp:tab:layers}
+\end{table}
+
+Three reproducibility rules bind everything above. First, every reported number must be regenerable from one
+seeded entry point --- for the rehearsal worlds themselves,
+\begin{verbatim}
+PYTHONPATH=. python -m synthetic.generate --regime A --seed 0
+\end{verbatim}
+and analogously one script per experiment table with a \code{--seed} argument. Second, temporal splits only,
+everywhere: train weeks $[0,416)$ against test weeks $[416,520)$ on the weekly track, an 80\% day quantile on
+the choice track, and no random split anywhere in the stack, including model selection --- this is the same
+temporal discipline the evaluation constitution imposes (\cref{ch07:sec:temporal}). Third, runtimes are logged
+alongside results, because a fitter that silently becomes ten times slower is a regression even when its
+numbers do not move.
+
+\begin{codehooks}
+Layer 1--2 suites live under \code{tests/}. Recovery campaigns are the seeded entry points under
+\code{experiments/}, whose verdicts will be transcribed into \cref{ch:results-synth}; the rehearsal stage
+itself is \code{synthetic/} (\cref{ch13:sec:registry}). On real data, layer 4 becomes \modrepo{data/audits.py}
+(P0.2) and the consolidated metric harness is \modrepo{eval/} (P2.4); both replace per-experiment ad hoc
+scripts.
+\end{codehooks}
+
+\section{The forward test plan}
+\label{chcp:sec:forward}
+
+What follows is the committed test plan. Each protocol states its purpose, its procedure in a few lines, a
+pass criterion frozen \emph{before} the run so that results can fail, and the roadmap phase that owns its
+real-data form. Every protocol has status \emph{planned}; this chapter reports no outcomes. Synthetic runs
+write their verdicts into \cref{ch:results-synth}; real-data reruns write theirs into \cref{ch:results-spain}.
+Unless stated otherwise, every experiment runs on both rehearsal regimes at 5 seeds with error bars, under the
+splits and audit rules of \cref{chcp:sec:harness}, scored only by metrics the constitution admits
+(\cref{ch07:sec:constitution}). \Cref{chcp:tab:forward} summarizes.
+
+\begin{protocol}[E1: bucket width, decay identifiability, and latent confounding]
+\label{chcp:prot:e1}
+\emph{Purpose:} quantify what fine-grained timestamps buy over coarse buckets, and how badly latent
+confounding contaminates fitted excitation. \emph{Procedure:} fit the weekly GLM and a multivariate event-time
+sector Hawkes (exponential kernel, log-linear macro baseline) on the same streams; rerun the event-time fit at
+1d, 7d, and 28d bucket widths, reporting bias and SE of the branching scale $\branch$ and decay $\decay$ at
+each width; separately, regenerate regime A with latent-factor strength in $\{0, 0.15, 0.3\}$ at fixed true
+radius and plot fitted effective radius against latent strength, with and without mitigations (lagged
+aggregate count covariate, off-diagonal penalties). \emph{Pass:} $\decay$ recovered within 2 SE at day
+resolution on regime B while the $\branch$--$\decay$ ridge visibly reopens by 28d; the confounding curve is
+monotone and yields a stated bucket-width recommendation. \emph{Status:} planned; results to
+\cref{ch:results-synth}. \emph{Phase:} the real-data descendant is the honest-resolution decision of Phase 0
+(\cref{ch13:sec:phase0}, D6.1) and the ridge diagnostics standing on the Phase 2 Hawkes fit
+(\cref{ch13:sec:phase2}).
+\end{protocol}
+
+\begin{protocol}[E2: choice-model sub-experiments]
+\label{chcp:prot:e2}
+\emph{Purpose:} settle the four open design choices inside the conditional logit before the ranker is frozen
+for production. \emph{Procedure and pass criteria, per sub-experiment:}
+\begin{enumerate}[label=E2.\arabic*,leftmargin=3.2em]
+\item \emph{Gap functional form.} Fit log-gap versus binned gap dummies ($<$1m, 1--3m, 3--6m, 6--12m, $>$12m)
+versus exponential decay $\exp(-\text{days}/\tau)$ with $\tau \in \{30, 90, 180\}$ days; select by held-out
+NLL and plot each implied hazard-versus-gap curve against truth. Pass: the binned fit recovers the true
+26-week step in regime A and the smooth exponential decay in regime B.
+\item \emph{Newcomer designs N1--N4.} Compare the bare ASC against the context-covariate ASC (sector heat and
+macro features), the representative-entrant construction (plug-in and integrated Gaussian variants), the
+nested two-step, and the immigrant/offspring split that aligns first financings with the Hawkes background
+stream. Pass: the recommended design calibrates quarterly newcomer share within 2 percentage points, with
+incumbent weights materially unchanged. The design space is owned by the outside-option construction of
+\cref{ch:universe}.
+\item \emph{Sampled-softmax stability.} Refit at maximum candidate counts $\{32, 64, 128\}$ and with the full
+denominator on a 10\% subsample. Pass: weights stable across candidate counts, consistent with the
+subsampled-denominator consistency result of \cref{app:proofs}.
+\item \emph{Exclusion-rule sensitivity.} Vary the exclude-most-recent rule (sector-scoped, global, none);
+count dropped repeats and measure weight shifts. Pass: the effect is pinned with a number, and the rule is
+stated in the production spec either way.
+\end{enumerate}
+\emph{Status:} planned, all four; results to \cref{ch:results-synth}. \emph{Phase:} E2.1, E2.3, and E2.4
+belong to the Phase 1 linear ranker (\cref{ch13:sec:phase1}); E2.2 rides the Phase 2 outside-option work
+(\cref{ch13:sec:phase2}).
+\end{protocol}
+
+\begin{protocol}[E3: two-stage factorization versus single-layer block Hawkes]
+\label{chcp:prot:e3}
+\emph{Purpose:} the central architecture question --- given exact dates and truthful risk sets, what does the
+two-stage factorization still buy, and what does it cost in joint-intensity coherence? \emph{Procedure:} fit
+the full firm-level event-time block Hawkes (log-link baseline, self-inhibition, size-normalized sector field)
+on day-resolution timestamps; evaluate it and the two-stage pipeline on identical held-out events for joint
+NLL, next-deal sector prediction, and funded-firm ranking conditional on the event. \emph{Pass:} on regime B
+the single-layer fit recovers the self-inhibition ordering with rank correlation at least 0.9; the
+head-to-head produces a written recommendation with numbers on all three metrics, whichever way it falls.
+\emph{Status:} planned; results to \cref{ch:results-synth}. \emph{Phase:} behind the Phase 3 trigger for
+signed continuous-time kernels (\cref{ch13:sec:phase3}) --- it runs only if a consuming question demands a
+structural continuous-time claim that routes (a)/(c) cannot express, and its recovery rehearsal comes first.
+\end{protocol}
+
+\begin{protocol}[E4: neural-operator placement]
+\label{chcp:prot:e4}
+\emph{Purpose:} establish whether and where the neural-operator surrogate for the compensator equations pays
+for itself, given that exact likelihoods are the committed default (\cref{ch:censoring,ch:gof}).
+\emph{Procedure:} report forward-solver accuracy versus sector count $M$ and the wall-clock crossover against
+the exact solvers under repeated forward solves; benchmark differentiable-solver inverse calibration against
+the MLE for bias, variance, and wall-clock on identical data. \emph{Pass:} the forward solver reaches a
+sub-2\% relative $L^2$ band; the crossover point (in solves and in $M$) is documented; the inverse-calibration
+table states plainly whether the MLE wins at this scale. \emph{Status:} planned; results to
+\cref{ch:results-synth}. \emph{Phase:} not on the critical path; revisited under Phase 3 rules only if a
+repeated-forward-solve workload (scenario simulation in \cref{ch:decision}) materializes.
+\end{protocol}
+
+\begin{protocol}[E5: walk-forward backtest with covariate ablation]
+\label{chcp:prot:e5}
+\emph{Purpose:} the end-to-end rehearsal of the production loop under strictly forward information.
+\emph{Procedure:} freeze the best when/where and which-firm models; walk forward weekly over the final 20\% of
+days, emitting sector intensities, ranked candidate lists, and newcomer probabilities; score top-1/5/10 and
+MRR against oracle and random, PIT count calibration with the quasi-Poisson dispersion correction, and lead
+time (weeks a funded firm spends in the top decile before its deal); rerun with macro covariates removed and
+on the covariate-scale 1.5 world. \emph{Pass:} the pipeline beats random throughout and degrades gracefully
+toward oracle; the covariate ablation turns ``covariates help'' into a signed number in both directions.
+\emph{Status:} planned; results to \cref{ch:results-synth}. \emph{Phase:} its real-data form is the Phase 2
+gate itself --- the end-to-end weekly run producing the deliverables of \cref{ch:decision}
+(\cref{ch13:sec:phase2}), driven by the rolling-origin machinery of \modrepo{eval/}.
+\end{protocol}
+
+\begin{protocol}[B1: boosted-ranker benchmark]
+\label{chcp:prot:b1}
+\emph{Purpose:} a model-free discriminative ceiling for the identity layer. \emph{Procedure:} train XGBoost
+rankers \citep{chenguestrin2016} on the identical choice sets and splits in two variants --- feature parity
+(exactly the six logit features, isolating functional form) and kitchen sink (all point-in-time-legal raw
+fields, snapshot columns explicitly forbidden); score with per-event renormalization; modest hyperparameter
+search with a time-ordered validation tail. \emph{Pass (frozen decision rule):} a material win for the boosted
+variant means the logit is missing features or nonlinearity, and the pre-committed response is the
+grouped-softmax boosted ranker of \cref{ch:ranking}, which keeps the conditional-likelihood family while
+granting the score function interactions; a narrow result keeps the interpretable logit. \emph{Status:}
+planned; results to \cref{ch:results-synth}. \emph{Phase:} runs against the Phase 1 linear baseline
+(\cref{ch13:sec:phase1}); the grouped-softmax response, if triggered, ships in Phase 2
+(\cref{ch13:sec:phase2}). Both variants are rerun on real data, with verdicts in \cref{ch:results-spain},
+before any response is declared necessary there.
+\end{protocol}
+
+\begin{protocol}[B2: non-homogeneous Poisson null and improvement decomposition]
+\label{chcp:prot:b2}
+\emph{Purpose:} show, not assume, that self-excitation earns its complexity at this data scale.
+\emph{Procedure:} fit the nested ladder --- covariates-only inhomogeneous Poisson (simulable by thinning
+\citep{lewisshedler1979}), covariates plus excitation, full event-time timing --- plus a seasonal-naive
+baseline; decompose held-out improvement across the rungs with residual diagnostics per rung \citep{ogata1988},
+on the NLL ladder of \cref{ch07:sec:ladder}. \emph{Pass:} the decomposition exists with error bars over 5
+seeds; if the excitation rung contributes approximately nothing, that is written into the registry, not
+smoothed over. \emph{Status:} planned; results to \cref{ch:results-synth}. \emph{Phase:} the real-data rerun
+\emph{is} the Phase 1 gate --- the nats-ladder note on the 2011--2024 extract (\cref{ch13:sec:phase1}),
+recorded in \cref{ch:results-spain}.
+\end{protocol}
+
+\begin{protocol}[B3: nonparametric intensity challenger]
+\label{chcp:prot:b3}
+\emph{Purpose:} test whether the nonparametric intensity models of \cref{ch:nonparam} --- boosted trees,
+forests, and small networks on the discretized likelihood --- beat the parametric families they challenge.
+\emph{Procedure:} fit each \cref{ch:nonparam} model in the same harness as every other fitter: same temporal
+splits, same audits, same 5 seeds, same feature-legality rules; compare against the log-linear GLM of
+\cref{ch:poisson} and the parametric Hawkes of \cref{ch:hawkes} on held-out likelihood (the NLL ladder of
+\cref{ch07:sec:ladder}) and on calibration (the PIT and dispersion checks of \cref{ch07:sec:counts}).
+\emph{Pass (frozen decision rule):} the comparison table exists with error bars; a nonparametric model is
+adopted only if it wins on held-out likelihood \emph{and} calibrates at least as well as the parametric
+incumbent; a likelihood win with worse calibration is a finding, not an adoption. \emph{Status:} planned;
+results to \cref{ch:results-synth}, real-data rerun to \cref{ch:results-spain}. \emph{Phase:} rides the
+Phase 1 baseline ladder (\cref{ch13:sec:phase1}) and is rerun against the Phase 2 architecture
+(\cref{ch13:sec:phase2}).
+\end{protocol}
+
+\begin{protocol}[Causal-pipeline validation on known ground truth]
+\label{chcp:prot:causal}
+\emph{Purpose:} test the causal stack of \cref{ch:eucausal} against a world where the estimand is known.
+\emph{Procedure:} generate a treatment with known selection on observables and on the latent quality mark;
+estimate naive, backdoor-adjusted, and AIPW effects; attach cluster-bootstrap confidence intervals and
+E-values \citep{hernan2020}. \emph{Pass, asserted in code so a failure is a red test:} the naive estimate is
+biased in the selection direction; adjustment removes the observable component; AIPW matches backdoor with
+better robustness to nuisance misspecification; and the residual gap to truth is attributable to latent
+quality with magnitude consistent with the computed E-value. \emph{Status:} planned; results to
+\cref{ch:results-synth}. \emph{Phase:} a blocking rehearsal gate before any estimator of \cref{ch:eucausal}
+runs on real data, and a precondition for the Phase 3 frailty escalations (\cref{ch13:sec:phase3}).
+\end{protocol}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabular}{lp{5.6cm}p{2.2cm}l}
+\toprule
+Test & Pass criterion (frozen) & Status & Phase \\
+\midrule
+E1 bucketing & $\decay$ within 2 SE at day resolution on B; ridge visible by 28d & planned & P0/P2 \\
+E1 confounding curve & monotone fitted-radius curve; mitigations quantified & planned & P2 \\
+E2.1 gap form & binned fit recovers the true step (A), smooth decay (B) & planned & P1 \\
+E2.2 newcomer N1--N4 & newcomer share within 2pp; incumbent weights stable & planned & P2 \\
+E2.3 sampled softmax & weights stable across 32/64/128/full-subsample & planned & P1 \\
+E2.4 exclusion rule & sensitivity pinned with a number & planned & P1 \\
+E3 head-to-head & rank-corr $\ge 0.9$ on B; three-metric comparison written & planned & P3 (trigger) \\
+E4 operator & sub-2\% forward band; crossover and inverse tables & planned & P3 (trigger) \\
+E5 backtest & beats random throughout; ablation deltas signed & planned & P2 gate \\
+B1 boosted ranker & frozen decision rule applied & planned & P1$\to$P2 \\
+B2 Poisson null & improvement decomposition with error bars & planned & P1 gate \\
+B3 nonparametric challenger & likelihood win counts only with equal-or-better calibration & planned & P1$\to$P2 \\
+Causal validation & all four coded assertions pass against truth & planned & pre-\cref{ch:eucausal} \\
+\bottomrule
+\end{tabular}
+\caption{Forward test plan at a glance. All rows: both regimes where applicable, 5 seeds, temporal splits,
+audits of \cref{chcp:sec:harness} in force. Synthetic verdicts go to \cref{ch:results-synth}; real-data
+verdicts go to \cref{ch:results-spain}; phases per \cref{ch:roadmap}.}
+\label{chcp:tab:forward}
+\end{table}
+
+\section{Uncertainty quantification and the production checklist}
+\label{chcp:sec:uq}
+
+Every interval this document reports comes from one of five techniques, and each carries a different
+guarantee. \Cref{chcp:tab:uq} is deliberately blunt about which.
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabular}{p{2.9cm}p{2.9cm}p{3.4cm}p{4.2cm}}
+\toprule
+Method & Technique & Guarantee & Key assumptions \\
+\midrule
+Count GLM (\cref{ch:poisson}) & quasi-Poisson sandwich & asymptotic SE validity for mean parameters & correct mean function; dispersion as nuisance \\
+Two-stage / choice (\cref{ch:ranking}) & cluster bootstrap by week & asymptotic CI coverage & weak dependence across clusters; clustering at the right level \\
+Boosted prediction (\cref{ch:buckets}) & split conformal / CQR \citep{romano2019} & finite-sample marginal coverage & exchangeability; weakened under temporal splits \\
+Hawkes MLE (\cref{ch:hawkes}) & Laplace / posterior interval & local asymptotic normality & correct specification; stationarity \\
+MBPP (\cref{ch:censoring}) & parametric bootstrap & coverage under the fitted DGP & model correctness; report $\branch$, not $\decay$ \\
+\bottomrule
+\end{tabular}
+\caption{UQ summary: what each interval means and what it silently assumes.}
+\label{chcp:tab:uq}
+\end{table}
+
+Only the conformal row carries a finite-sample statement, and even that one is marginal (not conditional) and
+degrades when temporal splits break exchangeability. Every other interval is asymptotic and
+specification-dependent. One consequence is worth spelling out: if the held-out Pearson dispersion of a count
+fit is $\phi$, naive Poisson standard errors are understated by a factor of about $\sqrt{\phi}$ until
+corrected --- which is why the dispersion report is a checklist item, not a courtesy. The production checklist
+below is the run-time counterpart of the Phase 0 audit suite (\cref{ch13:sec:phase0}): the audits verify the
+data once, the checklist binds every fit and report thereafter.
+
+\begin{enumerate}[label=C\arabic*.,leftmargin=3.0em]
+\item \emph{Point-in-time audit.} Reconstruct every feature from data knowable at the prediction date; join
+macro series on publish date, never reference date (\cref{ch:data}).
+\item \emph{Deduplication.} Apply the validated dedup window before any counting; duplicates and date jitter
+alias into spurious short-lag excitation (\cref{ch:data,ch:censoring}).
+\item \emph{Risk-set truthfulness audit.} Validate the membership mask $\riskset_t$ against a labelled
+subsample of known entrants and exits; a contaminated mask can invert fitted weights (\cref{ch:ranking}).
+\item \emph{Effective-radius guard.} Refuse to simulate any fitted model at effective radius $\ge 0.95$; for
+log-link raw-count feedback refuse well below that, or use bounded transforms (\cref{ch:hawkes}).
+\item \emph{Dispersion correction.} Report held-out Pearson dispersion and scale standard errors accordingly;
+dispersion far above 1 is a specification alarm, not a nuisance (\cref{ch07:sec:counts}).
+\item \emph{Universe coverage and newcomer calibration.} Track the untracked-firm share and recalibrate the
+newcomer ASC whenever the pool definition changes; the ASC is meaningless detached from its pool
+(\cref{ch:universe,app:proofs}).
+\item \emph{Temporal splits only.} No random splits anywhere --- not for model selection, not for conformal
+calibration, not for the benchmarks of \cref{chcp:sec:forward} (\cref{ch07:sec:temporal}).
+\item \emph{Seeds and regeneration.} Every reported number carries a seed and a regeneration command; a table
+without an entry point under \code{experiments/} does not exist.
+\end{enumerate}
+
+\section{Continuous integration and the definition of done}
+\label{chcp:sec:ci}
+
+The four layers of \cref{chcp:sec:harness} map onto three CI gates. On every commit, the unit and equivalence
+suites run and must pass; they are fast because the micro-examples are tiny and the equivalence checks run on
+subsamples. Nightly, the recovery suite runs on reduced configurations --- fewer weeks, fewer seeds --- as an
+early-warning system; a nightly recovery regression blocks the next release, not the next commit. The leakage
+audit is a blocking check at both cadences: a commit that makes any feature non-point-in-time, or that lets a
+fitting path touch \code{ground\_truth.npz} or \code{private\_deal\_map.csv}, does not merge, whatever its
+metrics say. The registry review of \cref{ch13:sec:registry} sits on top of all three: a pull request that
+contradicts a decision box is rejected or arrives with a documented reversal, and CI cannot green its way
+around that rule.
+
+The artifact policy is equally plain. Results tables are versioned CSVs, written by the experiment entry
+points and diffed like code, so a silently shifted number is a visible change in review. Figures are
+regenerated from those CSVs by scripts and are never hand-edited; a figure that cannot be regenerated is
+deleted rather than trusted. Campaign verdicts are transcribed append-only into \cref{ch:results-synth} for
+synthetic runs and into \cref{ch:results-spain} for real-data runs, so the evidentiary trail behind every
+decision box stays auditable.
+
+\begin{decision}{D-CP.1 --- the harness is constitutional}
+The four-layer harness of \cref{chcp:sec:harness}, the three CI gates above, and the frozen-pass-criterion
+discipline of \cref{chcp:sec:forward} are binding on all work in \modrepo{}. No fast fitter runs in an
+experiment without a current layer-2 equivalence pass; no fitter touches real data without a layer-3 recovery
+rehearsal on its own family; no pass criterion is edited after its experiment has run. Rationale: the value of
+a test plan is precisely that results are allowed to fail, and these rules make failure visible and durable.
+Reversal trigger: none anticipated; amendments go through the registry (\cref{ch13:sec:registry}).
+\end{decision}
+
+\begin{decision}{D-CP.2 --- definition of done}
+The test campaign is done when three conditions hold. (i) Every row of \cref{chcp:tab:forward} has moved from
+\emph{planned} to \emph{pass} or \emph{fail} with a number attached --- not a narrative, a number --- and the
+verdict recorded in \cref{ch:results-synth}. (ii) The benchmarks \cref{chcp:prot:b1,chcp:prot:b2,chcp:prot:b3}
+are run on the real extract, recorded in \cref{ch:results-spain}, and cited by the phase gates of
+\cref{ch13:sec:phase1,ch13:sec:phase2}, so the architecture choices rest on measured evidence from the data
+they will serve, not on rehearsal priors alone. (iii) Every failed criterion is either fixed and rerun, or
+documented as a limitation in the registry --- because a plan whose failures disappear quietly was never a
+test plan at all. Rationale: this is the operational meaning of the roadmap's gates. Reversal trigger: a
+change in \cref{ch:decision}'s consuming actions that adds or retires a protocol, per D7.1.
+\end{decision}

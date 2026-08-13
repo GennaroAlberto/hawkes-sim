@@ -1,0 +1,450 @@
+\chapter{When the Data Are Not Right: Censored and Aggregated Observation}
+\label{ch:censored}
+
+The event-time machinery of Chapter~\ref{ch:hawkes} assumes that deal timestamps mean what
+they say. Chapter~\ref{ch:data} documented four ways in which ours do not: recorded
+\texttt{deal\_date} values carry jitter of up to six days; announced and closed dates
+disagree, and which one populates the field varies by deal class; several vendor exports
+arrive as weekly files, so within-week ordering is unrecoverable; and some downstream
+systems expose only bucketed counts per sector, never row-level timestamps. Fitting the
+exact likelihood of Chapter~\ref{ch:hawkes} to such data quietly estimates the kernel
+of the \emph{jitter}, not of the market. This chapter develops the honest alternative: a
+mean-behaviour approximation whose likelihood consumes exactly what the data provide ---
+counts on a grid --- and, just as importantly, a precise account of which parameters
+survive the aggregation and which do not.
+
+\paragraph{Formal setting.}
+Fix a sector and an observation grid $0 = o_0 < o_1 < \dots < o_W = T$ (typically weekly,
+$o_w - o_{w-1} = \Delta$). We observe only the bucket counts
+\begin{equation}
+\label{eq:cen-counts}
+C_w \;=\; N(o_w) - N(o_{w-1}), \qquad w = 1, \dots, W,
+\end{equation}
+together with point-in-time covariates $x_t$, while the model of interest remains the
+linear Hawkes process~\eqref{eq:hw-intensity} with baseline $s(t)$ (covariate-driven) and
+kernel $\phi$. Timestamps within buckets are unavailable or untrusted.
+
+\section{The mean-behaviour construction}
+\label{sec:cen-mbpp}
+
+\begin{definition}[Mean intensity]
+\label{def:cen-xi}
+The mean-behaviour function of a point process with conditional intensity $\lambda(t)$ is
+$\xi(t) = \E[\lambda(t)]$, the deterministic expected intensity at $t$ (expectation over
+histories, covariates held fixed at their realized paths).
+\end{definition}
+
+\begin{proposition}[Volterra equation for the linear Hawkes mean]
+\label{prop:cen-volterra}
+For the linear Hawkes process~\eqref{eq:hw-intensity}, $\xi$ solves the linear Volterra
+integral equation of the second kind
+\begin{equation}
+\label{eq:cen-volterra}
+\xi(t) \;=\; s(t) \;+\; \int_0^t \phi(t-u)\, \xi(u) \dd u ,
+\end{equation}
+and in the multivariate case $\xi_\ell = s_\ell + \sum_m \phi_{\ell m} * \xi_m$
+componentwise \cite{bacry2015}.
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+Take expectations through the (linear) intensity equation:
+$\E[\lambda(t)] = s(t) + \E \int_0^t \phi(t-u) \dd N(u)$. Since $N(t) - \int_0^t
+\lambda(u)\dd u$ is a martingale, $\E[\dd N(u)] = \E[\lambda(u)]\dd u = \xi(u)\dd u$, and
+Fubini gives \eqref{eq:cen-volterra}. This is the step that fails for the nonlinear
+(log-link) models of Chapter~\ref{ch:hawkes}: expectation does not pass through the
+exponential, which is why the factorization route that \emph{kept} the sector layer linear
+is a precondition for everything in this chapter.
+\end{proof}
+
+\begin{definition}[Mean-behaviour Poisson process, MBPP]
+\label{def:cen-mbpp}
+The MBPP companion of the Hawkes model is the inhomogeneous Poisson process with the
+deterministic intensity $\xi(t; \vartheta)$ obtained by solving \eqref{eq:cen-volterra}
+at parameter $\vartheta = (s(\cdot), \phi)$. It has the \emph{same parameters} as the
+Hawkes model and the deterministic compensator
+$\Xi_w(\vartheta) = \int_{o_{w-1}}^{o_w} \xi(u;\vartheta) \dd u$.
+\end{definition}
+
+Because the MBPP is Poisson with a deterministic compensator, the interval-censored
+likelihood follows from the Watanabe characterization already used in
+Chapter~\ref{ch:poisson}: bucket counts are independent Poisson with means $\Xi_w$, so the
+negative log-likelihood is, up to constants,
+\begin{equation}
+\label{eq:cen-lik}
+-\ell(\vartheta) \;=\; \sum_{w=1}^{W} \bigl[\, \Xi_w(\vartheta) - C_w \log
+\Xi_w(\vartheta) \,\bigr].
+\end{equation}
+This is tractable, smooth in $\vartheta$, and consumes exactly the observed
+$(C_w)$ --- no within-bucket ordering is invented.
+
+\paragraph{What is preserved, what is lost.}
+Preserved: the first moment ($\E C_w = \Xi_w$ holds exactly for the true Hawkes process,
+by Proposition~\ref{prop:cen-volterra}), and therefore the \emph{meaning} of every
+parameter --- $\kappa$, $\theta$, and the baseline coefficients retain their
+Chapter~\ref{ch:hawkes} interpretations; MBPP estimation is a legitimate estimator of
+Hawkes parameters, not a different model wearing the same names. Lost: everything beyond
+the first moment. Hawkes clustering makes bucket counts over-dispersed and positively
+autocorrelated; the MBPP likelihood treats them as independent Poisson. On the testbed the
+measured weekly dispersion is about $2$ against the Poisson value $1$, so
+\eqref{eq:cen-lik} is a quasi-likelihood in practice and the quasi-Poisson correction of
+Section~\ref{sec:cen-uq} is \emph{mandatory}: uncorrected standard errors are roughly
+$\sqrt{2}$ too small, and likelihood-ratio model comparisons are correspondingly
+anticonservative.
+
+\section{Solving the Volterra equation}
+\label{sec:cen-solve}
+
+For the exponential kernel the convolution has finite memory in a strong sense: writing
+$h(t) = \int_0^t \kappa\theta e^{-\theta(t-u)} \xi(u)\dd u$ so that $\xi = s + h$,
+differentiation gives the scalar linear ODE
+\begin{equation}
+\label{eq:cen-ode}
+h'(t) \;=\; \kappa\theta\, s(t) \;-\; \theta(1-\kappa)\, h(t), \qquad h(0)=0 ,
+\end{equation}
+and in the multivariate case a system of dimension $M$ (one excitation state per stream,
+or per $(\ell,m)$ pair for full matrices). For the piecewise-constant baselines produced
+by weekly covariates, \eqref{eq:cen-ode} has closed-form solutions on each interval ---
+exponential relaxation toward $s/(1-\kappa)$ at rate $\theta(1-\kappa)$ --- so $\xi$,
+$\Xi_w$, and their $\vartheta$-gradients are all exact and cheap; no numerical integrator
+is needed. The shipped implementation (\texttt{code/} directory,
+\texttt{mbpp\_solver}) does precisely this interval-by-interval propagation.
+
+\begin{proposition}[When the Volterra equation is a finite ODE]
+\label{prop:cen-rational}
+The MBPP map $s \mapsto \xi$ of \eqref{eq:cen-volterra} is realizable as a
+finite-dimensional linear ODE with output $\xi$ if and only if the kernel's Laplace
+transform $\hat\phi(z)$ is a strictly proper rational function --- equivalently, $\phi$ is
+a finite sum of polynomial-times-exponential terms (complex-conjugate pairs allowed,
+yielding damped oscillations). This is the standard realization theorem of linear systems
+theory; the proof pointer and the state-space construction are in the appendix
+(Chapter~\ref{ch:selection}) and mirrored in the code.
+\end{proposition}
+
+Power-law kernels --- popular in the financial-microstructure literature --- are not
+rational and require either quadrature of \eqref{eq:cen-volterra} on the grid or an
+approximating sum of exponentials; both are implemented, but for deal flow at weekly
+resolution we have found no evidence preferring power-law tails over the exponential
+family, and the identifiability results below suggest the data could not adjudicate
+anyway.
+
+\section{Identifiability loss under censoring: the kappa--theta ridge}
+\label{sec:cen-ridge}
+
+Censoring does not degrade all parameters equally. The branching ratio is a
+\emph{level} parameter; the decay rate is a \emph{timing} parameter; bucketing destroys
+timing information first.
+
+\begin{proposition}[The ridge]
+\label{prop:cen-ridge}
+Consider the stationary regime with slowly varying baseline and bucket width $\Delta$.
+Then: (i) $\partial \Xi_w / \partial \kappa$ is of order $\Xi_w/(1-\kappa)$ --- an $O(1)$
+level effect, since the stationary mean is $s/(1-\kappa)$; (ii) $\theta$ enters $\Xi_w$
+only through transient (lag) terms of relative size governed by
+$e^{-\theta(1-\kappa)\Delta}$, so $\partial \Xi_w / \partial \theta$ is small, and
+oscillates in sign across buckets as the response lag shifts mass between adjacent
+buckets. Consequently the Fisher information of the likelihood~\eqref{eq:cen-lik} is
+nearly singular along a ridge in the $(\kappa,\theta)$ plane on which the predicted bucket
+means are constant, and the ridge worsens monotonically with $\Delta$: as
+$\theta(1-\kappa)\Delta \to \infty$, $\theta$ leaves the first-moment likelihood
+entirely.
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+With constant $s$ the stationary solution of \eqref{eq:cen-ode} gives
+$\Xi_w = \Delta\, s/(1-\kappa)$ exactly --- $\theta$-free. Time variation in $s$
+reintroduces $\theta$ only through the convolution lag of \eqref{eq:cen-ode}, whose
+influence on \emph{bucket-integrated} means decays like the relaxation factor above;
+differentiating the interval solution of \eqref{eq:cen-ode} in $\theta$ and integrating
+over buckets makes both claims quantitative. Details in the appendix
+(Chapter~\ref{ch:selection}).
+\end{proof}
+
+The second-order structure of the counts (over-dispersion, autocorrelation) does carry
+$\theta$, but the MBPP construction discards it by design; recovering $\theta$ from
+autocovariances is possible in principle and fragile in practice at our volumes. The
+operational guidance is in Table~\ref{tab:cen-widths}.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+Bucket width & Decay $\theta$ & Branching $\kappa$ & Covariate effects \\
+\midrule
+1 day  & estimable if $1/\theta \gtrsim$ days & yes & yes \\
+7 days & only if $1/\theta \gtrsim$ weeks & yes & yes (weekly macro) \\
+28 days & no & yes, wider intervals & slow-moving only \\
+\bottomrule
+\end{tabular}
+\caption{What survives censoring, by bucket width, for the interval-censored
+likelihood~\eqref{eq:cen-lik} with exponential kernels. ``Yes'' means the profile
+likelihood has usable curvature at testbed volumes ($\sim$50k deals, 12 sectors).}
+\label{tab:cen-widths}
+\end{table}
+
+\emph{Guidance.} Report $\kappa$ (or $\rho(K)$) and covariate effects as the primary
+estimands from censored data; they are what the data identify. Fix $\theta$ at a
+domain-informed value (deal-flow response times of one to four weeks) or give it a tight
+prior, and report sensitivity of $\kappa$ to that choice --- on the testbed $\hat\kappa$
+moves little across reasonable $\theta$, which is precisely the ridge seen from the other
+side. Recall also Warning~\ref{warn:hw-factor}: the confounding of excitation by latent
+factors is \emph{worse} under censoring, since remedy~(iii) of
+Chapter~\ref{ch:hawkes} --- fine timing --- is unavailable.
+
+\begin{remark}[Bayesian treatment of the ridge]
+\label{rem:cen-banana}
+A Laplace approximation at the MLE is exactly wrong here: the log-likelihood is flat along
+a curved (banana-shaped) ridge, so a quadratic expansion at the mode fabricates precision
+in the ridge direction. A short MCMC over $(\kappa, \theta)$ with the honest prior on
+$\theta$ produces banana-shaped posteriors that display the partial identification
+faithfully; marginal posterior intervals for $\kappa$ remain narrow, which is the
+correct summary of what censored data know.
+\end{remark}
+
+\section{Estimation recipes and uncertainty quantification}
+\label{sec:cen-uq}
+
+\begin{enumerate}
+\item \textbf{Point estimation.} Minimize \eqref{eq:cen-lik} with exact gradients from the
+interval-wise ODE solution; enforce $\kappa \in [0,1)$ (multivariate: $\rho(K)<1$) by
+reparametrization. Multistart is cheap and recommended because of the ridge.
+\item \textbf{Quasi-Poisson sandwich.} Estimate the dispersion $\hat\varphi$ from Pearson
+residuals ($\hat\varphi \approx 2$ weekly on the testbed) and report sandwich standard
+errors; this corrects the variance for over-dispersion but not for autocorrelation,
+so pair it with item~3 when intervals matter.
+\item \textbf{Parametric bootstrap.} Simulate full Hawkes paths from the fitted
+parameters by thinning (Chapter~\ref{ch:hawkes}), aggregate them to buckets through the
+\emph{same} observation grid, refit the MBPP, and use the refit dispersion
+\cite{efron1994}. Because replicas are genuinely clustered, this captures both
+over-dispersion and autocorrelation --- it is the reference UQ for censored fits.
+\item \textbf{Posterior summaries.} For $(\kappa,\theta)$ jointly, prefer the MCMC of
+Remark~\ref{rem:cen-banana} over any quadratic method.
+\end{enumerate}
+
+\section{Worked example: calibrating a censored sector}
+\label{sec:cen-worked}
+
+The recipe list above turns into numbers only when walked through once in full. Take the
+largest testbed sector (enterprise software): $W = 417$ weekly buckets over eight years,
+counts $C_w$ between $0$ and $31$, about $4{,}100$ deals in total, and the weekly macro
+covariates $x_w$ of Chapter~\ref{ch:data}. The model is the univariate Hawkes
+process~\eqref{eq:hw-intensity} with exponential kernel
+$\phi(u) = \kappa\theta e^{-\theta u}$ and log-linear piecewise-constant baseline
+$s(t) = \exp(x_w^\top \beta)$ for $t$ in bucket $w$, so $\Delta = 7$ days.
+
+\paragraph{Step 1: bucket compensators in closed form.}
+Because $s$ is constant on buckets, the ODE~\eqref{eq:cen-ode} solves bucket by bucket.
+Write $\gamma = \theta(1-\kappa)$ for the relaxation rate, $h_w = h(o_{w-1})$ for the
+excitation state entering bucket $w$, and $h_w^\ast = \kappa s_w/(1-\kappa)$ for the
+level toward which the state relaxes while $s = s_w$. The state-space update across a
+bucket is
+\begin{equation}
+\label{eq:cen-state}
+h_{w+1} \;=\; h_w^\ast \;+\; \bigl(h_w - h_w^\ast\bigr)\, e^{-\gamma \Delta},
+\end{equation}
+and integrating $\xi = s + h$ across the bucket gives the compensator
+\begin{equation}
+\label{eq:cen-xiw}
+\Xi_w \;=\; \frac{s_w \Delta}{1-\kappa}
+\;+\; \bigl(h_w - h_w^\ast\bigr)\, \frac{1 - e^{-\gamma\Delta}}{\gamma}.
+\end{equation}
+Initialization is $h_1 = 0$ if the window opens at the sector's birth, or $h_1 =
+h_1^\ast$ for a stationary start (used here, with the first year treated as burn-in).
+Equation~\eqref{eq:cen-xiw} repays reading at its two extremes. As $\gamma\Delta \to
+\infty$ the second term vanishes and $\Xi_w \to s_w\Delta/(1-\kappa)$: the compensator
+contains no $\theta$ at all --- Proposition~\ref{prop:cen-ridge} in explicit form. As
+$\gamma\Delta \to 0$, $\Xi_w \to \Delta(s_w + h_w)$: the bucket resolves the excitation
+state and timing information survives. Weekly deal-flow data sit near the first extreme.
+Differentiating \eqref{eq:cen-state}--\eqref{eq:cen-xiw} in $(\beta,\kappa,\theta)$
+yields recursions of the same linear form for the derivative states, so exact likelihood
+gradients come from the same single forward pass.
+
+\paragraph{Step 2: assembling the likelihood.}
+Substituting \eqref{eq:cen-xiw} into the interval-censored
+likelihood~\eqref{eq:cen-lik} gives an objective whose evaluation, with gradient, is one
+sweep of $W$ closed-form updates --- microseconds per call, so the multistart of
+Section~\ref{sec:cen-uq} costs nothing. We reparametrize $\kappa =
+\mathrm{logit}^{-1}(\tilde\kappa)$ and $\theta = e^{\tilde\theta}$ to keep the
+constraints implicit and the Hessian usable.
+
+\paragraph{Step 3: profiling, and the ridge one actually sees.}
+Define the profile $\ell_p(\kappa, \theta) = \max_\beta\, \ell(\beta, \kappa, \theta)$
+and plot its contours over $(\kappa, 1/\theta)$. Two features appear on the testbed
+sector. In the $\kappa$ direction the profile is cleanly quadratic: moving $\kappa$ by
+$\pm 0.05$ from its optimum raises the profile deviance by about six units. In the
+$\theta$ direction it is a plateau: as $1/\theta$ sweeps from four days to six weeks the
+profile deviance changes by less than one unit --- far inside noise. The plateau is not
+exactly parallel to the $\theta$ axis: refitting with $1/\theta$ fixed at $7$, $14$, and
+$28$ days gives $\hat\kappa = 0.17$, $0.18$, and $0.20$ --- the gently curved banana of
+Remark~\ref{rem:cen-banana} seen edge-on. The mechanism is
+Proposition~\ref{prop:cen-ridge}: $\theta$ enters the bucket means only by shifting
+covariate-response mass between adjacent buckets, and weekly macro covariates are
+themselves too smooth to make that shift visible.
+
+\paragraph{Step 4: quasi-Poisson correction.}
+The Pearson dispersion at the fit,
+\begin{equation}
+\label{eq:cen-disp}
+\hat\varphi \;=\; \frac{1}{W - p} \sum_{w=1}^{W}
+\frac{(C_w - \hat\Xi_w)^2}{\hat\Xi_w} \;=\; 2.1
+\end{equation}
+with $p$ fitted parameters, so all model-based standard errors are inflated by
+$\sqrt{2.1} \approx 1.45$. This magnitude is not a red flag: the fitted clustering itself
+predicts over-dispersion of order $(1-\kappa)^{-2} \approx 1.5$ for wide buckets, and the
+parametric bootstrap of Section~\ref{sec:cen-uq} reproduces dispersions near $1.9$ from
+the fitted model --- most of the excess variance is the model's own clustering, not lack
+of fit. The naive standard error for $\kappa$ is $0.021$; the quasi-Poisson standard
+error is $0.030$.
+
+\paragraph{Step 5: reporting.}
+The reported line for this sector reads: $\hat\kappa = 0.18$, quasi-Poisson $95\%$
+interval $[0.12,\, 0.24]$, parametric-bootstrap interval $[0.11,\, 0.25]$ (wider because
+replicas carry autocorrelation; it is the headline interval). The decay is \emph{not}
+estimated: $1/\theta$ is fixed at $14$ days on domain grounds (deal-flow response times
+of one to four weeks), and the sensitivity line $\hat\kappa \in [0.17,\, 0.20]$ for
+$1/\theta \in [7,\, 28]$ days is printed next to the estimate, verbatim. Baseline
+coefficients $\beta$ are reported with quasi-Poisson standard errors exactly as in
+Chapter~\ref{ch:poisson}. Table~\ref{tab:cen-worked} restates the reporting rule as a
+function of bucket width; it is the operational companion of
+Table~\ref{tab:cen-widths}.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lcccp{4.2cm}}
+\toprule
+Bucket width & Covariates & $\kappa$ & $\theta$ & Recommended reporting \\
+\midrule
+1 day & sharp & sharp & partial & $(\kappa,\theta)$ jointly, with profile contours or
+posterior \\
+7 days & sharp (weekly macro) & usable & none & $\kappa$ with bootstrap CI; $\theta$
+fixed, sensitivity line attached \\
+28 days & slow-moving only & weak & none & interval or posterior for $\kappa$, labelled
+conditional on $\theta$ \\
+\bottomrule
+\end{tabular}
+\caption{Qualitative identifiability and reporting recommendations by bucket width, from
+the worked example of Section~\ref{sec:cen-worked}. ``Partial'' means the profile has
+curvature only when $1/\theta$ is comparable to the bucket width; ``none'' means fix
+$\theta$ and disclose the choice.}
+\label{tab:cen-worked}
+\end{table}
+
+\section{Model checking under censoring}
+\label{sec:cen-check}
+
+The time-rescaling diagnostics of Chapter~\ref{ch:hawkes} require timestamps; binned
+counts need binned diagnostics. Four checks cover what bucket data can falsify.
+
+\paragraph{Pearson residuals.}
+Plot $r_w = (C_w - \hat\Xi_w)/(\hat\varphi\, \hat\Xi_w)^{1/2}$ against the fitted
+$\hat\Xi_w$ and against calendar time. A funnel against fitted values indicates
+mean--variance misfit beyond a constant dispersion; waves against time indicate baseline
+misspecification (seasonality or a missed macro covariate, Chapter~\ref{ch:data});
+isolated spikes are usually vendor data faults, not model failure. The autocorrelation
+of $r_w$ is \emph{expected} to be mildly positive under the fitted Hawkes model --- judge
+it against the bootstrap band below, never against white-noise limits.
+
+\paragraph{PIT histograms.}
+For discrete counts the probability integral transform is not uniform even under the true
+model; use the randomized version $u_w = F_w(C_w - 1) + V_w\,[F_w(C_w) - F_w(C_w-1)]$
+with $V_w$ i.i.d.\ uniform and $F_w$ the Poisson$(\hat\Xi_w)$ CDF \cite{fokianos2009}.
+Two caveats: average the histogram over many randomization draws (a single draw adds
+visible noise at $W \approx 400$), and expect a U-shape from over-dispersion even when
+the mean structure is correct --- the PIT compares candidate \emph{mean} structures; it
+cannot certify the Poisson second moment, which we already know is wrong.
+
+\paragraph{Dispersion test.}
+Report $\hat\varphi$ of \eqref{eq:cen-disp}, but do not refer it to its Poisson
+chi-squared null: the fitted Hawkes model itself implies $\varphi > 1$, so
+``significant over-dispersion'' is not evidence against the model. The correct reference
+distribution is the bootstrap one.
+
+\paragraph{Parametric-bootstrap check.}
+Simulate full Hawkes paths at $\hat\vartheta$ by thinning (Chapter~\ref{ch:hawkes}), bin
+them through the \emph{same} observation grid, and compare observed count statistics with
+the replica distributions \cite{efron1994}: the dispersion, count autocorrelations at
+lags one to four, the fraction of zero buckets, and the largest weekly count. On the
+testbed sector the observed dispersion $2.1$ falls inside the replica interval
+$[1.6,\, 2.3]$ and the observed lag-one autocorrelation $0.16$ inside $[0.08,\, 0.21]$
+--- no evidence of misfit beyond the first moment. Choose the statistics before looking
+at the replicas.
+
+\begin{warning}[What censored data cannot falsify]
+\label{warn:cen-nocheck}
+None of these checks sees inside a bucket. Kernels that redistribute excitation mass
+\emph{within} the bucket width produce nearly identical laws for $(C_w)$, so a censored
+fit that passes every diagnostic above is still consistent with badly wrong within-week
+dynamics --- fast cascades over days and smooth drift over the week are
+indistinguishable at $\Delta = 7$ days. In particular, the fixed $\theta$ of
+Section~\ref{sec:cen-worked} is an \emph{assumption}, and no bucket-level diagnostic can
+validate it. Never let a censored fit support a timing claim (``sectors respond within
+days''); such claims require trusted timestamps and the machinery of
+Chapter~\ref{ch:hawkes}.
+\end{warning}
+
+\section{Accelerating repeated solves: physics-informed operator learning}
+\label{sec:cen-operator}
+
+Calibration needs a few thousand Volterra solves; scenario stress testing and
+walk-forward simulation need millions --- every macro scenario, every bootstrap replica,
+every counterfactual baseline is a fresh $(s, A) \mapsto \xi$ solve, where $A$ collects
+the excitation parameters. A neural operator trained on solver output, with the Volterra
+residual of \eqref{eq:cen-volterra} as a physics-informed penalty, learns this map well
+enough to replace the ODE solver in such loops. The shipped implementation reaches
+sub-$2\%$ relative $L^2$ error for 3--8 sector systems under the full training protocol (a
+quick 600-epoch demo run reaches $8.2\%$), at about $3$ms per solve --- orders of
+magnitude faster than solving per scenario, and batchable on accelerators.
+
+\begin{warning}[An operator is only trustworthy inside its training range]
+\label{warn:cen-operator}
+The operator has no notion of extrapolation: it was trained on subcritical instances
+($\rho(K)<1$) within specific baseline and parameter ranges, and degrades silently
+outside them. Run the shipped accuracy report against the exact solver on \emph{your}
+parameter ranges before use, and keep exact solvers as the default for calibration ---
+optimizer gradients amplify surrogate error, and calibration is a few thousand solves
+anyway. The operator is an accelerator for many-solve downstream loops, not a pillar of
+the methodology.
+\end{warning}
+
+\section{Choosing an observation model}
+\label{sec:cen-decision}
+
+Table~\ref{tab:cen-decision} summarizes the choice among the three sector-layer estimators
+now available: the event-time Hawkes likelihood of Chapter~\ref{ch:hawkes}, the
+MBPP-censored likelihood of this chapter, and the discrete count GLM of
+Chapter~\ref{ch:poisson} \cite{fokianos2009}. The rule of thumb that survives all our
+experiments: trust event time only when you trust the timestamps to well within the kernel
+time-scale; otherwise the MBPP gives the same parameters with honest inputs, and when
+$\theta$ is not needed at all, the discrete GLM is the simplest thing that works.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lp{3.1cm}p{3.4cm}p{3.1cm}}
+\toprule
+ & Event-time Hawkes & MBPP (censored) & Discrete GLM \\
+\midrule
+Timestamp quality & exact, jitter $\ll 1/\theta$ & any (uses counts only) & any (uses
+counts only) \\
+Decay $\theta$ & estimable & fix or tight prior (Prop.~\ref{prop:cen-ridge}) & not a
+parameter \\
+Deal volume & needs many events per stream & works at low counts & works at low counts \\
+Dispersion & implied by clustering & quasi-Poisson correction mandatory & quasi-likelihood
+native \\
+Compute cost & $O(n)$ per stream, exact & interval ODE, exact gradients & GLM fit,
+trivial \\
+Recommended UQ & sandwich + thinning bootstrap & parametric bootstrap; MCMC for
+$(\kappa,\theta)$ & quasi-Poisson sandwich \\
+\bottomrule
+\end{tabular}
+\caption{Decision table for the sector ground process under the three observation models.
+Full measured comparisons are in Chapter~\ref{ch:selection}.}
+\label{tab:cen-decision}
+\end{table}
+
+One closing remark ties this chapter to the manual's through-lines. Censoring is not
+merely a nuisance that inflates variance: it \emph{changes what is identified} ---
+$\theta$ exits, $\kappa$ stays --- and honest reporting means saying so, with posterior
+bananas rather than fabricated ellipses. The final decision tables, and the measured
+evidence behind every number quoted here, are collected in Chapter~\ref{ch:selection}.

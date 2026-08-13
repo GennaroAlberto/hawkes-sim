@@ -1,0 +1,955 @@
+% ch05-hawkes — exponential Hawkes: excitation, inhibition, and covariates
+
+\section{Model and assumptions}\label{ch05:sec:model}
+
+The Poisson models of \cref{ch:poisson} treat deal flow as exogenously
+modulated: nothing that happens in the market changes the future of the
+market. Their residual diagnostics say otherwise --- clustering beyond what
+covariates explain is the recurring finding of the rehearsal campaigns
+(\cref{app:results}) --- and the Hawkes process \citep{hawkes1971} is the
+minimal extension in which events beget events. This chapter develops the
+exponential-kernel Hawkes layer end to end: the branching representation
+that organizes everything (\cref{ch05:sec:cluster}), the likelihood and the
+recursion that makes it computable (\cref{ch05:sec:likelihood}), the EM
+algorithm on the latent genealogy (\cref{ch05:sec:em}), simulation
+(\cref{ch05:sec:simulation}), and then the section this chapter exists for:
+what to do about \emph{inhibition}, which a nonnegative-kernel Hawkes
+process provably cannot express, and which our market exhibits --- a firm
+that has just raised is temporarily \emph{less} likely to raise again
+(\cref{ch05:sec:inhibition}). The chapter closes with the
+frailty-versus-contagion identifiability problem
+(\cref{ch05:sec:frailty}) and the defect declaration required by D2.1
+(\cref{ch05:sec:defects}).
+
+\begin{assumption}[Exponential Hawkes ground process]\label{asm:ch05:model}
+On the filtered space of \cref{def:ch02:market}, the univariate model for a
+single stream is
+\begin{equation}\label{eq:ch05:uni}
+\lam(t) \;=\; \mub(t) \;+\; \sum_{t_m < t} \kernel(t - t_m),
+\qquad
+\kernel(u) \;=\; \branch\decay\, e^{-\decay u},
+\quad \branch \ge 0,\ \decay > 0,
+\end{equation}
+and the multivariate, sector-indexed model is, for $s \in \sectors$,
+\begin{equation}\label{eq:ch05:multi}
+\lam_s(t) \;=\; \mub_s(t) \;+\; \sum_{r \in \sectors}\;
+\sum_{\substack{t_m < t \\ s_m = r}}
+\branch_{sr}\,\decay_{sr}\, e^{-\decay_{sr}(t - t_m)},
+\qquad
+\mub_s(t) \;=\; \exp\!\big(\bcoef_s^{\top} \xcov_s(t)\big),
+\end{equation}
+where the covariate process $\xcov_s(t)$ (macro series, sector activity
+summaries, seasonal terms) is predictable and locally bounded, constructed
+under the point-in-time protocol \cref{prot:ch02:pit}. The
+\emph{branching matrix} is
+\begin{equation}\label{eq:ch05:gmat}
+\Gmat_{sr} \;=\; \int_0^{\infty} \branch_{sr}\decay_{sr} e^{-\decay_{sr}u}
+\dd u \;=\; \branch_{sr},
+\end{equation}
+and we impose \emph{subcriticality}: $\specrad{\Gmat} < 1$.
+\end{assumption}
+
+Two virtues of the $(\branch,\decay)$ parameterization justify committing
+to it over the equally common $\alpha e^{-\beta t}$ form. First,
+$\branch = \int_0^\infty \kernel$ is a \emph{unitless branching mass}: by
+\cref{ch05:sec:cluster} it is the expected number of direct offspring per
+event, invariant to the time unit, while $\decay$ is a pure timescale with
+half-life $\log 2/\decay$. Second, the two \emph{decouple in aggregation
+analysis}: binning event times at width $\horizon$ (defect (C4)) destroys
+information about $\decay$ once $\horizon\decay$ is large, but the mass
+$\branch$ remains estimable from count balance --- the
+$\branch$--$\decay$ ridge quantified in \cref{ch:gof} and the standing
+verdict ``$\branch$ survives aggregation, $\decay$ does not''
+(\cref{app:results}). A parameterization in which the kernel height
+$\alpha = \branch\decay$ is a free parameter entangles mass and timescale
+in exactly the direction the data cannot resolve; keeping
+$(\branch,\decay)$ explicit keeps the ill-conditioned direction visible.
+(The event-time fitters currently store $\alpha=\branch\decay$ and $\beta
+= \decay$ internally; the mapping is recorded in the code hooks.)
+
+Subcriticality is the standing stability constraint. For constant
+baselines it is exactly the condition for a stationary version to exist
+\citep{hawkes1971,bremaud1996}; for the covariate-driven baseline of
+\cref{eq:ch05:multi} the process is defined conditionally on the covariate
+paths and is non-explosive on finite windows regardless
+(\cref{rem:ch05:nonexplosion}), but $\specrad{\Gmat}<1$ still governs
+cluster sizes, forecast amplification, and the sanity of any simulation.
+Because $\Gmat \ge 0$, Perron--Frobenius gives $\specrad{\Gmat} \le \max_s
+\sum_r \Gmat_{sr}$, so a row-sum bound is a convex sufficient condition
+--- this is precisely the constraint the repository's discrete-face fitter
+enforces with $\rhomax = 0.95$ (\modrepo{sector\_stability.py}), and the
+continuous-time layer inherits the same certificate. Multivariate Hawkes
+models with spectral-radius stability conditions are standard in financial
+applications \citep{embrechts2011,bacry2015}.
+
+\section{The cluster representation}\label{ch05:sec:cluster}
+
+Everything tractable about the linear Hawkes process follows from one
+theorem: it is secretly a Poisson cluster process
+\citep{hawkesoakes1974}.
+
+\begin{theorem}[Hawkes--Oakes cluster representation]\label{thm:ch05:cluster}
+Let $\mub_s(t) \ge 0$ be locally integrable baselines and $\kernel_{sr}
+\ge 0$ kernels with $\Gmat_{sr} = \int \kernel_{sr} < \infty$. Construct a
+marked point process as follows: \emph{immigrants} of type $s$ arrive as
+an inhomogeneous Poisson process with rate $\mub_s(t)$, independently
+across types; recursively, each event of type $r$ at time $t_m$ (immigrant
+or offspring) generates \emph{direct offspring} of type $s$ on
+$(t_m,\infty)$ as an inhomogeneous Poisson process with rate
+$\kernel_{sr}(t - t_m)$, independently of everything else; the process is
+the superposition of all generations. Then the superposition is a Hawkes
+process with intensity \cref{eq:ch05:multi}. Conversely, every Hawkes
+process with these parameters is equal in law to this cluster process.
+\end{theorem}
+
+\begin{proof}[Proof of the construction direction]
+Let $\{\mathcal{G}_t\}$ be the filtration generated by the labeled
+construction (all events with their genealogy). Fix $t$ and consider
+arrivals of type $s$ in $(t, t+\dd t]$. They are of two kinds. New
+immigrants form a Poisson process with deterministic rate $\mub_s$,
+independent of $\mathcal{G}_t$, hence contribute $\mathcal{G}_t$-intensity
+$\mub_s(t)$. For each event $t_m < t$ of type $r$ already born, its
+type-$s$ offspring process is inhomogeneous Poisson with rate
+$\kernel_{sr}(\cdot - t_m)$; by independent increments of the Poisson
+process, its future beyond $t$ is conditionally independent of
+$\mathcal{G}_t$ with intensity $\kernel_{sr}(t - t_m)$. Events born after
+$t$ contribute nothing, since the kernels are supported on positive ages.
+The streams are independent by construction, and the intensity of a
+superposition of conditionally independent streams is the sum of the
+intensities (additivity of compensators), so the type-$s$ superposed
+counting process has $\mathcal{G}_t$-intensity $\mub_s(t) + \sum_r
+\sum_{t_m<t,\,s_m=r} \kernel_{sr}(t - t_m)$. Finally, this expression is a
+functional of the unlabeled event times alone, hence measurable with
+respect to the internal filtration $\Ft \subseteq \mathcal{G}_t$; by the
+innovation (projection) theorem the $\Ft$-intensity is the optional
+projection of the $\mathcal{G}_t$-intensity, which here equals itself
+\citep[Ch.~7]{daley2003}. So the unlabeled superposition has the Hawkes
+intensity \cref{eq:ch05:multi}. The converse (existence and uniqueness in
+law of the cluster decomposition for a given Hawkes law) is
+\citet{hawkesoakes1974}; we use only the construction direction, which is
+what simulation and EM consume.
+\end{proof}
+
+\begin{remark}[Non-explosion does not need subcriticality]\label{rem:ch05:nonexplosion}
+On a finite window $[0,\Tend]$ the mean intensity $\xi_s(t) =
+\E[\lam_s(t)]$ satisfies the Volterra equation $\xi = \mub + \kernel *
+\xi$ componentwise; since the exponential kernels are bounded by
+$\branch_{sr}\decay_{sr}$, Gr\"onwall's inequality gives $\xi_s(t) \le
+\bar\mub\, e^{c t} < \infty$ for constants depending only on the
+parameters. The process is therefore well defined and a.s.\ finite on any
+finite window for \emph{any} $\branch$; what $\specrad{\Gmat}<1$ buys is
+stationarity, finite cluster sizes in expectation, and bounded long-run
+amplification --- the subject of the corollaries below. This distinction
+matters later: for the \emph{nonlinear} models of
+\cref{ch05:sec:inhibition} even finite-window good behavior is no longer
+automatic.
+\end{remark}
+
+\begin{corollary}[Subcriticality and cluster size]\label{cor:ch05:subcritical}
+In the cluster construction, the offspring cascade of a single type-$r$
+event is a multitype Galton--Watson process with mean-offspring matrix
+$\Gmat$. The expected total cluster size (all generations, all types,
+including the ancestor) is finite iff $\specrad{\Gmat} < 1$, in which case
+the expected number of type-$s$ events in the cluster of a type-$r$
+ancestor is $\big[(I - \Gmat)^{-1}\big]_{sr}$. In the univariate case the
+expected total cluster size is $1/(1-\branch)$.
+\end{corollary}
+
+\begin{proof}
+The number of direct type-$s$ offspring of a type-$r$ event is Poisson
+with mean $\int \kernel_{sr} = \Gmat_{sr}$, independently across events,
+so generation sizes form a multitype branching process: the expected
+type-composition vector of generation $n$ descending from one type-$r$
+ancestor is $\Gmat^{n} e_r$ (induction on $n$, using linearity of
+expectation and independence of offspring processes). The expected cluster
+composition is $\sum_{n \ge 0} \Gmat^{n} e_r$. For a nonnegative matrix
+the Neumann series $\sum_n \Gmat^n$ converges iff $\specrad{\Gmat} < 1$
+(Gelfand's formula), with limit $(I-\Gmat)^{-1}$; if $\specrad{\Gmat} \ge
+1$ the series diverges because $\mathbf{1}^\top \Gmat^n e_r \not\to 0$
+along the Perron direction. Univariate: $\sum_n \branch^n =
+1/(1-\branch)$.
+\end{proof}
+
+\begin{corollary}[Stationary rate and endogenous share]\label{cor:ch05:endogenous}
+Let the baselines be constant, $\mub_s(t) \equiv \bar\mub_s$, and
+$\specrad{\Gmat} < 1$. The stationary mean rate vector is
+\begin{equation}\label{eq:ch05:statrate}
+\bar\lam \;=\; (I - \Gmat)^{-1} \bar\mub,
+\qquad\text{univariate: } \bar\lam = \frac{\bar\mub}{1 - \branch},
+\end{equation}
+and the stationary fraction of events that are offspring rather than
+immigrants (the \emph{endogenous share}) is $1 - \mathbf{1}^\top\bar\mub /
+\mathbf{1}^\top\bar\lam$; in the univariate case it equals $\branch$.
+\end{corollary}
+
+\begin{proof}
+Taking expectations in \cref{eq:ch05:multi} under stationarity,
+$\bar\lam_s = \bar\mub_s + \sum_r \Gmat_{sr}\bar\lam_r$ because
+$\E \sum_{t_m<t, s_m=r} \kernel_{sr}(t-t_m) = \int_0^\infty
+\kernel_{sr}(u)\, \bar\lam_r \dd u$ by Campbell's formula; solving gives
+\cref{eq:ch05:statrate}. Immigrants arrive at rate $\bar\mub_s$ by
+construction, so the immigrant share of events is
+$\mathbf{1}^\top\bar\mub/\mathbf{1}^\top\bar\lam$ and the endogenous share
+is its complement; univariate, $1 - \bar\mub/\bar\lam = 1 - (1-\branch) =
+\branch$. Equivalently: each immigrant's cluster has expected size
+$1/(1-\branch)$ (\cref{cor:ch05:subcritical}), of which exactly one event
+is the immigrant.
+\end{proof}
+
+\begin{remark}[A common accounting error]\label{rem:ch05:accounting}
+It is tempting to reason ``rate $\bar\mub$ of immigrants, each with
+$\branch$ children, hence total rate $\bar\mub(1+\branch)$ and endogenous
+share $\branch/(1+\branch)$.'' This counts only the first generation:
+children beget children, the geometric series compounds to
+$1/(1-\branch)$, and the correct endogenous share is $\branch$, not
+$\branch/(1+\branch)$. At $\branch = 0.5$ the difference is $50\%$ versus
+$33\%$ of deal flow attributed to contagion --- a headline-sized error.
+All endogeneity reporting in this repository uses
+\cref{cor:ch05:endogenous}, and (better) the posterior parentage
+diagnostic of \cref{ch05:sec:em}, subject to the upper-bound discipline of
+\cref{ch05:sec:frailty}.
+\end{remark}
+
+\section{Likelihood and the Ogata recursion}\label{ch05:sec:likelihood}
+
+The Jacod likelihood \cref{eq:ch02:jacod} specializes to
+\cref{eq:ch05:uni} as
+\begin{equation}\label{eq:ch05:loglik}
+\loglik(\bcoef, \branch, \decay)
+\;=\;
+\sum_{m=1}^{n} \log\!\Big(\mub(t_m) + \branch\decay\, A(m)\Big)
+\;-\; \int_0^{\Tend} \mub(u)\dd u
+\;-\; \branch \sum_{m=1}^{n} \Big(1 - e^{-\decay(\Tend - t_m)}\Big),
+\end{equation}
+where
+\begin{equation}\label{eq:ch05:Adef}
+A(m) \;\defeq\; \sum_{l < m} e^{-\decay\,(t_m - t_l)}
+\end{equation}
+is the decayed event count seen by event $m$. The compensator term follows
+by exact integration: $\int_{t_m}^{\Tend} \branch\decay
+e^{-\decay(u-t_m)}\dd u = \branch(1 - e^{-\decay(\Tend-t_m)})$, summed
+over events; the baseline integral is available in closed form for the
+piecewise-constant covariates used in the repository
+(\modrepo{eventtime/covariates.py}). Computed naively, the $A(m)$ cost
+$O(n^2)$; the exponential kernel --- alone among common kernels --- makes
+them recursive \citep{ozaki1979}.
+
+\begin{proposition}[Ogata recursion]\label{prop:ch05:recursion}
+With $A(1) = 0$, the quantities \cref{eq:ch05:Adef} satisfy
+\begin{equation}\label{eq:ch05:recursion}
+A(m) \;=\; e^{-\decay\,(t_m - t_{m-1})}\,\big(1 + A(m-1)\big),
+\qquad m \ge 2,
+\end{equation}
+so \cref{eq:ch05:loglik} is computable in $O(n)$ after sorting.
+\end{proposition}
+
+\begin{proof}
+By induction on $m$. Base case $m=2$: $A(2) = e^{-\decay(t_2-t_1)} =
+e^{-\decay(t_2-t_1)}(1 + A(1))$ since $A(1)=0$. Inductive step: assume
+$A(m-1)$ equals \cref{eq:ch05:Adef} at index $m-1$. Splitting off the
+$l=m-1$ term and factoring the common decay over $[t_{m-1}, t_m]$,
+\[
+A(m)
+= \sum_{l \le m-1} e^{-\decay(t_m - t_l)}
+= e^{-\decay(t_m - t_{m-1})}\Big(e^{0} + \sum_{l < m-1}
+e^{-\decay(t_{m-1} - t_l)}\Big)
+= e^{-\decay(t_m - t_{m-1})}\big(1 + A(m-1)\big),
+\]
+which is \cref{eq:ch05:recursion}. The recursion works because the
+exponential kernel satisfies $\kernel(u+v) = \kernel(u)e^{-\decay v}$:
+the whole past compresses into one number that decays deterministically
+between events. This is the Markov-embedding property; it fails for
+power-law kernels, which admit no finite recursion, and it is why this
+document fixes the exponential family as the parametric default.
+\end{proof}
+
+In the multivariate model the same recursion runs per source--target pair:
+$A_{sr}(m) = e^{-\decay_{sr}(t_m - t_{m-1})}\big(\ind{s_{m-1}=r} +
+A_{sr}(m-1)\big)$ on the merged event stream, giving $O(n\abs{\sectors}^2)$
+per likelihood pass; \modrepo{eventtime/likelihood.py} implements exactly
+this, in a block-cumsum form that is numerically stable over long
+horizons, together with analytic gradients. Asymptotic normality of the
+MLE in the stationary ergodic case is \citet{ogata1978}.
+
+\paragraph{Positivity transforms.} The fitters optimize unconstrained by
+reparameterizing $\branch = e^{a}$ (in code, $\alpha = e^{a}$ with
+$\alpha=\branch\decay$), so gradient methods never propose negative
+branching and standard errors return via the delta method
+(\modrepo{eventtime/estimate.py}). Two consequences deserve note. First,
+the transform is a \emph{modeling} statement, not a numerical trick: it
+hard-codes the nonnegative-kernel assumption whose consequences
+\cref{ch05:sec:inhibition} confronts --- a very negative $a$ is
+near-zero excitation, never inhibition. Second, the boundary $\branch = 0$
+is pushed to $a \to -\infty$, so ``no excitation'' is a flat direction of
+the transformed likelihood, and testing $H_0\colon \branch = 0$ is a
+boundary problem whose LRT null is the mixture
+$\tfrac12\chi^2_0 + \tfrac12\chi^2_1$ \citep{selfliang1987}; the testing
+protocol lives in \cref{ch:gof}. When the number of sectors makes the
+$\abs{\sectors}^2$ branching entries data-hungry, the $\ell_1$-penalized
+fitter with exact zeros (\modrepo{eventtime/lasso.py}) implements the
+penalized multivariate excitation recovery of \citet{hansen2015}.
+
+\begin{warning}[The likelihood is not concave in
+$(\branch,\decay)$]\label{warn:ch05:nonconcave}
+For \emph{fixed} $\decay$ and a linearly parameterized baseline,
+\cref{eq:ch05:loglik} is concave: each event term is the log of an affine
+function of the parameters and the compensator is linear. Jointly in
+$(\branch,\decay)$ it is not --- the event terms involve
+$\branch\decay e^{-\decay \Delta}$, and the likelihood surface develops
+the $\branch$--$\decay$ ridge analyzed in \cref{ch:gof}: data observed at
+resolution coarser than the kernel half-life constrain roughly the product
+of mass and effective within-window decay, not each factor. With the
+exp-link baseline of \cref{eq:ch05:multi} even the fixed-$\decay$
+problem loses global concavity (the event terms
+$\log(e^{\bcoef^\top\xcov}+c)$ are convex in $\bcoef$), retaining
+concavity only in the excitation block given the baseline. Practice
+therefore fixes a grid of decays, maximizes at each grid point with
+multistart, and reports the \emph{profile} likelihood over $\decay$ ---
+flagging ridge flatness rather than hiding it. The EM algorithm of the
+next section is the complementary tool: it restores block-concavity
+through augmentation and yields the diagnostics no direct MLE provides.
+\end{warning}
+
+\section{EM on the latent genealogy}\label{ch05:sec:em}
+
+\Cref{thm:ch05:cluster} says every event has a latent \emph{parent}:
+either the baseline (immigrant) or an earlier event. Making the genealogy
+explicit turns Hawkes estimation into a missing-data problem with an exact
+E-step and closed-form M-steps --- the cascades-of-Poisson-processes
+formulation of \citet{simmajordan2010}, identical in structure to the ETAS
+EM of \citet{veenschoenberg2008}. We derive it in the univariate model;
+the multivariate bookkeeping is indicated at the end.
+
+Let $u_m \in \{0, 1, \dots, m-1\}$ denote the parent of event $m$ ($0$ =
+immigrant, $l \ge 1$ = event $t_l$).
+
+\begin{lemma}[Complete-data likelihood]\label{lem:ch05:completedata}
+Given the genealogy $u = (u_1,\dots,u_n)$, the complete-data
+log-likelihood on $[0,\Tend]$ is
+\begin{equation}\label{eq:ch05:completedata}
+\loglik_c(\bcoef,\branch,\decay; u)
+=
+\sum_{m: u_m = 0} \log \mub(t_m)
+- \int_0^{\Tend}\!\! \mub
++ \sum_{m: u_m = l \ge 1}
+\big[\log\branch + \log\decay - \decay(t_m - t_l)\big]
+- \branch \sum_{l=1}^{n} \big(1 - e^{-\decay(\Tend - t_l)}\big).
+\end{equation}
+\end{lemma}
+
+\begin{proof}
+Under the cluster construction the labeled data decompose into
+independent inhomogeneous Poisson processes: the immigrant process with
+rate $\mub$ on $[0,\Tend]$, contributing $\sum_{u_m=0}\log\mub(t_m) -
+\int_0^{\Tend}\mub$; and, for each event $l$, its offspring process with
+rate $\kernel(\cdot - t_l)$ observed on $(t_l, \Tend]$, contributing
+$\sum_{m: u_m=l}\log\kernel(t_m-t_l) - \int_0^{\Tend - t_l}\kernel(v)\dd v$.
+Summing, and evaluating $\int_0^{\Tend-t_l}\branch\decay e^{-\decay v}\dd
+v = \branch(1-e^{-\decay(\Tend-t_l)})$, gives
+\cref{eq:ch05:completedata}. Note the compensator does not depend on $u$:
+parents determine only which factor each event's log-intensity lands in.
+\end{proof}
+
+The observed-data likelihood \cref{eq:ch05:loglik} is recovered by summing
+$e^{\loglik_c}$ over genealogies --- the log-of-sum that destroys
+concavity. Augmentation splits it back apart.
+
+\begin{proposition}[E-step: exact posterior parentage]\label{prop:ch05:estep}
+Under parameters $(\bcoef,\branch,\decay)$, the posterior over genealogies
+given the event times factorizes across events,
+$\Prob(u \st t_{1:n}) = \prod_m p_{m,u_m}$, with
+\begin{equation}\label{eq:ch05:estep}
+p_{m0} \;=\; \frac{\mub(t_m)}{\mub(t_m) + \branch\decay A(m)},
+\qquad
+p_{ml} \;=\; \frac{\branch\decay\, e^{-\decay(t_m - t_l)}}
+{\mub(t_m) + \branch\decay A(m)},
+\quad 1 \le l < m,
+\end{equation}
+with $A(m)$ as in \cref{eq:ch05:Adef} --- so the E-step reuses the Ogata
+recursion and costs $O(n)$ beyond the pairwise weights.
+\end{proposition}
+
+\begin{proof}
+By \cref{lem:ch05:completedata}, $e^{\loglik_c(u)} = C \prod_m w_{m,u_m}$
+where $w_{m0} = \mub(t_m)$, $w_{ml} = \branch\decay e^{-\decay(t_m-t_l)}$,
+and $C$ collects the compensator factors, which do not involve $u$. Hence
+$\Prob(u \st t_{1:n}) \propto \prod_m w_{m,u_m}$, which factorizes with
+per-event normalizers $\mub(t_m) + \branch\decay A(m)$. Probabilistically
+this is the thinning identity: given $\Ftm$, the event at $t_m$ belongs to
+one of the superposed streams with probability proportional to that
+stream's intensity.
+\end{proof}
+
+\begin{proposition}[M-step]\label{prop:ch05:mstep}
+Let $P_0 = \sum_m p_{m0}$ and $P_1 = n - P_0 = \sum_m \sum_{l\ge1} p_{ml}$
+be the expected immigrant and offspring counts, and $D = \sum_{m,l\ge1}
+p_{ml}(t_m - t_l)$ the expected total parent--child gap. Maximizing
+$Q(\cdot) = \E_{u \sim p}[\loglik_c]$ gives, in the interior approximation
+that replaces the truncated exposures $1 - e^{-\decay(\Tend-t_l)}$ by $1$:
+\begin{equation}\label{eq:ch05:mstep}
+\hat\mub = \frac{P_0}{\Tend} \quad (\text{constant baseline}),
+\qquad
+\hat\branch = \frac{P_1}{n},
+\qquad
+\hat\decay = \frac{P_1}{D},
+\end{equation}
+i.e.\ branching = expected children per event, decay = reciprocal of the
+$p$-weighted mean parent--child gap. With exact exposures the
+$\branch$-update becomes $\hat\branch(\decay) = P_1 \big/ \sum_l
+\big(1-e^{-\decay(\Tend-t_l)}\big)$ and $\hat\decay$ solves the scalar
+equation $P_1/\decay - D = \hat\branch(\decay)\sum_l (\Tend -
+t_l)e^{-\decay(\Tend-t_l)}$.
+\end{proposition}
+
+\begin{proof}
+$Q$ inherits the separable form of \cref{eq:ch05:completedata} with
+indicators replaced by posteriors. The $\branch$-part is $P_1\log\branch -
+\branch\sum_l(1-e^{-\decay(\Tend-t_l)})$, concave with the stated root;
+the $\decay$-part is $P_1\log\decay - \decay D - \branch\sum_l(1 -
+e^{-\decay(\Tend-t_l)})$, whose stationarity condition is the displayed
+scalar equation; setting the exposure terms to $1$ (events far from the
+window edge) decouples them into \cref{eq:ch05:mstep}. For the
+exp-link baseline, the $\bcoef$-part of $Q$ is $\sum_m p_{m0}
+\bcoef^\top\xcov(t_m) - \int_0^{\Tend} e^{\bcoef^\top\xcov}$ --- a
+weighted Poisson GLM, globally concave. The augmentation thus restores
+concavity to the very block that broke it in
+\cref{warn:ch05:nonconcave}.
+\end{proof}
+
+\begin{theorem}[Monotone ascent]\label{thm:ch05:emascent}
+Let $\thetamodel^{(k+1)}$ maximize $Q(\cdot \st \thetamodel^{(k)})$. Then
+$\loglik(\thetamodel^{(k+1)}) \ge \loglik(\thetamodel^{(k)})$, with
+equality only if $\thetamodel^{(k)}$ already maximizes $Q(\cdot \st
+\thetamodel^{(k)})$.
+\end{theorem}
+
+\begin{proof}
+Write $\pi_{\thetamodel}(u) = \Prob(u \st t_{1:n}; \thetamodel)$ for the
+posterior of \cref{prop:ch05:estep}. For any $\thetamodel'$,
+$\loglik(\thetamodel') = \E_{\pi_{\thetamodel}}[\loglik_c(\thetamodel';
+u)] - \E_{\pi_{\thetamodel}}[\log \pi_{\thetamodel'}(u)]$, since
+$\loglik_c(\thetamodel';u) = \loglik(\thetamodel') + \log
+\pi_{\thetamodel'}(u)$ holds for every $u$ (Bayes) and the expectation of
+a constant is itself. Subtracting the same identity at $\thetamodel$,
+\[
+\loglik(\thetamodel') - \loglik(\thetamodel)
+=
+\big[Q(\thetamodel' \st \thetamodel) - Q(\thetamodel \st \thetamodel)\big]
++ \KL{\pi_{\thetamodel}}{\pi_{\thetamodel'}}
+\;\ge\;
+Q(\thetamodel' \st \thetamodel) - Q(\thetamodel \st \thetamodel)
+\;\ge\; 0
+\]
+for $\thetamodel' = \thetamodel^{(k+1)}$, using nonnegativity of
+Kullback--Leibler divergence (Jensen) and the definition of the M-step.
+Equality forces both terms to vanish.
+\end{proof}
+
+Three practical points, each load-bearing. \emph{Boundary corrections.}
+The exact-exposure updates of \cref{prop:ch05:mstep} are not optional
+refinements: near the right window edge an event's offspring are
+partially unobserved, and the interior approximation deflates $\branch$
+while the orphaned early-window events (parents before time $0$) inflate
+$\mub$. The right edge is corrected \emph{exactly} inside the M-step ---
+the offspring process of an observed parent really is Poisson observed on
+$(t_l,\Tend]$ --- while the left edge is only mitigated, by discarding a
+burn-in of several kernel half-lives from the immigrant accounting
+\citep{veenschoenberg2008}. \emph{The E-step is the endogeneity
+diagnostic.} The honest answer to ``how much of deal flow is contagion''
+is not the plug-in $\hat\branch$ of \cref{cor:ch05:endogenous} but the
+posterior expected offspring share $\frac1n\sum_m (1 - p_{m0})$, together
+with the distribution of attributed parent--child gaps: genuine contagion
+concentrates attributions at the kernel timescale, while a latent common
+factor inflates $\hat\branch$ yet produces attributions with no timescale
+structure (\cref{ch05:sec:frailty}). \emph{Constraints are not
+automatic.} EM keeps every $\branch \ge 0$ by construction, but nothing
+in the parent accounting bounds $\specrad{\hat\Gmat}$ below one --- a rare
+source sector attributed many children can push a column past criticality
+--- so the subcriticality certificate must be checked and enforced after
+each fit, exactly as the discrete-face fitter does. In the multivariate
+model the updates read $\hat\Gmat_{sr} = \sum_{m: s_m=s}\sum_{l: s_l=r}
+p_{ml} \big/ \sum_{l: s_l = r}\big(1 - e^{-\decay(\Tend - t_l)}\big)$,
+expected type-$s$ children per unit of type-$r$ exposure. If profile
+likelihoods over the $\decay$-grid show the exponential shape itself
+misfits (time-rescaling diagnostics of \cref{ch:gof}), the escalation is
+the histogram-kernel nonparametric EM of \citet{lewismohler2011} --- same
+E-step, kernel M-step replaced by a binned estimator.
+
+\begin{protocol}[Estimation ladder for the continuous-time sector
+layer]\label{prot:ch05:estimation}
+(a) Fix a grid of decays $\decay$ spanning well-separated half-lives from
+weeks to quarters; do not free $\decay$ jointly with $\branch$ except on
+the final reported grid point. (b) At each grid point, fit by EM
+(\cref{prop:ch05:estep,prop:ch05:mstep}) with right-edge exposure
+corrections and a burn-in of at least four half-lives, multistarted;
+cross-check with the direct MLE of
+\cref{ch05:sec:likelihood}. (c) Report the profile likelihood over
+$\decay$ with its flatness (the ridge diagnostic of \cref{ch:gof}), never
+a single $(\hat\branch,\hat\decay)$ point alone. (d) Report
+$\specrad{\hat\Gmat}$, the posterior endogenous share, and the
+parent--child gap histogram; enforce $\specrad{\hat\Gmat} \le \rhomax =
+0.95$ as in the discrete face. (e) All branching estimates carry the
+upper-bound language of \cref{prot:ch05:upperbound}.
+\end{protocol}
+
+\section{Simulation}\label{ch05:sec:simulation}
+
+Simulation is not an afterthought: multi-step forecasts require it
+(history covariates are \emph{internal}, so scenario propagation must
+draw events and update features jointly \citep{kalbfleisch2002}), and the
+goodness-of-fit machinery of \cref{ch:gof} consumes simulated envelopes.
+Three routes, all exact in law.
+
+\begin{lemma}[Thinning bound for exponential kernels]\label{lem:ch05:thinning}
+On any interval containing no events and no baseline increase, $t \mapsto
+\lam_s(t)$ of \cref{eq:ch05:multi} is nonincreasing. Hence
+$\lam^{*} = \sum_s \lam_s(\tau^{+})$ evaluated just after the most recent
+event or baseline breakpoint $\tau$ dominates the total intensity until
+the next event or breakpoint.
+\end{lemma}
+
+\begin{proof}
+The excitation part is a nonnegative combination of $e^{-\decay_{sr}(t -
+t_m)}$, each strictly decreasing in $t$; the baseline is constant on the
+interval by hypothesis. A sum of nonincreasing functions is nonincreasing.
+\end{proof}
+
+\emph{Ogata thinning} \citep{lewisshedler1979,ogata1981} then
+specializes cleanly: from the current time propose a candidate gap
+$\sim\mathrm{Exp}(\lam^{*})$, accept with probability
+$\sum_s\lam_s(t_{\mathrm{cand}})/\lam^{*}$, attribute the accepted event
+to sector $s$ with probability proportional to $\lam_s$, refresh the bound
+at every event \emph{and} at every covariate breakpoint (where the
+piecewise-constant baseline may jump up). The Markov embedding keeps the
+per-event cost at $O(\abs{\sectors}^2)$ state updates;
+\modrepo{eventtime/simulate.py} implements exactly this, including the
+breakpoint refresh. \emph{Exact inversion} \citep{dassioszhao2013}
+removes rejection entirely for the exponential kernel: $(t, \lam(t))$ is
+a piecewise-deterministic Markov process, and the next inter-arrival time
+is the minimum of a baseline-driven $\mathrm{Exp}(\bar\mub)$ draw and an
+excitation-driven time whose survival function
+$\exp\!\big({-}\tfrac{Y}{\decay}(1 - e^{-\decay u})\big)$, $Y$ the current
+excess intensity, inverts in closed form (defective with probability
+$e^{-Y/\decay}$: the cluster may die). This is the preferred engine for
+the long forecast horizons where thinning's bound refreshes dominate cost.
+\emph{Cluster simulation} (\cref{thm:ch05:cluster}: draw immigrants, then
+recursive Poisson offspring) is the third route; it is the one that
+exposes the genealogy, which makes it the reference implementation for
+validating EM attributions and edge corrections on synthetic data. All
+three must agree in law; the test suite compares them distributionally.
+
+\section{Inhibition and excitation via engineered
+covariates}\label{ch05:sec:inhibition}
+
+The market has a signed dynamic: sector-level deal flow is
+\emph{self-exciting} (capital attention, momentum), while a firm's own
+recent raise is \emph{inhibitory} (a funded firm leaves the market for
+months). Regime~B of the rehearsal world builds in exactly this
+structure, with a 30-day inhibition half-life against a 7-day contagion
+half-life (\cref{ch02:sec:synthetic}). The linear Hawkes family of
+\cref{asm:ch05:model} cannot represent the inhibitory half, and the proof
+is one paragraph.
+
+\begin{proposition}[Monotonicity: nonnegative kernels cannot
+inhibit]\label{prop:ch05:monotone}
+Let $\lam(t; \Hist) = \mub(t) + \sum_{t_m \in \Hist,\, t_m < t}
+\kernel(t - t_m)$ with $\kernel \ge 0$. Then for every history $\Hist$,
+every additional event time $t_0 < t$, and every $t$:
+$\lam(t; \Hist \cup \{t_0\}) \ge \lam(t; \Hist)$, and $\lam(t;\Hist) \ge
+\mub(t)$. Consequently no parameter choice makes the intensity after an
+added event \emph{lower} than before it, nor ever lower than the
+baseline: a post-deal decrease in a firm's own intensity is inexpressible
+in any linear Hawkes model with nonnegative kernels, univariate or
+multivariate, for any $(\branch, \decay)$.
+\end{proposition}
+
+\begin{proof}
+The intensity is additive in history: $\lam(t; \Hist\cup\{t_0\}) =
+\lam(t;\Hist) + \kernel(t - t_0) \ge \lam(t;\Hist)$ since $\kernel \ge
+0$; dropping the whole excitation sum gives $\lam \ge \mub$. The infimum
+over parameters of the added term is $0$ (attained as $\branch \to 0$),
+so the family's expressive range for the effect of an own event is
+$[0, \infty)$: ``no effect'' is its best imitation of inhibition. The
+positivity transform $\branch = e^{a}$ of
+\cref{ch05:sec:likelihood} makes the restriction syntactically invisible
+--- the optimizer happily drives $a$ very negative --- which is why this
+proposition must be stated rather than discovered in production.
+\end{proof}
+
+Three legal routes remain. Each is developed with its model, validity
+argument, estimation story, and stability discussion; the decision box at
+the end commits.
+
+\subsection*{Route (a): log-link self-modulated intensity (``Hawkes
+without Hawkes'')}
+
+Move history inside the link:
+\begin{equation}\label{eq:ch05:loglink}
+\lam(t) \;=\; \exp\!\big(\bcoef^\top \xcov(t) + \gamma^\top r(t)\big),
+\end{equation}
+where $r(t)$ is a vector of \emph{engineered history covariates}:
+recency indicators and ages (a cooldown flag $\ind{t - \tau_i(t) \le W}$
+with $\tau_i(t)$ the last own-deal time, the gap transform $\log(1 +
+t-\tau_i(t))$), and decayed event counts
+\begin{equation}\label{eq:ch05:decayedcount}
+H_{\decay}(t) \;=\; \sum_{t_m < t} e^{-\decay (t - t_m)},
+\qquad \dd H_{\decay} = -\decay H_{\decay}\dd t + \dd N(t),
+\end{equation}
+at a small grid of \emph{fixed} (or profiled) decays, per source sector in
+the multivariate case. Negative components of $\gamma$ are inhibition,
+positive are excitation: the sign restriction of
+\cref{prop:ch05:monotone} evaporates because positivity is carried by the
+exponential, not by the kernel. This is the point-process GLM of
+\citet{truccolo2005}, and the discrete-time weekly face of it is the
+repository's current sector model.
+
+\begin{proposition}[Validity and concavity of the log-link
+model]\label{prop:ch05:loglinkvalid}
+Let each component of $r$ be a left-continuous functional of
+$\Hist_{t^-}$ as above. Then (i) $\lam$ in \cref{eq:ch05:loglink} is
+predictable, strictly positive, and a.s.\ finite on the observation
+window, so the likelihood \cref{eq:ch02:jacod} is well defined with no
+positivity constraints on $(\bcoef,\gamma)$; (ii) $(H_{\decay}, t -
+\tau_i(t))$ is a finite-dimensional Markov state, so \cref{eq:ch05:loglink}
+depends on history only through a computable summary; (iii) for fixed
+decays and windows, the log-likelihood is globally concave in
+$(\bcoef,\gamma)$.
+\end{proposition}
+
+\begin{proof}
+(i) Each feature is adapted and left-continuous (built from events
+strictly before $t$), hence predictable; $\exp$ makes $\lam$ positive;
+$H_{\decay}(t) \le N(t^-) < \infty$ a.s.\ keeps it finite on the window.
+(ii) is the ODE in \cref{eq:ch05:decayedcount} plus the trivial age
+dynamics. (iii) The likelihood is $\sum_m (\bcoef^\top\xcov +
+\gamma^\top r)(t_m) - \int_0^{\Tend} \exp(\bcoef^\top\xcov +
+\gamma^\top r)(u)\dd u$: the event sum is linear in the parameters, and
+the compensator is an integral of $\exp(\text{affine})$, convex in the
+parameters for every $u$, so its negative is concave; a sum of concave
+functions is concave. Estimation is a GLM: the entire fragility of Hawkes
+fitting lived in the decay, and fixing it returns the problem to convex
+territory. Note what (i) does \emph{not} claim: global-in-time stability
+of the process. That is \cref{warn:ch05:mechB}.
+\end{proof}
+
+The log-link model is not a retreat from Hawkes; to first order it
+\emph{contains} it.
+
+\begin{proposition}[First-order nesting of linear
+Hawkes]\label{prop:ch05:nesting}
+Fix $\decay$ and constant baseline $\mub$, and write $x(t) =
+\branch\decay H_{\decay}(t)/\mub \ge 0$ for the excitation load. The
+linear Hawkes intensity $\lam_{\mathrm{lin}} = \mub(1 + x)$ and the
+log-link intensity $\lam_{\mathrm{log}} = \mub\, e^{x}$ (i.e.\
+\cref{eq:ch05:loglink} with feature $H_\decay$ and coefficient $\gamma =
+\branch\decay/\mub$) satisfy
+\begin{equation}\label{eq:ch05:nesting}
+0 \;\le\; \log \lam_{\mathrm{log}}(t) - \log \lam_{\mathrm{lin}}(t)
+\;=\; x(t) - \log\big(1 + x(t)\big) \;\le\; \tfrac{1}{2}\,x(t)^2 .
+\end{equation}
+Thus a decayed-count feature with $\gamma > 0$ reproduces linear-Hawkes
+excitation to first order in the load, with a second-order overshoot; and
+$\gamma < 0$ delivers the mirrored soft inhibition that
+\cref{prop:ch05:monotone} forbids the linear family. The GLM route nests
+soft versions of both.
+\end{proposition}
+
+\begin{proof}
+$\log\lam_{\mathrm{lin}} = \log\mub + \log(1+x)$ and
+$\log\lam_{\mathrm{log}} = \log\mub + x$; the elementary bounds $x -
+\tfrac{x^2}{2} \le \log(1+x) \le x$ for $x \ge 0$ give
+\cref{eq:ch05:nesting}. In the fitted regime of this repository the load
+is small --- covariates dominate and excitation contributes decimal
+points of held-out likelihood (\cref{app:results}) --- so the surrogate
+error is second-order in an already-small quantity. The overshoot has a
+sign, however: the log-link \emph{amplifies} large excursions that the
+linear model would meet additively, and that is precisely the seed of the
+instability below.
+\end{proof}
+
+\begin{warning}[$\specrad{\Gmat}<1$ does not stabilize a log-link count
+model (Mechanism B)]\label{warn:ch05:mechB}
+For the linear model, subcriticality is a level-free certificate: it
+depends only on kernel masses. For log-link feedback it has no such
+force. In the weekly discrete face $\log m_{s,t} = a_s + \sum_r B_{sr}
+y_{r,t-1}$ (counts $y$ in the exponent), the deterministic skeleton $m
+\mapsto \exp(a + Bm)$ has Jacobian $\diag(m^*)B$ at a fixed point $m^*$:
+local stability requires $\specrad{\diag(m^*)B} < 1$, an
+\emph{operating-point} condition that scales with the level $m^*$. A
+stochastic excursion raises the operating point, the local certificate
+can silently fail, and the process runs away --- explosion is an
+\emph{absorbing rare event}, invisible to in-sample diagnostics. The
+rehearsal measured exactly this: a metastable excursion of
+$\sim$169{,}000 events in a configuration whose linear-style spectral
+radius was nominally far subcritical (\cref{app:results}). The theory
+agrees from both sides: geometric ergodicity for log-linear Poisson
+autoregressions holds only under contraction conditions on the feedback
+coefficients \citep{fokianos2011}, and the continuous-time stability
+theory for nonlinear Hawkes requires a Lipschitz link
+\citep{bremaud1996} --- $\exp$ is not Lipschitz. Design rules that
+follow: history enters the exponent only through \emph{bounded or
+saturating} transforms (EWMA levels, $\log(1+\cdot)$ counts, clipped
+features), never raw counts; every simulation carries event caps; and the
+operating-point diagnostic $\specrad{\diag(\hat m_t)\hat B}$ is monitored
+along simulated paths, not certified once at fit time.
+\end{warning}
+
+\subsection*{Route (b): rectified additive intensity}
+
+Keep the kernel signed and restore positivity by rectification:
+\begin{equation}\label{eq:ch05:rectified}
+\lam(t) \;=\; \Big[\, \mub(t)
++ \textstyle\sum_{t_m<t} \kernel^{+}(t-t_m)
+- \sum_{t_m<t} \kernel^{-}(t-t_m) \Big]_{+},
+\qquad \kernel^{\pm} \ge 0 .
+\end{equation}
+Validity is immediate ($[\cdot]_+$ of a predictable process is
+predictable and nonnegative), and the mathematics is genuinely available:
+viewing $\lam = \phi(\mub + \int \kernel_{\mathrm{signed}} \dd N)$ with
+$\phi(x)=x_+$ Lipschitz$(1)$, existence, uniqueness, and stability of a
+stationary version hold when the total variation of the kernels is
+subcritical \citep{bremaud1996}, and the renewal structure of
+signed-exponential-kernel processes is worked out in
+\citet{costa2020}. Maximum likelihood is feasible for the exponential
+kernel because the times at which the rectifier binds (intensity hits
+zero, then restarts) are computable in closed form, giving an exact
+compensator \citep{bonnet2021}. The costs are structural, not numerical.
+The likelihood is nonsmooth in the parameters (kinks wherever a
+zero-crossing time moves), estimation loses the GLM concavity of route
+(a), and --- decisively for us --- \emph{expectation and rectification do
+not commute}: $\E[X]_+ \ne [\E X]_+$ whenever the rectifier binds with
+positive probability. The mean-intensity Volterra equation $\xi = \mub +
+\kernel * \xi$, whose closed-form exponential-kernel solution is the
+engine of the interval-censored MBPP machinery of \cref{ch:censoring},
+therefore has no analogue under \cref{eq:ch05:rectified}. Since defect
+(C4) forces much of our fitting through interval-censored likelihoods,
+route (b) would sever the chapter that keeps timing estimation honest.
+It stays on the shelf as the escalation for a genuinely signed
+continuous-time ground kernel --- nothing less.
+
+\subsection*{Route (c): move inhibition to the mark factor}
+
+The factorization of \cref{thm:ch03:groundmark} offers the cleanest exit:
+keep the \emph{ground} process linear Hawkes over sectors --- positive
+momentum only, which is the economically natural sign at the sector level
+--- and let firm-level inhibition live in the mark factor, where the
+ranker of \cref{ch:ranking} already consumes a cooldown covariate with a
+negative coefficient. The firm-level intensity is
+\begin{equation}\label{eq:ch05:markfactor}
+\lam_i(t) \;=\; \lam_{s(i)}(t)\; p\big(i \st s(i), t, \Hist_{t^-}\big),
+\qquad
+p(i \st s, t) = \frac{e^{\score_i(t)}}{\sum_{j \in \riskset_{s,t}}
+e^{\score_j(t)}},
+\quad
+\score_i(t) = w^\top \zfeat_i(t) + \eta\, c_i(t),
+\end{equation}
+with $c_i(t) = \ind{t - \tau_i(t) \le W}$ the cooldown flag and $\eta \le
+0$.
+
+\begin{proposition}[Cooldown in the mark factor is firm-level
+inhibition]\label{prop:ch05:cooldown}
+Under \cref{eq:ch05:markfactor} with $\eta < 0$: (i) $\lam_i$ is
+predictable and positive, and the joint likelihood factorizes exactly as
+ground $\times$ mark, so both factors are fitted by their own valid
+likelihoods; (ii) holding other firms' features fixed, the switch $c_i: 0
+\to 1$ multiplies $p(i \st s,t)$ by a factor in $(e^{\eta}, 1)$ --- a
+strict decrease --- hence $\lam_i$ strictly decreases while $\lam_s$ is
+untouched; (iii) the ground layer retains nonnegative kernels, so the
+cluster representation, the $\specrad{\Gmat}$ certificate, and the MBPP
+aggregation theory of \cref{ch:censoring} all survive verbatim.
+\end{proposition}
+
+\begin{proof}
+(i) is \cref{thm:ch03:groundmark} plus predictability of $c_i$ (built
+from events strictly before $t$). For (ii), write $p_i(\eta) =
+e^{q+\eta}/(D + e^{q+\eta})$ with $q = w^\top\zfeat_i$ and $D =
+\sum_{j\ne i} e^{\score_j} > 0$: the map $x \mapsto x/(D+x)$ is strictly
+increasing, so $\eta < 0$ strictly decreases $p_i$; the ratio
+$p_i(\eta)/p_i(0) = e^{\eta}(D + e^{q})/(D + e^{q+\eta})$ lies strictly
+between $e^{\eta}$ and $1$. (iii) is by construction: no signed object
+ever touches the ground intensity. What (c) \emph{cannot} express is a
+firm's own deal suppressing the \emph{sector aggregate}: the mark factor
+only redistributes a fixed sector flow across firms. If aggregate
+post-deal suppression is real, it belongs to route (a) at the sector
+level, or ultimately to route (b).
+\end{proof}
+
+Route (c) is the current production architecture
+(\modrepo{sector\_stability.py} + \modrepo{sector\_ranker.py}), and the
+rehearsal gives it empirical teeth: the self-inhibition \emph{ordering}
+recovered through the ranker cooldown was robust under deliberate
+misspecification (rank correlation $0.937$ against regime-B truth,
+\cref{app:results}), even though the parametric shape of the cooldown was
+wrong.
+
+\begin{decision}{D5.1 --- signed dynamics without signed kernels}
+We commit to routes (a) and (c), with division of labor: \emph{(c) owns
+firm-level inhibition} --- the linear sector Hawkes ground layer plus the
+ranker cooldown covariate, as implemented today --- because it preserves
+the cluster representation, the subcriticality certificate, and the MBPP
+interval-censored machinery that defect (C4) makes indispensable;
+\emph{(a) owns sector-level covariate modulation and timing-feature
+models} --- fixed-decay log-link intensities with bounded history
+features, as in \modrepo{models/event\_block\_hawkes.py} --- because it
+keeps concavity and sign freedom at the price of the operating-point
+stability discipline of \cref{warn:ch05:mechB}. Route (b), the rectified
+additive model \citep{bonnet2021,costa2020}, is the recorded escalation
+if a genuinely signed \emph{continuous-time ground kernel} is ever
+required. Reversal triggers: escalate to (b) if the time-rescaling and
+PIT diagnostics of \cref{ch:gof} show persistent post-burst
+\emph{overprediction of sector aggregates} that route-(a) saturating
+features cannot absorb (aggregate suppression, which (c) cannot express
+by \cref{prop:ch05:cooldown}), or if the decision layer of
+\cref{ch:decision} demands calibrated signed amplification in continuous
+time. Restrict (a) --- or shift its mass to (c) --- if the Mechanism-B
+operating-point monitor fires in production simulation.
+\end{decision}
+
+\section{Frailty versus contagion}\label{ch05:sec:frailty}
+
+A fitted $\hat\branch > 0$ is not proof of contagion. Clustered,
+overdispersed event flow has two structural explanations: events beget
+events (Hawkes), or a latent common factor modulates everyone's rate
+(frailty; the doubly-stochastic alternative). Both produce
+overdispersion, autocorrelated counts, and cross-sector comovement, and
+from a single realization of moderate length they are close to
+observationally equivalent --- the point-process face of the
+state-dependence-versus-heterogeneity problem of
+\citet{heckmanborjas1980}. The mechanism of confounding is concrete: if a
+positively autocorrelated factor $\xi(t)$ multiplies the true baseline
+and the model omits it, the score of an excitation loading at zero has
+expectation
+\begin{equation}\label{eq:ch05:frailtyscore}
+\E_0\!\left[\partial_{\gamma}\loglik \big|_{\gamma=0}\right]
+\;\propto\;
+\int_0^{\Tend} \Cov\big(H_{\decay}(t),\, \xi(t)\big) \dd t \;>\; 0,
+\end{equation}
+because the decayed count $H_\decay$ is built from past events that
+themselves loaded on $\xi$: the fitted excitation absorbs the common
+factor. The rehearsal calibrated the damage: under a latent AR($0.90$)
+frailty, the freely fitted branching radius came out $2.4\times$ the
+truth (\cref{app:results}).
+
+The doctrine that follows is layered. \emph{Covariates first}
+\citep{duffie2007}: every observable common driver belongs in
+$\mub_s(t)$; comovement explained by covariates was never contagion, and
+our ladder runs baseline-first by construction
+(\cref{ch:poisson} precedes this chapter). \emph{Latent-factor
+escalation} \citep{duffie2009}: with many sectors, frailty and contagion
+have different fingerprints --- a common factor loads simultaneously
+across sectors, contagion propagates along the event stream at the
+kernel's lag structure --- so a latent-factor model (EM or particle
+methods over $\xi$) is genuinely estimable; it is an escalation beyond
+this chapter that we have deliberately not built. \emph{Both coexist}
+\citep{azizpour2018}: the operational conclusion for corporate default
+data, after conditioning on covariates, was contagion \emph{and} frailty
+--- so the honest posture is not to pick one but to bound. The posterior
+parentage diagnostic of \cref{ch05:sec:em} is the sharpest single-sample
+probe we have: attributed parent--child gaps concentrated at the kernel
+timescale are consistent with contagion; attributions spread evenly in
+time indict a common factor.
+
+\begin{protocol}[Branching estimates are upper bounds on
+contagion]\label{prot:ch05:upperbound}
+Every reported $\hat\branch$, $\hat\Gmat$, or endogenous share is
+accompanied by: (i) the covariate set of the baseline it was fitted
+against; (ii) the sentence ``upper bound on contagion; unobserved
+common factors inflate this estimate'' with the $2.4\times$ AR($0.90$)
+calibration of \cref{app:results} cited as the measured severity; (iii)
+the parent--child gap histogram of \cref{ch05:sec:em}. No standalone
+$\hat\branch$ appears in any deliverable.
+\end{protocol}
+
+\section{Defect declaration (D2.1)}\label{ch05:sec:defects}
+
+Against the ledger of \cref{tab:ch02:defects}, for the models of this
+chapter (linear sector Hawkes; log-link history models; the mark-factor
+cooldown belongs to \cref{ch:ranking}).
+
+\emph{(C1) Administrative censoring: robust (exact).} The likelihood
+\cref{eq:ch05:loglik} integrates the compensator to $\Tend$; the open
+window contributes its survival factor $\exp(-\int\lam)$ exactly. Unlike
+the Poisson case, that factor is \emph{path-dependent} --- it depends on
+the realized history through the excitation terms --- but for exponential
+kernels it is available in closed form given the history, so nothing is
+approximated. Within EM, the right-edge exposure correction of
+\cref{prop:ch05:mstep} is the same fact seen from the cluster side: an
+observed parent's offspring process really is Poisson observed on
+$(t_l,\Tend]$. The subtleties of history-dependent survival under
+\emph{interval} censoring are deferred to \cref{ch:censoring}.
+
+\emph{(C2) Left truncation: corrects under assumptions.} All compensator
+integrals start at entry times, and risk-set indicators $\atrisk$
+multiply intensities as in \cref{eq:ch02:jacod}. The Hawkes-specific
+residue is the \emph{left edge}: in-window events whose parents predate
+the window are structurally misattributed to immigration, biasing
+$\hat\mub$ up and $\hat\Gmat$ down. Burn-in of several half-lives
+mitigates; with 90-day-scale kernel mass and a 13.5-year window the
+residual bias is small, but short per-sector subwindow fits are not
+licensed (\cref{prot:ch05:estimation}).
+
+\emph{(C3) Unlabeled exits: robust at the sector layer, vulnerable at the
+firm layer.} Sector counts are complete regardless of zombie firms, so
+the ground models of this chapter are immune. Any firm-level intensity
+(the route-(a) block model, the ranker) keeps dead firms at risk:
+fitted firm hazards are deflated and cooldown effects attenuated, with
+the documented sign (downward on firm-level intensities). The
+risk-set sensitivity is the largest in the system
+(\cref{app:results}); treatments live in \cref{ch:ranking}.
+
+\emph{(C4) Untrusted dates and aggregation: VULNERABLE for $\decay$, with
+signed statement.} Date jitter and binning destroy the information that
+identifies the timescale: Fisher information in $\decay$ collapses once
+bin width exceeds the kernel half-life, while $\branch$ remains estimable
+from count balance. The bias is not a small perturbation of $\hat\decay$
+but a loss of identification --- the $\branch$--$\decay$ ridge --- and
+timing claims from weekly data are vetoed outright. This defect is the
+reason \cref{ch:censoring} exists: the interval-censored MBPP likelihood
+is the tractable replacement for the exact likelihood this chapter
+derived, and \cref{ch:gof} quantifies the bucket-width rule (safe at
+$\le 1$ half-life, destroyed at $\ge 4$).
+
+\emph{(C5) Stale firm covariates: pointer.} The sector baselines of this
+chapter consume macro and sector-activity covariates, which are never
+stale (as-of joined); the engineered history covariates of route (a) are
+point-in-time correct by construction. Firm-level covariates entering
+$\zfeat_i$ or block-model baselines inherit the attenuation and
+informative-observation pathologies of \cref{ch:stale}.
+
+\emph{(C6) Out-of-universe deals: robust at the ground layer, pointer at
+the mark layer.} Sector event streams include out-of-universe deals, so
+both the excitation sources and the counts this chapter models are
+complete. The mark factor must carry an outside option or overstate every
+tracked firm's share; that is \cref{ch:universe}'s treatment.
+
+\begin{codehooks}
+\emph{Existing.} \modrepo{eventtime/likelihood.py}: exponential-kernel
+Jacod likelihood with the per-pair Ogata recursions of
+\cref{prop:ch05:recursion} in numerically stable block-cumsum form, plus
+analytic gradients. \modrepo{eventtime/estimate.py}: fixed-decay MLE with
+the $\alpha = e^{a}$ positivity transform and delta-method standard
+errors; note the code parameterizes $\kernel(u) = \alpha e^{-\beta u}$,
+so $\branch = \alpha/\beta$, $\decay = \beta$ --- migrating to the
+$(\branch,\decay)$ convention of this document is a pending hygiene item.
+\modrepo{eventtime/simulate.py}: Ogata thinning specialized via
+\cref{lem:ch05:thinning}, with baseline-breakpoint bound refresh.
+\modrepo{eventtime/covariates.py}: piecewise-constant exp-link baselines
+with closed-form compensators. \modrepo{eventtime/lasso.py}:
+FISTA-based $\ell_1$ recovery of sparse excitation matrices
+\citep{hansen2015}. \modrepo{sector\_stability.py}: the current discrete
+face (weekly log-link count model, nonnegative lag excitation, row-sum
+constraint $\rhomax=0.95$, \code{aggregate\_excitation} and
+\code{excitation\_spectral\_radius} diagnostics).
+\modrepo{models/event\_block\_hawkes.py}: route (a) in production form
+--- exp-link event-time intensity with signed recency term ($\rho \ge 0$
+on the inhibitory feature) and sector-block excitation, concave by
+\cref{prop:ch05:loglinkvalid}.
+\emph{To be written.} A continuous-time sector Hawkes module
+(\modrepo{eventtime/sector\_hawkes.py}) implementing
+\cref{prot:ch05:estimation}: EM fitter with posterior-parentage output
+(\cref{prop:ch05:estep}), right-edge exposure corrections, profile-decay
+grids, and the $\specrad{\hat\Gmat}$ enforcement; the exact
+Dassios--Zhao simulator \citep{dassioszhao2013} alongside thinning; and
+the Mechanism-B operating-point monitor of \cref{warn:ch05:mechB} as a
+first-class simulation diagnostic.
+\end{codehooks}

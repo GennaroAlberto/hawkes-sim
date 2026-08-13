@@ -1,0 +1,807 @@
+% ch10-ranking --- ranking objectives: who gets funded next (target T1)
+
+\section{The metric is the ranking}\label{ch10:sec:target}
+
+\Cref{ch:question} argued that the first answer to ``what is valuable to
+know'' is an identity, not a time: given finite diligence capacity, which
+$K$ firms should be looked at now because they are most likely to be the
+next to raise. The consuming action is a short list, refreshed on a
+cadence; nothing in that action consumes an arrival time. The target is
+therefore the conditional distribution of the next deal's identity,
+already fixed as \cref{eq:ch01:t1},
+\begin{equation}\label{eq:ch10:target}
+p(i \st s, t)
+ \;=\;
+ \Prob\big(\text{next deal in sector } s \text{ goes to firm } i
+ \;\big|\; \text{a deal occurs},\; \Ftm\big),
+ \qquad i \in \riskset_s(t),
+\end{equation}
+where $\riskset_s(t) \subseteq \firms$ is the risk set of tracked firms at
+risk in sector $s$ at $t^-$. This chapter sharpens that framing: when
+T1 is the valuable thing, the likelihood of the full marked process is
+not the metric --- the ranking is. The full likelihood rewards timing
+accuracy that no action consumes and that the data defects of
+\cref{ch:data} corrupt. The object to be scored is the ordered list,
+and the object to be fitted is the conditional law
+\cref{eq:ch10:target}, whose own likelihood --- the conditional NLL of
+the mark factor in \cref{thm:ch03:groundmark} --- is the proper
+training loss because it is a likelihood of the ranking target and of
+nothing else.
+
+The bridge between intensity models and \cref{eq:ch10:target} is the
+competing-intensities identity. \Cref{ch:foundations} states it as part of
+the ground--mark factorization; here we give the operational proof,
+because every robustness claim in this chapter follows from the form of
+the identity: a ratio.
+
+\begin{assumption}[Firm-level intensity system]\label{asm:ch10:intensities}
+Fix a sector $s$ and work conditionally on $\Ftm$. Each firm $i \in
+\riskset_s(t)$ has a counting process $N_i$ with $\F$-conditional
+intensity $\lam_i(t) \ge 0$ (\cref{def:ch02:intensity}), the intensities
+are locally integrable, no two firms jump at the same instant almost
+surely, and the sector ground process $N_s = \sum_{i} N_i$ has intensity
+$\lam_{\mathrm g}(t) = \sum_{j \in \riskset_s(t)} \lam_j(t) \in
+(0,\infty)$.
+\end{assumption}
+
+\begin{proposition}[Competing intensities]\label{prop:ch10:competing}
+Under \cref{asm:ch10:intensities}:
+\begin{enumerate}[label=(\roman*)]
+\item \emph{(Exact form, at the event.)} For almost every $t$, the
+conditional distribution of the identity of an event occurring at $t$ is
+\begin{equation}\label{eq:ch10:competing}
+\Prob\big(\text{identity} = i \st \text{event at } t,\; \Ftm\big)
+ \;=\;
+ \frac{\lam_i(t)}{\sum_{j \in \riskset_s(t)} \lam_j(t)} .
+\end{equation}
+\item \emph{(Next-event form.)} Fix a decision time $\tau$ and suppose in
+addition that on the no-event continuation after $\tau$ the intensities
+are $\F_\tau$-measurable functions $u \mapsto \lam_i^{\tau}(u)$ (true for
+internal-history models with exogenous covariate paths frozen at $\tau$).
+Then the next event time $T$ has conditional density
+$\lam^{\tau}_{\mathrm g}(u)\exp(-\int_\tau^u \lam^{\tau}_{\mathrm g})$
+and, jointly with the identity $J$,
+\begin{equation}\label{eq:ch10:nextevent}
+\Prob\big(J = i,\; T \in \dd u \st \F_\tau\big)
+ \;=\;
+ \lam_i^{\tau}(u)\,
+ \exp\!\Big(-\!\int_\tau^{u} \lam^{\tau}_{\mathrm g}(v)\dd v\Big) \dd u,
+\qquad
+\Prob\big(J = i \st T = u, \F_\tau\big)
+ \;=\;
+ \frac{\lam_i^{\tau}(u)}{\lam^{\tau}_{\mathrm g}(u)} .
+\end{equation}
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+(i) View the system as a single marked point process on $[0,\Tend] \times
+\riskset_s(t)$ with intensity kernel $\lam(t, \{i\}) = \lam_i(t)$; the
+absence of common jumps makes this kernel well defined, and superposition
+gives the ground intensity $\lam_{\mathrm g} = \sum_j \lam_j$. The
+ground--mark factorization of \cref{thm:ch03:groundmark} writes the
+kernel as $\lam(t,\{i\}) = \lam_{\mathrm g}(t)\, p(i \st t, \Ftm)$, where
+$p(\cdot \st t, \Ftm)$ \emph{is}, by construction, the conditional mark
+distribution given an event at $t$ \citep[Ch.~6]{daley2003}. Identifying
+the two expressions for the kernel and dividing by $\lam_{\mathrm g}(t) >
+0$ yields \cref{eq:ch10:competing}.
+
+(ii) The operational derivation. Partition $(\tau, u]$ into $n$ intervals
+of mesh $\delta = (u-\tau)/n$. Given $\F_\tau$ and the frozen intensity
+functions, the probability that no firm jumps in $(v, v+\delta]$, given no
+jump before $v$, is $1 - \lam^{\tau}_{\mathrm g}(v)\delta + o(\delta)$,
+and these no-jump factors multiply across subintervals because, in the
+absence of events, the conditional jump probabilities depend only on the
+deterministic functions $\lam^{\tau}_j$ --- this is the
+independent-increment approximation, exact in the limit $\delta \to 0$ by
+the product-integral representation of the survivor function
+\citep{abgk1993}. Hence $\Prob(T > u \st \F_\tau) = \exp(-\int_\tau^u
+\lam^{\tau}_{\mathrm g})$. The event $\{T \in (u, u+\delta],\, J = i\}$
+requires no jump on $(\tau, u]$ and a jump of firm $i$ in $(u,
+u+\delta]$, of probability $\lam^{\tau}_i(u)\delta + o(\delta)$;
+multiplying and letting $\delta \to 0$ gives the joint density in
+\cref{eq:ch10:nextevent}. Dividing by the marginal density of $T$
+--- the same expression with $\lam^{\tau}_i$ replaced by
+$\lam^{\tau}_{\mathrm g}$ --- gives the ratio. When exogenous covariates
+evolve stochastically after $\tau$, part (ii) holds with the intensities
+replaced by their conditional expectations along the no-event
+continuation; part (i) is unaffected, and as $u \downarrow \tau$ the two
+parts agree, so ranking \emph{at the decision time} inherits the exact
+form (i).
+\end{proof}
+
+\begin{corollary}[Every intensity model is a ranker]\label{cor:ch10:induced}
+Any firm-level intensity model $\{\lam_i\}$ induces a ranker: order
+$\riskset_s(t)$ by $\lam_i(t)$, equivalently by the conditional
+probability \cref{eq:ch10:competing}, of which $\lam_i(t)$ is a monotone
+transform. Under the model, this ordering is optimal for every list
+metric considered in this chapter (\cref{lem:ch10:topk}). Conversely ---
+and this is the direction the chapter exploits --- the ratio
+\cref{eq:ch10:competing} can be modeled \emph{directly}, without ever
+committing to a timing model for $\lam_{\mathrm g}$.
+\end{corollary}
+
+The ratio form is the key observation. Any factor common to the
+whole risk set --- the sector's level of activity, the calendar week's
+deal flow, a macro regime, an unmodeled burst --- appears in every
+$\lam_j$ and cancels. The next section turns this cancellation into a
+likelihood with a proof of exactly what it buys.
+
+\section{The conditional-choice mark factor}\label{ch10:sec:choice}
+
+The repository's mark factor models the ratio directly. Each candidate
+$i \in \riskset_s(t)$ receives a score built from point-in-time features
+$\zfeat_i(t)$ (firm covariates with staleness ages, \cref{ch:stale};
+engineered history summaries, \cref{def:ch02:covariates}) and a cooldown
+indicator $C_i(t) = \ind{\text{firm } i \text{ funded in the last } K_c
+\text{ weeks}}$:
+\begin{equation}\label{eq:ch10:score}
+\score_i(t)
+ \;=\;
+ (w_0 + u_s)\T \zfeat_i(t) \;+\; \eta_s\, C_i(t),
+ \qquad \eta_s \le 0,
+\end{equation}
+with a global weight vector $w_0$, sector deviations $u_s$, and
+sector-specific cooldown coefficients $\eta_s$. The conditional choice
+probability is the softmax over the \emph{current} risk set,
+\begin{equation}\label{eq:ch10:softmax}
+p(i \st s, t)
+ \;=\;
+ \frac{\exp \score_i(t)}{\sum_{j \in \riskset_s(t)} \exp \score_j(t)},
+\end{equation}
+and the training loss is the conditional negative log-likelihood over
+observed events $(t_m, s_m, i_m)$,
+\begin{equation}\label{eq:ch10:nll}
+-\loglik_{\mathrm c}(\thetamodel)
+ \;=\;
+ \sum_{m}
+ \Big[
+ \logsumexp_{j \in \riskset_{s_m}(t_m)} \score_j(t_m)
+ \;-\;
+ \score_{i_m}(t_m)
+ \Big].
+\end{equation}
+The normalization over $\riskset_s(t)$ rather than over a fixed candidate
+list is the crucial design choice: firms enter the risk set by becoming
+active and leave it by the exposure rules of \cref{ch:buckets}, and the
+model is well defined for every risk-set size. Algebraically,
+\cref{eq:ch10:softmax,eq:ch10:nll} are McFadden's conditional logit
+\citep{mcfadden1974,train2009}; they are simultaneously, term for term,
+the factors of Cox's partial likelihood for a proportional-intensity
+model \citep{cox1972,cox1975}. The two literatures prove the same theorem
+twice, and we will lean on both.
+
+\begin{proposition}[Baseline cancellation]\label{prop:ch10:cancel}
+Suppose the firm intensities have the multiplicative form
+\begin{equation}\label{eq:ch10:propint}
+\lam_i(t) \;=\; \lam_0(s, t)\, \exp \score_i(t),
+\qquad i \in \riskset_s(t),
+\end{equation}
+where $\lam_0(s,t) \ge 0$ is \emph{any} sector--time baseline common to
+the risk set: unknown, unmodeled, nonstationary, dependent on the whole
+history, or misspecified in any way whatsoever. Then the conditional
+identity distribution given an event is \cref{eq:ch10:softmax}, free of
+$\lam_0$. Consequently the conditional likelihood \cref{eq:ch10:nll}
+involves no timing model, and any deformation of the time axis or of the
+baseline that acts on the risk set as a common factor --- weekly
+aggregation, jittered or back-filled dates that preserve the assignment
+of events to risk-set snapshots, bursts, regime shifts, unmodeled
+excitation in the ground process --- leaves \cref{eq:ch10:nll} unchanged.
+\end{proposition}
+
+\begin{proof}
+Substitute \cref{eq:ch10:propint} into \cref{eq:ch10:competing}:
+\[
+\frac{\lam_i(t)}{\sum_{j} \lam_j(t)}
+ =
+\frac{\lam_0(s,t) e^{\score_i(t)}}{\lam_0(s,t) \sum_{j} e^{\score_j(t)}}
+ =
+\frac{e^{\score_i(t)}}{\sum_{j \in \riskset_s(t)} e^{\score_j(t)}} .
+\]
+The baseline cancels because it is common; nothing about its form was
+used. For the aggregation claim: replacing $t_m$ by its containing bin
+changes which snapshot $(\riskset_s, \zfeat, C)$ the event is matched to,
+but if features and risk sets are constructed at bin resolution from
+pre-bin information (\cref{prot:ch02:pit}), the conditional law of the
+winner given the bin's snapshot is again \cref{eq:ch10:softmax} with the
+bin-level baseline cancelled --- interval censoring corrupts $\lam_0$,
+which does not appear. What does \emph{not} cancel is instructive: a
+firm-specific multiplicative frailty $\lam_i = \lam_0 \xi_i e^{\score_i}$
+does not cancel (it is not common) and is absorbed into the score as an
+omitted variable; and a baseline that differs \emph{within} the risk set
+--- e.g.\ stage-specific deal clocks inside one sector --- breaks the
+common-factor premise and must be moved into $\score_i$ as a covariate or
+handled by stratifying the risk set.
+\end{proof}
+
+\begin{proposition}[Robustness of the conditional MLE]\label{prop:ch10:consistency}
+Let events $m = 1, \dots, M$ carry risk sets and features constructed
+point-in-time, with $i_m \in \riskset_{s_m}(t_m)$. Suppose (a) the
+conditional model is correctly specified: there exists $\thetamodel^*$
+such that $\Prob(i_m = i \st \text{event } m, \F_{t_m^-}) = p(i \st s_m,
+t_m; \thetamodel^*)$ of \cref{eq:ch10:softmax}; (b) features are
+uniformly bounded, $\thetamodel^*$ is identified and interior to a
+compact parameter set; (c) the averaged conditional information
+$\bar\Fisher_M = M^{-1}\sum_m \E[V_m]$, with $V_m$ the conditional
+covariance of the score gradient under \cref{eq:ch10:softmax}, converges
+to a positive-definite limit. Then the maximizer $\thetahat$ of
+$\loglik_{\mathrm c}$ is consistent and asymptotically normal,
+\emph{with no assumption on the ground process}: the law of $(t_m, s_m)$
+may be arbitrarily misspecified, dependent, aggregated, or simply never
+modeled.
+\end{proposition}
+
+\begin{proof}
+Let $\mathcal{G}_m = \F_{t_m}$ be the event-indexed filtration. The
+$m$-th score contribution at $\thetamodel^*$ is
+\[
+U_m \;=\; \nabla \score_{i_m}(t_m)
+ \;-\; \sum_{j \in \riskset_{s_m}(t_m)} p(j \st s_m, t_m;\thetamodel^*)
+ \, \nabla \score_j(t_m),
+\]
+and by (a), $\E[U_m \st \mathcal{G}_{m-1}, \text{event } m \text{ at }
+(t_m, s_m)] = \sum_i p^*_i \nabla \score_i - \sum_j p^*_j \nabla \score_j
+= 0$: the score is a martingale difference array with respect to
+$\{\mathcal{G}_m\}$ \emph{conditionally on the event stream, whatever its
+law}. Boundedness (b) and nondegeneracy (c) then give a law of large
+numbers and a martingale central limit theorem for the score, and
+consistency plus asymptotic normality of $\thetahat$ follow by the
+standard argument --- this is precisely Cox's partial-likelihood
+heuristic \citep{cox1975} made rigorous by counting-process martingale
+theory in \citet{andersengill1982}; the conditional-logit sampling theory
+of \citet{mcfadden1974} gives the same conclusion when events are treated
+as independent choice occasions, and the martingale version shows
+independence is not needed. The proof fails exactly where it should: if
+the risk set is wrong (defect (C3): members retained who cannot win, or
+competitors omitted), the softmax in $U_m$ is normalized over the wrong
+set and the conditional mean of the score is no longer zero at
+$\thetamodel^*$ --- the estimand silently changes to the conditional law
+\emph{given the contaminated risk set}. Robustness to timing is not
+robustness to membership.
+\end{proof}
+
+\Cref{prop:ch10:cancel,prop:ch10:consistency} together are the precise
+version of the claim previewed in \cref{ch01:sec:factorization}: the mark
+factor needs no timing model, survives the (C4) aggregation and
+untrusted-date defect, and is insulated from ground-process
+misspecification --- the three failure modes that \cref{ch:censoring}
+shows corrupt every timing estimate on current data. That is why T1 is
+the most defensible deliverable on present data quality, and why the
+ranking layer, not the Hawkes layer, is the repository's headline
+deliverable while the timing stack matures.
+
+\section{Positive-only labels: manufacturing the comparison}\label{ch10:sec:positive}
+
+A supervised-classification framing of T1 needs a negative class, and the
+data has none (\cref{ch:data}): we observe fundings, never rejections. No
+row anywhere says ``firm $i$ sought capital at $t$ and was declined,'' so
+per-firm labels are positive-only, and any attempt to manufacture
+firm-level negatives by declaring non-events (``firm $i$ did not raise in
+week $t$'') imports the timing model through the back door --- the
+probability of a non-event depends on $\lam_0$, which we just proved we
+do not need and cannot trust. The conditional-choice construction solves
+the label problem structurally: each funding event manufactures a valid
+comparison --- the funded firm against its risk-set peers at the same
+sector-time --- and \cref{prop:ch10:consistency} says these comparisons
+identify the score parameters without a single explicit negative. This is
+the same device by which Cox regression learns hazard ratios from cases
+and risk sets alone, and the connection to case-control methodology is
+exact: the risk set is the control pool, sampled at the case's own event
+time.
+
+The practical obstacle is scale: real sector risk sets contain hundreds
+to thousands of firms, and \cref{eq:ch10:nll} sums over all of them per
+event. Sampling the risk set fixes this without changing the estimand.
+
+\begin{theorem}[Consistency of the sampled softmax]\label{thm:ch10:sampled}
+For event $m$, let a subset $D_m \subseteq \riskset_{s_m}(t_m)$ with
+$i_m \in D_m$ be drawn by a sampling protocol $\pi(D \st i, \riskset)$
+--- the probability of drawing $D$ given that the winner is $i$ ---
+satisfying the \emph{uniform conditioning property}: $\pi(D \st i) =
+\pi(D \st j) > 0$ for all $i, j \in D$. Then, under the model
+\cref{eq:ch10:softmax}, the conditional law of the winner given $D_m$ is
+the softmax restricted to $D_m$,
+\begin{equation}\label{eq:ch10:sampled}
+\Prob\big(i_m = i \st D_m, \F_{t_m^-}\big)
+ \;=\;
+ \frac{\exp \score_i(t_m)}{\sum_{j \in D_m} \exp \score_j(t_m)},
+\end{equation}
+so maximizing the subsampled conditional likelihood built from
+\cref{eq:ch10:sampled} is maximum likelihood in a correctly specified
+model and inherits the consistency of \cref{prop:ch10:consistency}. In
+particular, uniform sampling of $J$ non-winners from
+$\riskset \setminus \{i_m\}$, with the winner always retained, satisfies
+the property, and no correction term is needed. For a general protocol,
+replacing $\score_j$ by $\score_j + \log \pi(D \st j)$ restores
+\cref{eq:ch10:sampled} \citep{mcfadden1978,train2009}.
+\end{theorem}
+
+\begin{proof}
+By Bayes' rule on the joint draw (winner first, then the sampled set
+given the winner),
+\[
+\Prob(i_m = i \st D_m = D)
+ \;=\;
+ \frac{p(i \st s_m, t_m)\, \pi(D \st i)}
+      {\sum_{j \in D} p(j \st s_m, t_m)\, \pi(D \st j)}
+ \;=\;
+ \frac{e^{\score_i + \log \pi(D \mid i)}}
+      {\sum_{j \in D} e^{\score_j + \log \pi(D \mid j)}},
+\]
+where the full-risk-set normalizer of $p(\cdot \st s_m, t_m)$ cancels
+between numerator and denominator --- the same ratio trick as
+\cref{prop:ch10:cancel}, now applied to the sampling design. Under
+uniform conditioning the $\log \pi$ terms are equal across $j \in D$ and
+cancel as a common shift of the scores, giving \cref{eq:ch10:sampled}.
+Uniform sampling of $J$ alternatives yields $\pi(D \st i) =
+\binom{|\riskset| - 1}{J}^{-1}$ for every $i \in D$, which is constant.
+The subsampled events $(i_m, D_m)$ then follow a correctly specified
+conditional logit over $D_m$, and \cref{prop:ch10:consistency} applies
+verbatim with $\riskset$ replaced by $D$. What is lost is efficiency, not
+consistency: the conditional information per event shrinks with $J$, so
+$J$ is a compute--variance dial, not a bias dial.
+\end{proof}
+
+\section{Cooldown: inhibition carried by the mark factor}\label{ch10:sec:cooldown}
+
+\Cref{ch:hawkes} establishes that a nonnegative Hawkes kernel cannot
+express inhibition and enumerates the three legal routes: (a) rectified
+additive intensities, (b) exp-link log-intensity models, and (c)
+inhibition carried by the mark factor. The cooldown term of
+\cref{eq:ch10:score} is route (c). A firm that has just raised is, for a
+while, less likely to raise again --- not because the sector cooled, but
+because that firm left the market for capital. Encoding this as a
+negative-coefficient covariate in the score gives, by
+\cref{prop:ch10:cancel}, a multiplicative suppression of the firm's
+\emph{share}: while $C_i = 1$, firm $i$'s conditional probability is
+scaled by $e^{\eta_s} < 1$ relative to its own baseline share,
+renormalized within the risk set. The ground layer is untouched --- sector
+excitation stays positive and the linear Hawkes/MBPP mean-field structure
+of \cref{ch:hawkes,ch:censoring} survives, which is exactly why route (c)
+was chosen as the default (the positivity link and the expectation
+operator do not commute for routes (a) and (b), breaking the closed-form
+machinery).
+
+The economic interpretation is direct: $\eta_s$ is the log of the factor
+by which a recent raise suppresses a firm's odds of being the next funded
+firm in its sector, and the constraint $\eta_s \le 0$ (enforced as a
+bound in \code{fit\_startup\_ranker}) encodes the sign as a modeling
+assumption rather than a hope. Whether the device works under
+misspecification is a planned synthetic test: in regime B of the
+synthetic world the generator's inhibition is a continuous
+30-day-half-life kernel, not a binary window, and
+\cref{ch:results-synth} will measure how well the fitted mark-factor
+cooldown recovers the generator's self-inhibition \emph{ordering}
+across firms. The binary window $C_i(t)$ with default
+$K_c = 26$ weeks is a one-column basis for a decaying curve;
+the natural refinements --- an age-since-last-deal feature with learned
+shape, or a few staggered windows --- belong to the gradient-boosted
+scorer of the next section, which can learn the shape without a
+parametric commitment.
+
+\section{Gradient-boosted scores in the same likelihood}\label{ch10:sec:boosted}
+
+The linear score \cref{eq:ch10:score} is a restriction, and we do not
+expect it to hold. The B1 benchmark of \cref{ch:results-synth} tests it
+directly: a feature-parity XGBoost ranker against the linear
+conditional logit, scored on held-out conditional NLL and top-5 hit
+rate. If the restriction fails, the design response is not to abandon
+the conditional-choice likelihood but to change the score family inside
+it: replace $\score_i(t)$ by $f(\zfeat_i(t), C_i(t), \staleage_i(t),
+\dots)$ with $f$ an additive tree ensemble
+\citep{friedman2001,chenguestrin2016}, keeping the softmax over the
+current risk set and the loss \cref{eq:ch10:nll} exactly as they are.
+Training requires only the per-candidate gradient and Hessian of the
+grouped-softmax loss; the ``listwise'' machinery of the learning-to-rank
+literature reduces to a short calculation.
+
+\begin{lemma}[Grouped-softmax gradients]\label{lem:ch10:gradhess}
+Fix one event group $m$ with candidate scores $\{\score_j\}_{j \in
+\riskset_m}$, softmax probabilities $p_j$, and one-hot label $y_j =
+\ind{j = i_m}$. The per-event loss $\ell_m = \logsumexp_j \score_j -
+\score_{i_m}$ has
+\begin{equation}\label{eq:ch10:gradhess}
+\frac{\partial \ell_m}{\partial \score_j} \;=\; p_j - y_j,
+\qquad
+\frac{\partial^2 \ell_m}{\partial \score_j \partial \score_k}
+ \;=\; p_j \ind{j = k} - p_j p_k,
+\end{equation}
+so the diagonal Hessian entries are $h_j = p_j(1 - p_j)$. The full
+Hessian $\diag(p) - p p\T$ is positive semidefinite (it is the
+covariance matrix of the candidate-indicator vector under $p$), so
+$\ell_m$ is convex in the scores and the diagonal is a legitimate
+curvature surrogate.
+\end{lemma}
+
+\begin{proof}
+Differentiate $\logsumexp$: $\partial_{\score_j} \logsumexp = p_j$;
+subtracting $\partial_{\score_j} \score_{i_m} = y_j$ gives the gradient.
+Differentiating $p_j$ once more gives $\partial_{\score_k} p_j = p_j
+\ind{j=k} - p_j p_k$. For a vector $v$, $v\T(\diag(p) - pp\T)v = \E_p[v_J^2]
+- (\E_p[v_J])^2 = \Var_p(v_J) \ge 0$.
+\end{proof}
+
+Implementation is a custom objective for XGBoost: candidates of one event
+form one group; per boosting round, compute the softmax within each group
+from the current margin scores, emit $g_j = p_j - y_j$ and $h_j = p_j(1 -
+p_j)$ per candidate row, and let the tree learner take the regularized
+Newton step in function space \citep{chenguestrin2016}. Dropping the
+off-diagonal Hessian terms is the standard diagonal approximation; by
+convexity of $\ell_m$ it costs step quality, never correctness of the
+stationary point. Note what this objective is and is not: it \emph{is}
+the exact conditional NLL of \cref{eq:ch10:nll} --- the listwise
+cross-entropy per event group --- so the fitted trees produce genuine
+conditional probabilities through the softmax; it is \emph{not} a
+pairwise surrogate in the RankNet family \citep{burges2005}, which we
+treat separately in \cref{ch10:sec:direct}. Sampled groups per
+\cref{thm:ch10:sampled} keep the objective correct at scale. The same
+boosted learners can also parameterize a continuous-time intensity
+directly through a binned likelihood; \cref{ch:nonparam} develops that
+intensity-side counterpart.
+
+\begin{warning}[The robustness belongs to the family, not the score]\label{warn:ch10:family}
+Every robustness statement of \cref{ch10:sec:choice} ---
+baseline cancellation, timing-free consistency, survival of aggregation
+--- is a property of the conditional-choice \emph{likelihood family}: any
+scorer, linear or boosted, normalized over the current risk set inherits
+them. None of them certify the \emph{linear} score, which the B1
+benchmark of \cref{ch:results-synth} will test, and none of them certify
+a boosted scorer trained on a different loss (a pairwise surrogate, a
+pointwise classifier): change the likelihood family and the cancellation
+proofs no longer apply. When this chapter says ``the ranker is robust to
+(C1) and (C4),'' it means the grouped-softmax likelihood is; claims
+about any particular fitted score function are empirical and belong to
+\cref{ch:results-synth} and \cref{ch:results-spain}.
+\end{warning}
+
+\section{Multiple deals per sector-week: Plackett--Luce}\label{ch10:sec:ties}
+
+Weekly resolution creates ties: several deals land in the same
+sector-week cell and share a risk-set snapshot. The current
+implementation treats them as repeated independent softmax draws over the
+same risk set. Survival analysis has the same situation:
+tied event times in a Cox partial likelihood, where the repeated-softmax
+treatment is exactly Breslow's approximation \citep{breslow1974}, the
+exact treatment is the sequential-conditioning likelihood, and Efron's
+correction sits between them \citep{efron1977,therneau2000}. The
+discrete-choice literature derives the exact object independently as the
+Plackett--Luce model \citep{plackett1975,luce1959}.
+
+The derivation is a corollary of \cref{prop:ch10:competing}. Let $d$
+deals occur in cell $(s,t)$ with winners $i_1, \dots, i_d$ in sequence.
+After the $k$-th deal, firm $i_k$ ceases to compete for the remaining
+within-cell deals (it has just raised; within one week its continued
+presence in the denominator is a modeling error, not a modeling choice).
+Applying \cref{eq:ch10:competing} to each successive deal over the
+shrinking risk set gives the sequential softmax without replacement:
+\begin{equation}\label{eq:ch10:pl}
+\Prob\big(i_1, \dots, i_d \st s, t, d \text{ deals}\big)
+ \;=\;
+ \prod_{k=1}^{d}
+ \frac{\exp \score_{i_k}(t)}
+      {\sum_{j \in \riskset_s(t) \setminus \{i_1, \dots, i_{k-1}\}}
+       \exp \score_j(t)} ,
+\end{equation}
+which is the Plackett--Luce likelihood of the ordered top-$d$ under score
+utilities. The repeated-softmax approximation replaces every denominator
+by the full-risk-set sum, so its per-cell log-likelihood error is
+\begin{equation}\label{eq:ch10:plbias}
+\Delta \ell_{s,t}
+ \;=\;
+ \sum_{k=2}^{d} -\log\big(1 - P_{k-1}\big),
+ \qquad
+ P_{k-1} \;=\; \sum_{l < k} p(i_l \st s, t),
+\end{equation}
+the cumulative softmax mass of already-funded firms. Two consequences.
+First, the sign is systematic: the approximation understates every
+later-deal probability, so it penalizes exactly the concentrated,
+confident score profiles the ranker is supposed to produce, biasing
+fitted scores toward diffuseness. Second, the size is quantifiable: to
+first order $\Delta \ell_{s,t} \approx \binom{d}{2} \bar p$, with $\bar
+p$ the typical winner probability --- negligible when risk sets are large
+and diffuse ($\bar p \sim 10^{-2}$, $d \le 2$), material when many deals
+hit a small or concentrated risk set in one week ($d \ge 3$ with $\bar p
+\sim 10^{-1}$ costs tenths of a nat per cell). Since same-week
+multiplicity is common in hot sectors --- precisely the cells the
+business cares about --- the exact likelihood is worth its
+implementation cost. One complication:
+\cref{eq:ch10:pl} conditions on the within-cell \emph{order}, and (C4)
+says within-week order is exactly what the dates cannot support. The
+clean treatment is the exchangeable-order PL: average the log-likelihood
+over random permutations of the cell's winners (exact summation over
+$d!$ orders for the typical $d \le 3$, sampled permutations beyond),
+which removes the dependence on untrusted ordering at the price of a
+small, controlled Monte Carlo cost.
+
+\begin{decision}{D10.2 --- Plackett--Luce in the next ranker revision}
+The next revision of the mark factor replaces repeated softmax with the
+Plackett--Luce likelihood \cref{eq:ch10:pl}, with within-cell order
+handled by exact averaging over permutations for $d \le 3$ and sampled
+permutations beyond, and with cooldown state updated between within-cell
+draws in simulation (as \code{simulate\_marked\_paths} already does).
+Rationale: \cref{eq:ch10:plbias} gives a systematic bias against
+concentrated score profiles that can reach tenths of a nat per hot
+cell; the Cox-ties literature says the exact method dominates Breslow
+whenever ties are heavy \citep{therneau2000}. Reversal trigger: if on real data the
+measured NLL and recall@$K$ differences between PL and repeated softmax
+are inside the era-blocked bootstrap intervals of
+\cref{prot:ch10:recall} for two consecutive evaluation campaigns, revert
+to repeated softmax for simplicity and record the equivalence.
+\end{decision}
+
+\section{Optimizing the list directly}\label{ch10:sec:direct}
+
+If the consumed object is only the top-$K$ list, one can ask whether the
+likelihood should be bypassed entirely in favor of a loss that targets
+the list metric --- the learning-to-rank program: pairwise RankNet
+\citep{burges2005}, listwise LambdaMART with its $\lambda$-gradients
+aimed at NDCG \citep{burges2010,jarvelin2002}. The question deserves a
+precise answer, and the answer has two halves: a lemma that says
+likelihood training is already list-optimal \emph{under the model}, and
+an empirical clause that says surrogates can win only through
+score-family misspecification --- whose extent \cref{ch:results-synth}
+will measure.
+
+\begin{lemma}[Top-$K$ optimality of the conditional probabilities]\label{lem:ch10:topk}
+Fix a sector-time $(s, \tau)$ and let $p_i$, $i \in \riskset_s(\tau)$, be
+the conditional identity distribution of the next deal. For a list $L
+\subseteq \riskset_s(\tau)$ with $|L| = K$, the expected recall@$K$
+against the next deal is $\E[\ind{\text{winner} \in L}] = \sum_{i \in L}
+p_i$, and it is maximized by any $L$ consisting of $K$ largest-$p_i$
+candidates. For an ordered list $\sigma$, the expected reciprocal rank
+$\sum_{r \ge 1} p_{\sigma(r)} / r$ is maximized by sorting $p$ in
+descending order. Hence, under the model, producing the top-$K$ by
+conditional probability is the optimal list policy for both headline
+metrics, and NDCG with flat gains and any decreasing discount is
+maximized by the same sort.
+\end{lemma}
+
+\begin{proof}
+Recall: the objective $\sum_{i \in L} p_i$ is a set function maximized by
+exchange: if $i \in L$, $i' \notin L$, and $p_{i'} > p_i$, swapping $i'$
+for $i$ strictly increases the sum; iterating terminates at a set of $K$
+largest probabilities. MRR: the discounts $1/r$ are strictly decreasing;
+if an ordering places $p_{\sigma(r)} < p_{\sigma(r')}$ with $r < r'$,
+transposing them changes the objective by $(p_{\sigma(r')} -
+p_{\sigma(r)})(1/r - 1/r') > 0$; absence of improving transpositions is
+exactly the descending sort --- the rearrangement inequality. The NDCG
+claim is the same argument with $1/r$ replaced by the discount sequence.
+Under multiple deals per window the argument applies to each successive
+deal with the PL-updated distribution; ranking by the current $p_i$
+remains optimal for the first hit, which is what recall@$K$ scores.
+\end{proof}
+
+The lemma settles the division of labor. A correctly specified,
+likelihood-trained conditional model followed by a sort cannot be beaten
+in expectation on recall@$K$, MRR, or NDCG; training on a surrogate can
+help only by trading bias in regions the likelihood cares about for
+accuracy in the top of the list when the score family cannot represent
+the truth. That trade can be real, but it has a cost we refuse to pay in
+the primary model: a LambdaMART scorer emits uncalibrated ordinal scores,
+while the decision layer of \cref{ch:decision} consumes \emph{probabilities}
+--- conditional identity probabilities composed with ground intensities
+to produce statements like ``firm $i$ is on the list \emph{and} a deal is
+likely within the quarter'' (T1 composed with T2/T3), and the conditional
+NLL is the strictly proper score for that object
+\citep{gneitingraftery2007}. A scorer that cannot feed the composition is
+a dead end in this architecture regardless of its list metrics.
+
+\begin{decision}{D10.3 --- LambdaMART as challenger only}
+LambdaMART (and pairwise RankNet as its diagnostic little sibling) is
+maintained as a benchmarked \emph{challenger} in the evaluation harness,
+never as the primary model. Rationale: \cref{lem:ch10:topk} says it can
+only win through score-family misspecification, which the boosted
+grouped-softmax primary already addresses inside the likelihood family;
+and its output does not feed the probability-consuming decision layer.
+Reversal trigger: if LambdaMART beats the likelihood-trained boosted
+ranker on pooled recall@5 by more than the era-blocked bootstrap interval
+for two consecutive campaigns, \emph{and} a post-hoc calibration overlay
+\citep{platt1999,zadroznyelkan2002,niculescumizil2005} on its scores
+passes the calibration checks of \cref{ch:gof} at the event-group level,
+it is promoted to primary and this section is rewritten around the
+surrogate-first architecture.
+\end{decision}
+
+\section{The recall at $K$ protocol}\label{ch10:sec:protocol}
+
+Everything above concerns fitting; what follows is the committed
+evaluation contract --- the repository's headline metric, stated fully so
+that no future implementation ``simplifies'' it into something
+unauditable.
+
+\begin{protocol}[Rolling recall@$K$ and MRR for the mark factor]\label{prot:ch10:recall}
+\leavevmode
+\begin{enumerate}[label=(\alph*)]
+\item \emph{Origins.} Evaluation origins $\tau$ run on a weekly grid over
+the held-out era. At each $\tau$ and each sector $s$, freeze the risk set
+$\riskset_s(\tau)$ under the versioned risk-set definition (item (g)),
+compute point-in-time scores, and emit the full ordering of
+$\riskset_s(\tau)$; the top-$K$ prefixes are the lists $L_{s,\tau,K}$,
+$K \in \{1, 5, 10\}$.
+\item \emph{Window and hits.} The evaluation window is the next $W$
+weeks, $(\tau, \tau + W]$; we commit to next-$W$-weeks rather than
+next-$K'$-deals so that empty windows are informative and the metric has
+a fixed temporal meaning. $W$ is matched to the consuming action's
+refresh horizon: default $W = 4$ (a monthly sourcing look-ahead), with $W
+= 13$ reported as a robustness column. A deal in the window scores a
+\emph{hit} at level $K$ iff its firm was on $L_{s,\tau,K}$ --- membership
+at $\tau$, not at deal time.
+\item \emph{Denominator and newcomers.} The denominator counts deals in
+the window whose firm was in $\riskset_s(\tau)$. Deals to firms outside
+every frozen risk set at $\tau$ --- first appearances and out-of-universe
+deals --- are \emph{excluded from the denominator and reported
+separately} as the newcomer share, under the newcomer-vs-entrant
+discipline of \cref{ch:universe}. Silently scoring newcomer deals as
+misses (or dropping them without reporting) is forbidden: the first
+deflates the metric for a failure the mark factor cannot commit, the
+second hides the (C6) exposure.
+\item \emph{Metrics.} Report recall@$K$ for $K \in \{1,5,10\}$ and MRR
+(reciprocal rank of the funded firm in the full frozen ordering),
+per sector and pooled (deal-weighted), aggregated over origins
+rolling-origin style. Alongside, \emph{always}, the held-out conditional
+NLL of \cref{eq:ch10:nll} on the same events: the list metrics say
+whether the sort is right, the NLL says whether the probabilities feeding
+the decision layer are right, and \cref{lem:ch10:topk} is the license to
+demand both from one model.
+\item \emph{Uncertainty.} Era-blocked bootstrap: resample contiguous
+blocks of evaluation origins (blocks aligned with the macro-era
+segmentation of \cref{ch:gof}) with replacement, recompute pooled
+metrics, report percentile intervals. Origin-level i.i.d.\ resampling is
+forbidden --- overlapping windows and regime persistence make it
+anti-conservative.
+\item \emph{Baselines.} Every report carries the same metrics for the
+random ranker over the same frozen risk sets (chance floor) and, on
+synthetic data, the oracle ranker (ceiling); synthetic reference values
+will be reported in \cref{ch:results-synth}, in the format of
+\cref{tab:ch10:rehearsal}.
+\item \emph{Frozen, versioned risk sets.} The risk-set definition ---
+entry rule, exposure/exit rule from \cref{ch:buckets}, sector assignment
+--- is frozen per evaluation campaign and identified by a version string
+recorded with every metric row; changing the rule starts a new metric
+series rather than overwriting one. Rationale: we expect risk-set
+truthfulness to be the largest sensitivity in the system ---
+\cref{ch:results-synth} will quantify the gap between observed and
+oracle membership --- so an unversioned membership rule would make
+every metric movement uninterpretable.
+\end{enumerate}
+\end{protocol}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Held-out metric} & \textbf{fitted} & \textbf{oracle (ceiling)} &
+\textbf{random (floor)} \\
+\midrule
+top-1 hit rate & --- & --- & --- \\
+top-5 hit rate & --- & --- & --- \\
+MRR            & --- & --- & --- \\
+\bottomrule
+\end{tabular}
+\caption{Reference format for the mark-factor ranker baselines on
+synthetic data; the fitted, oracle, and random columns will be filled
+by the synthetic campaign of \cref{ch:results-synth}. The oracle
+ceiling is expected to sit well below $1$: the residual is irreducible
+softmax stochasticity, not model error. Synthetic values calibrate
+expectations for real-data campaigns; they are priors and vetoes,
+never substitutes (\cref{ch02:sec:synthetic}).}
+\label{tab:ch10:rehearsal}
+\end{table}
+
+\begin{decision}{D10.1 --- the T1 deliverable and its two metrics}
+The primary T1 deliverable is the sector-conditional risk-set ranker:
+gradient-boosted scores inside the grouped-softmax conditional likelihood
+\cref{eq:ch10:nll} (per \cref{lem:ch10:gradhess}), with cooldown and
+staleness-age features, sampled risk sets per \cref{thm:ch10:sampled}
+where scale requires, upgraded to Plackett--Luce per D10.2. It is
+evaluated by \cref{prot:ch10:recall} \emph{and} held-out conditional NLL
+--- both, always; a model improving one while degrading the other is
+investigated, not shipped. Rationale: the competing-intensities identity
+makes the conditional model the exact T1 target
+(\cref{prop:ch10:competing}); the cancellation and consistency results
+make it the defect-robust factor (\cref{prop:ch10:cancel,prop:ch10:consistency});
+boosted scores are chosen over linear within the family because we
+expect the linear restriction to fail, with the B1 benchmark of
+\cref{ch:results-synth} as the planned test; and
+\cref{lem:ch10:topk} guarantees likelihood training plus sorting is
+list-optimal under the model while the NLL keeps the probabilities
+honest for \cref{ch:decision}. Reversal triggers: if the boosted scorer
+fails to beat the linear conditional logit on real data (both metrics,
+two campaigns), demote to the linear score for interpretability; if the
+challenger clause of D10.3 fires, the primary itself is reconsidered.
+\end{decision}
+
+\section{Defect declaration}\label{ch10:sec:defects}
+
+Per design decision D2.1, the mark factor's position against the ledger
+of \cref{tab:ch02:defects}, with the proofs above doing the work.
+
+\emph{(C1) Administrative censoring: robust.} The conditional likelihood
+\cref{eq:ch10:nll} is a sum over observed events only; no survival factor
+appears because timing is conditioned away (\cref{prop:ch10:cancel}), and
+under independent censoring the risk set at each observed event is
+uncorrupted. Open spells cost the ranker nothing --- there is simply no
+term.
+
+\emph{(C2) Left truncation: robust for the conditional estimand,
+with a scope caveat.} Comparisons are made within risk sets of firms that
+have entered observation; the estimand is conditional on membership, so
+delayed entry does not bias it. What (C2) forbids is re-reading scores as
+statements about the untracked population --- that extension belongs to
+\cref{ch:universe}.
+
+\emph{(C3) Unlabeled exits: vulnerable --- the binding defect.} Dead
+firms retained in $\riskset_s(t)$ occupy denominator mass and top-$K$
+slots; \cref{prop:ch10:consistency}'s proof shows the estimand silently
+becomes the conditional law given the contaminated pool. We expect this
+to be the largest sensitivity in the whole system;
+\cref{ch:results-synth} will quantify the gap between observed and
+oracle risk sets and test whether a discriminative exit classifier can
+close it. Mitigations are the exposure rules of \cref{ch:buckets}
+(trailing-activity windows closing spells point-in-time) plus staleness
+features that let the scorer learn to demote ghost-like profiles. One
+caution follows from the theory: the optimal score weighting
+\emph{given a contaminated pool} differs from the oracle weighting ---
+the fitted model partially adapts to contamination --- so cleaning the
+risk set changes the optimal parameters, and oracle-world or
+cleaned-world coefficients must never be transplanted onto contaminated
+risk sets or vice versa. Risk-set definition and fitted model are a
+matched pair; \cref{prot:ch10:recall}(g) versions them together.
+
+\emph{(C4) Untrusted dates and aggregation: robust, by proof.}
+\Cref{prop:ch10:cancel}: binning and jitter deform $\lam_0(s,t)$, which
+cancels; the residual exposure is only through snapshot assignment
+(a deal jittered across a week boundary meets a one-week-shifted risk set
+and covariates) and through within-cell order, which D10.2's
+exchangeable-order Plackett--Luce removes.
+
+\emph{(C5) Stale covariates: vulnerable, with signed bias, remedies
+inherited.} Stale $\zfeat_i$ is classical covariate measurement error
+inside a choice model: score coefficients attenuate toward zero, the
+softmax flattens, lists diffuse, and recall@$K$ degrades toward the
+random floor --- a bias against the model, never in its favor. The
+remedies of \cref{ch:stale} (staleness ages as first-class features,
+covariate-state layer where it pays) apply verbatim to the ranker's
+feature block, and the boosted scorer can learn staleness-dependent
+discounting that the linear score cannot.
+
+\emph{(C6) Out-of-universe deals: vulnerable without the outside option.}
+Deals from untracked firms mean the true choice set exceeds
+$\riskset_s(t)$; a mark factor without an outside option overstates every
+tracked firm's probability by the factor $1/(1 - \pi_{\mathrm{new}})$.
+The treatment --- the newcomer branch with its exact separation of binary
+and choice likelihoods --- is \cref{ch:universe}'s; this chapter's
+protocol already quarantines the exposure by excluding newcomer deals
+from the recall denominator and reporting their share
+(\cref{prot:ch10:recall}(c)).
+
+\begin{codehooks}
+Existing. \modrepo{sector\_ranker.py}: \code{fit\_startup\_ranker}
+implements \cref{eq:ch10:score,eq:ch10:softmax,eq:ch10:nll} with sector
+deviations, the $\eta_s \le 0$ bound of \cref{ch10:sec:cooldown}
+(\code{constrain\_cooldown\_negative}), and dynamic risk sets via
+\code{candidate\_set} and \code{cooldown\_vector};
+\code{ranker\_predict\_proba} exposes the conditional probabilities;
+\code{evaluate\_ranker} computes held-out conditional NLL, MRR, and
+top-$k$ hit rates and is the seed of the harness below.
+\modrepo{models/hawkes\_ranker.py} carries the regime-B synthetic ranker
+used for the planned cooldown test of \cref{ch10:sec:cooldown}.
+
+To be written. (i) The grouped-softmax XGBoost objective module
+(\modrepo{ranking/grouped\_softmax\_objective.py}): per-group softmax
+from margin scores, per-candidate $(g_j, h_j)$ of
+\cref{eq:ch10:gradhess}, group boundaries from event ids, uniform
+risk-set sampling per \cref{thm:ch10:sampled} with the winner retained.
+(ii) The Plackett--Luce upgrade of D10.2 inside
+\modrepo{sector\_ranker.py} (sequential denominators, exchangeable-order
+averaging for $d \le 3$). (iii) The evaluation harness
+(\modrepo{eval/ranking.py}) implementing \cref{prot:ch10:recall}
+verbatim: weekly origins, frozen versioned risk sets
+(\code{riskset\_version} recorded per metric row), $W$-week windows,
+newcomer-share reporting, era-blocked bootstrap, and the
+random/oracle baseline columns in the format of
+\cref{tab:ch10:rehearsal}. (iv) The
+LambdaMART challenger of D10.3 as a harness plug-in, never as a
+dependency of the decision layer.
+\end{codehooks}

@@ -1,0 +1,503 @@
+% ch-nonparam --- nonparametric intensities: boosted trees, forests, small networks
+
+\section{Scope and placement}\label{chnp:sec:scope}
+
+This chapter keeps the estimation principle of
+\cref{ch:poisson,ch:hawkes} and relaxes the functional form. The
+intensity is still fitted by maximum likelihood --- the objective is
+still the point-process log-likelihood of \cref{thm:ch03:jacod} --- but
+the intensity is no longer log-linear in the features. The model is
+\begin{equation}\label{eq:chnp:model}
+\lam_i(t) \;=\; g\big(f(w_i(t))\big),
+\end{equation}
+where $f$ is a flexible regression function --- a gradient-boosted tree
+ensemble, a random forest, or a small neural network --- and $g$ is a
+fixed positivity link, either $g(z) = e^{z}$ or the softplus
+$g(z) = \log(1 + e^{z})$ discussed for the parametric case in
+\cref{ch04:sec:link}. The feature vector $w_i(t)$ has two blocks:
+\begin{enumerate}[label=(\roman*)]
+\item the point-in-time covariates $x_i(t)$ of \cref{prot:ch02:pit}
+(macro series, sector dummies, calendar terms, firm attributes); and
+\item the \emph{engineered history features} of
+\cref{ch05:sec:inhibition}: the time since the firm's last deal, decayed
+event counts $H_{\decay}(t)$ at several fixed half-lives
+(\cref{eq:ch05:decayedcount}), and recent-deal counts in the firm's
+sector.
+\end{enumerate}
+Nothing in block (ii) is new. These are the same excitation and
+inhibition covariates that route (a) of \cref{ch:hawkes} feeds into a
+log-linear intensity. What changes is the map from features to
+log-intensity: $f$ may bend, saturate, and interact them freely.
+
+\begin{assumption}[Trusted, uncensored deal times]\label{asm:chnp:trusted}
+Event times are correct at the resolution of the analysis bins, and no
+event is interval-censored beyond that resolution. Both the bin
+assignment of each event and the engineered history features of
+\cref{ch05:sec:inhibition} consume exact times; neither survives date
+corruption.
+\end{assumption}
+
+\begin{warning}[This regime has no defense against untrusted
+dates]\label{warn:chnp:dates}
+The parametric chapters carry an escape route: when dates are
+unreliable, the interval-censored likelihoods of \cref{ch:censoring}
+replace the exact likelihood. That route depends on closed-form
+compensators, which \cref{eq:chnp:model} does not have. If
+\cref{asm:chnp:trusted} fails --- vendor-imputed dates, month-rounded
+dates, bulk backfills --- do not fit this chapter's models. Fall back to
+\cref{ch:censoring}, or coarsen the bins to the trusted resolution and
+drop every feature built at a finer one.
+\end{warning}
+
+These models drop the shape assumptions of the parametric chapters and
+give up most of what those assumptions buy. Their role is the
+\emph{challenger} (\cref{chnp:sec:evaluation}).
+
+\section{The reduction to Poisson regression}\label{chnp:sec:reduction}
+
+Machine-learning software minimizes losses over rows; it does not
+maximize point-process likelihoods. One reduction closes the gap: on a
+fine enough grid, the point-process likelihood \emph{is} a Poisson
+regression likelihood over (unit, bin) rows with exposure offsets. This
+is the point-process GLM framing of \citet{truccolo2005};
+\cref{thm:ch04:glmequiv} is its log-linear special case, and the version
+we need allows an arbitrary $f$.
+
+Partition $(0,\Tend]$ into bins $B_k = (a_{k-1}, a_k]$, $k = 1,\dots,K$,
+with widths at most $\delta$. For each unit $i$ and bin $k$ define the
+count, the exposure, and the bin feature
+\begin{equation}\label{eq:chnp:rows}
+y_{ik} \;=\; \#\{m : t_m \in B_k,\ i_m = i\},
+\qquad
+e_{ik} \;=\; \int_{B_k} \atrisk_i(u) \dd u,
+\qquad
+w_{ik} \;=\; w_i(a_{k-1}^{+}) .
+\end{equation}
+
+\begin{assumption}[Piecewise-constant features]\label{asm:chnp:pwconst}
+$w_i(\cdot)$ is constant on every bin $B_k$: covariates are LOCF series
+aligned to the grid, and history features are frozen at each bin's left
+endpoint. Under \cref{eq:chnp:model} the intensity is then a step
+function with values $\lam_{ik} = g(f(w_{ik}))$.
+\end{assumption}
+
+\begin{proposition}[Binned Poisson reduction]\label{prop:chnp:binned}
+Under \cref{asm:chnp:pwconst}:
+\begin{enumerate}[label=(\roman*)]
+\item The point-process log-likelihood of \cref{thm:ch03:jacod} equals
+\begin{equation}\label{eq:chnp:binnedloglik}
+\loglik(f)
+ \;=\;
+ \sum_{i,k} \Big( y_{ik} \log \lam_{ik} \;-\; e_{ik}\, \lam_{ik} \Big),
+\end{equation}
+exactly, and \cref{eq:chnp:binnedloglik} differs from the log-likelihood
+of independent counts $y_{ik} \sim \mathrm{Poisson}(e_{ik}\lam_{ik})$ by
+an additive constant free of $f$.
+\item Consequently, any learner that minimizes the Poisson deviance over
+the rows \cref{eq:chnp:rows}, with $\log e_{ik}$ as an offset (or
+exposure weight, in the equivalent rate parameterization), performs
+maximum likelihood for the point process within the class of intensities
+measurable with respect to the binned features.
+\item If the true feature path updates continuously between grid points
+(history features decay as in \cref{eq:ch05:decayedcount}) and is frozen
+at bin left endpoints, then on every bin containing at most one event
+the log-likelihood error of the frozen model relative to the
+continuous-feature model is $O(\delta)$, uniformly over intensity paths
+bounded away from $0$ and $\infty$.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+(i) The intensity is constant on each bin, so the compensator integral
+splits into $\sum_{i,k} \lam_{ik} \int_{B_k} \atrisk_i =
+\sum_{i,k} \lam_{ik} e_{ik}$. Each event of unit $i$ in bin $k$
+contributes $\log\lam_i(t_m) = \log\lam_{ik}$ whatever its position in
+the bin, so the event term groups into $\sum_{i,k} y_{ik}\log\lam_{ik}$.
+The Poisson count log-likelihood is
+$\sum_{i,k} [\, y_{ik}\log(e_{ik}\lam_{ik}) - e_{ik}\lam_{ik}
+- \log y_{ik}! \,]$, which equals \cref{eq:chnp:binnedloglik} plus
+$\sum_{i,k} [\, y_{ik}\log e_{ik} - \log y_{ik}! \,]$, a statistic of
+the data alone.
+(ii) The exposure-weighted Poisson deviance is, up to sign and a
+data-only constant, the Poisson count log-likelihood of (i).
+(iii) Between events the features move only by decay, so on $B_k$ the
+continuous intensity satisfies
+$\sup_{u \in B_k} \abs{\lam_i(u) - \lam_{ik}} = O(\delta)$ whenever
+$g \circ f$ is Lipschitz on the (bounded) range of the features; the
+compensator error on the bin is therefore at most $e_{ik} \cdot
+O(\delta) = O(\delta)$. For the event term, with at most one event in
+the bin, the feature seen by that event at $t_m^-$ involves no other
+within-bin event, so the frozen value differs from the true value only
+by within-bin decay drift, again $O(\delta)$; since the intensity is
+bounded away from zero, $\log$ is Lipschitz on its range and the
+log-intensity error is $O(\delta)$. A second event in the same bin would
+break this: the first event's jump in the history features would be
+missed. The bin width is therefore chosen below the shortest engineered
+half-life, which also makes two-event bins rare.
+\end{proof}
+
+\begin{remark}[One table, three model families]\label{rem:chnp:onetable}
+\Cref{prop:chnp:binned} is the whole interface. Build the (unit, bin)
+table once and every model in this chapter trains on it, alongside the
+log-linear GLM of \cref{ch:poisson} as the reference. All report the
+same held-out point-process NLL, so the comparisons of
+\cref{chnp:sec:evaluation} are exact.
+\end{remark}
+
+\section{Boosted trees}\label{chnp:sec:trees}
+
+Gradient boosting fits $f$ as a sum of regression trees, each tree
+fitted to the gradient of the loss at the current fit
+\citep{friedman2001}. XGBoost implements the Poisson case directly
+\citep{chenguestrin2016}: objective \code{count:poisson}, log link, and
+\code{base\_margin} set to $\log e_{ik}$ so that the exposure enters as
+a fixed offset rather than a feature.
+
+The mechanics are transparent. Write $u_r = f(w_r)$ for the raw score of
+row $r = (i,k)$, $o_r = \log e_r$ for the offset, and
+$m_r = \exp(u_r + o_r) = e_r\, e^{u_r}$ for the predicted mean count.
+The per-row negative log-likelihood, gradient, and Hessian in the score
+are
+\begin{equation}\label{eq:chnp:gradhess}
+\ell_r(u_r) = m_r - y_r\,(u_r + o_r) + \log y_r! ,
+\qquad
+\frac{\partial \ell_r}{\partial u_r} = m_r - y_r ,
+\qquad
+\frac{\partial^2 \ell_r}{\partial u_r^2} = m_r .
+\end{equation}
+The gradient is ``predicted minus observed'' and the Hessian is the
+predicted mean --- the same canonical-link structure as the GLM score
+\cref{eq:ch04:score}, evaluated tree by tree. Two controls keep the
+ensemble economically sensible and temporally honest.
+
+\paragraph{Monotone constraints.}
+Trees will fit a wiggle in any direction the training noise suggests.
+Where economics fixes a direction, we impose it:
+\code{monotone\_constraints} restricts every split so that $f$ is
+monotone in the flagged feature. Candidates: intensity nonincreasing in
+the policy rate for late-stage deal flow; nondecreasing in the sector's
+recent-deal count. Features whose true shape we expect to be
+non-monotone --- time since the firm's last deal, which should show
+inhibition then recovery --- stay unconstrained; discovering that shape
+is one reason to run this model. Constraints double as regularization
+along directions where the sign is already known.
+
+\paragraph{Early stopping on a temporal window.}
+The number of boosting rounds is the main capacity knob. It is chosen by
+early stopping on a validation window strictly later in time than the
+training rows, matching \cref{ch07:sec:temporal}. Random row splits are
+forbidden: rows from the same week share macro covariates and sector
+history features, so a random split leaks the validation period into
+training and overstates capacity.
+
+\begin{protocol}[Boosted-tree intensity fit]\label{prot:chnp:xgb}
+(a) Build the (unit, bin) table of \cref{eq:chnp:rows} with bin width at
+most the shortest engineered half-life. (b) Fit XGBoost with objective
+\code{count:poisson}, \code{base\_margin} $= \log e_{ik}$, monotone
+constraints from the signed-feature registry, and early stopping on the
+last temporal block of the training window. (c) Report held-out
+point-process NLL via \cref{eq:chnp:binnedloglik}, PIT calibration, and
+the time-rescaling diagnostics of \cref{chnp:sec:ledger}. (d) Report
+uncertainty by the firm-cluster bootstrap of \cref{chnp:sec:ledger}.
+\end{protocol}
+
+Survival-flavored variants exist: accelerated-failure-time objectives in
+XGBoost handle censored durations directly \citep{barnwal2022}, and
+gradient-boosted Cox models are standard \citep{polsterl2020}. We do not
+use them: the recurrent-event, time-varying-covariate structure of deal
+flow maps more cleanly onto \cref{prop:chnp:binned}, which keeps the
+likelihood identical to the rest of the document.
+
+\section{Random forests}\label{chnp:sec:forests}
+
+A random forest fits many deep trees on bootstrap resamples and averages
+them. Two routes adapt forests to the (unit, bin) table. The clean route
+is Poisson-deviance splitting: grow each tree with the Poisson deviance
+as split criterion, weight rows by exposure $e_{ik}$, and predict the
+rate $y/e$ within each leaf. The pragmatic route, for software without a
+Poisson criterion, is exposure-weighted least squares on empirical log
+rates $\log\{(y_{ik} + c)/e_{ik}\}$ with a small stabilizing constant
+$c$; that is a quasi-likelihood approximation, not maximum likelihood,
+and must be flagged as such in any NLL comparison.
+
+An honest account of what averaging does. A forest prediction is an
+average of training-set leaf values, so the fit never leaves the range
+of what it saw: forests do not extrapolate. When a macro covariate exits
+its training range, the response goes flat. That is a defect (a genuine
+trend continues and the forest will not follow it) and a defense (the
+log-linear GLM extrapolates \emph{exponentially} in the same situation;
+\cref{warn:ch04:separation}), and flat is often the safer error. The
+forest is therefore the stability-oriented challenger, the boosted
+ensemble the capacity-oriented one, and disagreement between them
+outside the training support is itself a diagnostic.
+
+Out-of-bag evaluation scores each row with the trees that did not see
+it, an almost-free deviance estimate. It is a screening tool only: OOB
+rows are interleaved in time with training rows, so OOB deviance
+inherits the temporal leakage that \cref{ch07:sec:temporal} exists to
+prevent. Cross-family model selection still runs on the temporal splits;
+OOB tunes forest internals (depth, feature subsampling) before that
+comparison.
+
+\section{Small neural networks}\label{chnp:sec:nets}
+
+Neural networks enter twice, once cheaply and once exactly.
+
+\paragraph{Route (i): the binned Poisson route.}
+A small multilayer perceptron replaces the tree ensemble in
+\cref{prop:chnp:binned}: input $w_{ik}$, a few narrow hidden layers,
+and a softplus output head
+\begin{equation}\label{eq:chnp:softplus}
+\lam_{ik} \;=\; \log\big(1 + e^{z_{ik}}\big),
+\qquad z_{ik} = \text{network}(w_{ik}),
+\end{equation}
+trained by minimizing the same exposure-weighted Poisson deviance. The
+softplus head keeps the intensity positive without the exponential
+amplification that \cref{warn:ch05:mechB} warns about. Everything from
+the tree discussion transfers: temporal early stopping, the shared
+table, the same held-out NLL. The network adds smooth interpolation and
+costs optimization noise.
+
+\paragraph{Route (ii): the exact continuous-time likelihood.}
+Nothing forces binning. The exact objective is
+\begin{equation}\label{eq:chnp:exactll}
+\loglik(f)
+ \;=\;
+ \sum_{m} \log g\big(f(w_{i_m}(t_m^-))\big)
+ \;-\;
+ \sum_{i} \int_0^{\Tend} \atrisk_i(u)\,
+ g\big(f(w_i(u))\big) \dd u ,
+\end{equation}
+and it is computable whenever the integral is. Between events the
+engineered history features decay exponentially
+(\cref{eq:ch05:decayedcount}) and the covariates are piecewise constant,
+so $w_i(u)$ follows a known closed-form curve on each inter-event
+interval. For log-linear $f$ the integral then has closed pieces --- the
+parametric machinery of \cref{ch:hawkes} --- but for a generic network
+$g(f(\cdot))$ along a known curve has no closed integral, and each
+inter-event piece is evaluated by numerical quadrature (a few points per
+piece suffice when the piece is shorter than the fastest half-life).
+Automatic differentiation passes through the quadrature, so training is
+standard.
+
+Route (ii) is the door to neural temporal point processes, which
+replace the engineered features themselves with a learned history
+embedding: recurrent embeddings with an exponential-form intensity
+\citep{du2016}, continuous-time recurrent intensities
+\citep{meieisner2017}, networks for the compensator whose derivative
+gives the intensity exactly \citep{omi2019}, and intensity-free models
+of the inter-event distribution \citep{shchur2020}. These are the fully
+flexible end of the axis this chapter walks. We do not start there, for
+three plain reasons. Data volume: a typical firm contributes a handful
+of deals, and learned embeddings need long streams or aggressive pooling
+that reintroduces, in opaque form, the heterogeneity questions of
+\cref{ch05:sec:frailty}. Interpretability: the engineered features are
+the economic quantities we want shape estimates for --- cooldown,
+momentum, sector spillover --- and an embedding answers none of them
+directly. Calibration risk: flexible intensity models fail by confident
+misallocation of intensity, and diagnosing that inside an embedding is
+much harder than inspecting a feature's partial response. Neural TPPs
+are the recorded escalation if the challenger wins and its wins trace to
+history representation rather than covariate nonlinearity.
+
+\section{What the regime keeps and what it loses}\label{chnp:sec:ledger}
+
+\Cref{tab:chnp:ledger} states the trade explicitly.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{0.24\textwidth} p{0.12\textwidth} p{0.52\textwidth}}
+\toprule
+\textbf{Property} & \textbf{Status} & \textbf{Consequence or replacement} \\
+\midrule
+Likelihood objective & kept & \cref{prop:chnp:binned}: the same
+point-process NLL as \cref{ch:poisson,ch:hawkes}, so held-out
+comparisons across regimes are exact \\
+\addlinespace
+Temporal evaluation & kept & the protocol of \cref{ch07:sec:temporal}
+applies unchanged; early stopping and tuning obey it \\
+\addlinespace
+Time-rescaling diagnostics & kept & \cref{thm:ch03:rescaling} holds for
+\emph{any} fitted intensity; see below \\
+\addlinespace
+Simulation & kept & thinning \citep{lewisshedler1979} with
+piecewise-constant fitted rates; bound refresh at bin edges \\
+\addlinespace
+Branching interpretation & lost & no $\branch$, no endogenous share, no
+parent attribution (\cref{thm:ch05:cluster} does not apply) \\
+\addlinespace
+Closed-form compensators & lost & compensators are bin sums or
+quadrature; the interval-censored route of \cref{ch:censoring} is
+unavailable \\
+\addlinespace
+Stability theory & lost & no spectral-radius certificate; only bounded
+features and simulation monitoring (\cref{warn:ch05:mechB} discipline) \\
+\addlinespace
+Sandwich standard errors & lost & no low-dimensional score; use the
+firm-cluster bootstrap \citep{efron1994} \\
+\addlinespace
+Frailty-vs-contagion reasoning & weakened & see
+\cref{warn:chnp:contagion} and \cref{ch05:sec:frailty} \\
+\bottomrule
+\end{tabular}
+\caption{What the nonparametric-intensity regime keeps from the
+parametric chapters and what it gives up.}
+\label{tab:chnp:ledger}
+\end{table}
+
+Two rows deserve expansion. \emph{Time rescaling survives everything.}
+The time-rescaling theorem (\cref{ch03:sec:rescaling}) makes no
+parametric assumption: if the fitted intensity is right, the rescaled
+gaps are unit exponential, whether the intensity came from a GLM, a
+Hawkes kernel, or a thousand trees \citep{brown2002,ogata1988}. The
+fitted compensator here is a running sum of $\lam_{ik} e_{ik}$ over
+bins, evaluated with frozen parameters on held-out windows as in
+\cref{ch:gof}; this diagnostic holds the flexible models to the same
+standard as the parametric ones. \emph{Uncertainty comes from the
+bootstrap.} The sandwich variance of \cref{ch:foundations} needs a score
+and a Hessian in a fixed finite-dimensional parameter, which a tree
+ensemble does not have. The replacement is the cluster bootstrap
+\citep{efron1994}: resample \emph{firms} with replacement, keeping each
+firm's whole event history and exposure intact so within-firm dependence
+is never broken; refit; read uncertainty off the resampled predictions.
+Resampling rows would pretend the (unit, bin) cells are independent,
+which they are not.
+
+\section{Hawkes-flavored behavior without a Hawkes
+model}\label{chnp:sec:imitation}
+
+In this regime, excitation and inhibition enter through one door only:
+the engineered history features. A positive learned response to the
+decayed own-sector count looks like self-excitation; a depressed
+response at small time-since-last-deal looks like inhibition. The
+flexible $f$ can shape these responses --- thresholds, saturation,
+interactions with the macro state --- which the log-linear form cannot.
+That freedom is the point of the chapter, and it is also where the
+causal reading breaks.
+
+\begin{warning}[Learned excitation is not
+contagion]\label{warn:chnp:contagion}
+A latent firm-quality or sector-attractiveness factor that the
+covariates miss makes past deal counts a proxy for the missing factor.
+A flexible $f$ finds and uses that proxy more effectively than a linear
+model: it can carve the feature space into regions where the proxy works
+best and imitate self-excitation with no contagion present. This is the
+confound of \cref{ch05:sec:frailty} with fewer restraints. The
+parametric chapter could at least bound the damage --- branching
+estimates are upper bounds, parent-attribution timescales provide a
+probe --- and none of that structure exists here: no branching ratio, no
+genealogy, no timescale decomposition. Any ``deals cause deals'' claim
+from this regime is therefore strictly weaker than the corresponding
+claim from the parametric model. The reporting rule: nonparametric fits
+make \emph{predictive} statements about history features, never
+mechanism statements; if the mechanism question matters, the parametric
+layer answers it with the diagnostics of \cref{ch:hawkes}.
+\end{warning}
+
+\section{Evaluation and the challenger role}\label{chnp:sec:evaluation}
+
+Everything runs inside the harness of \cref{ch07:sec:constitution}: the
+same temporal splits, the same held-out point-process NLL (identical by
+\cref{prop:chnp:binned}), the same calibration reports --- PIT
+histograms for counts and proper scoring rules for predictive
+distributions \citep{gneitingraftery2007}. Two comparisons are
+designated: the log-linear GLM of \cref{ch:poisson} \emph{on the same
+feature table}, so any gap is attributable to functional form rather
+than information; and the parametric Hawkes layer of \cref{ch:hawkes},
+so the value of genuine event-time structure is measured against
+flexible use of engineered summaries.
+
+The logic of the comparison is asymmetric. The nonparametric model is
+not a candidate for the production intensity; it is the
+\emph{challenger}, and its job is to expose structure the log-linear
+form misses. If it beats the log-linear GLM materially on held-out NLL
+and calibration, the conclusion is not ``deploy the trees''; it is that
+the log-linear intensity is missing an interaction or a nonlinearity,
+and the follow-up is to find it: partial-dependence and interaction
+diagnostics on the fitted ensemble point at candidate terms, which are
+added to the GLM explicitly and re-tested. If the challenger cannot beat
+the GLM, the log-linear form is adequate at the current data size and
+the parametric stack keeps its advantages.
+
+\begin{decision}{D-NP.1 --- the nonparametric intensity is the
+designated challenger}
+The models of this chapter are fitted in every evaluation campaign, on
+the shared (unit, bin) table, under the harness of
+\cref{ch07:sec:constitution}, next to the log-linear GLM and the
+parametric Hawkes layer. Their role is challenger, not candidate: a
+material win over the log-linear intensity on held-out NLL and
+calibration is treated as evidence of missing structure, triggering a
+search (interaction and nonlinearity extraction from the ensemble, then
+explicit GLM terms and a re-run), not a deployment. Rationale: the
+challenger keeps the likelihood and the evaluation protocol
+(\cref{prop:chnp:binned}), so its wins isolate functional form; the
+interpretability, stability certificates, and inference that production
+requires live in the parametric stack (\cref{tab:chnp:ledger}).
+Reversal trigger: if the challenger's material win persists across two
+consecutive campaigns \emph{after} the extracted terms are added to the
+GLM, the deficit is structural, and promotion of a constrained tree or
+network intensity to production candidate is put on the table, carrying
+this chapter's bootstrap-inference and monitoring obligations with it.
+\end{decision}
+
+\section{Defect declaration}\label{chnp:sec:defects}
+
+Per decision D2.1 (\cref{ch:data}), against the ledger of
+\cref{tab:ch02:defects}.
+
+\emph{(C1) Right censoring: corrected exactly.} The exposure $e_{ik}$
+integrates the at-risk indicator to the end of observation, and
+\cref{prop:chnp:binned} carries the survival factor through the bin
+sums, as in \cref{ch:poisson}. Open spells must be kept; the zero-count
+rows are the censored exposure.
+
+\emph{(C2) Left truncation: corrected mechanically.} Exposure starts at
+entry. The estimand remains conditional on entry into observation;
+\cref{ch:universe} owns the unconditional question.
+
+\emph{(C3) Unlabeled exits: vulnerable, downward.} Dead firms kept at
+risk contribute exposure and no events, deflating fitted intensities.
+The flexible $f$ adds a twist: it can learn that long-quiet firms have
+low rates and partially \emph{mask} the defect in-sample without fixing
+it --- the phantom exposure is still wrong. Treatments stay where they
+were: exposure windows and mover--stayer structure
+(\cref{ch:poisson,ch:buckets}), ranking-layer mitigations
+(\cref{ch:ranking}).
+
+\emph{(C4) Untrusted times: vulnerable by assumption.} This regime
+consumes exact times twice, in the bin assignment and in the engineered
+history features, and has no interval-censored fallback
+(\cref{warn:chnp:dates}). \Cref{asm:chnp:trusted} is a precondition, not
+a robustness claim; when it fails, \cref{ch:censoring} is the route.
+
+\emph{(C5) Stale covariates: vulnerable, with a tree-specific hazard.}
+Stale features attenuate learned responses as in \cref{ch:stale}. Trees
+add a hazard the GLM lacks: staleness \emph{patterns} (reporting gaps,
+vendor refresh cycles) are learnable signals, and a tree will exploit
+them if they correlate with outcomes. The guards are the point-in-time
+protocol \cref{prot:ch02:pit} and explicit staleness-age features, so
+the dependence is visible rather than implicit.
+
+\emph{(C6) Out-of-universe deals: sector features complete, firm
+intensities thinned.} Sector-level history features are built from the
+complete deal stream and remain valid. Firm-level intensities miss
+unseen competitors exactly as in the parametric chapters;
+\cref{ch:universe} owns the correction.
+
+\begin{codehooks}
+\emph{To be written.} \code{hawkes\_calibration/nonparam.py}: (1) the
+(unit, bin) table builder of \cref{eq:chnp:rows}, shared with the GLM
+fitters so that \cref{prop:chnp:binned}(ii) holds by construction; (2)
+the XGBoost wrapper of \cref{prot:chnp:xgb} --- objective
+\code{count:poisson}, \code{base\_margin} $= \log e_{ik}$, a
+\code{monotone\_constraints} map read from the signed-feature registry,
+temporal early stopping; (3) a forest wrapper with Poisson-deviance
+splitting, exposure weights, and OOB reporting (screening only); (4) a
+small-network trainer with the softplus head of \cref{eq:chnp:softplus}
+and exposure-weighted Poisson loss; (5) a time-rescaling adapter that
+consumes any \code{predict\_rate(unit, bin)} function and emits the
+diagnostics of \cref{ch:gof}; (6) the firm-cluster bootstrap driver.
+The \code{xgboost} objective configuration for (2) is a checked-in
+parameter file, so challenger runs are reproducible across campaigns.
+\end{codehooks}

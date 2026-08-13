@@ -1,0 +1,1051 @@
+% ch08-stale --- the stale-covariate problem: formalization, damage, remedy ladder
+
+\section{Why staleness owns a chapter}\label{ch08:sec:problem}
+
+Defect (C5) of \cref{ch:data} is easy to state and easy to underestimate.
+The firm covariates that every model in this document consumes ---
+financials, headcount, capitalization --- are not observed as processes.
+PitchBook records them when, and only when, the firm itself transacts:
+each deal row carries the covariates as reported around that deal, and
+between deals the pipeline carries the last recorded value forward
+(\cref{eq:ch02:locf}, implemented in \code{synthetic/loaders.py} and to be
+mirrored by every real-data loader per Protocol~\ref{prot:ch02:pit}). Two facts
+make this more than a measurement-error nuisance. First, the error is not
+noise but \emph{drift}: the gap between the last recorded value and the
+current truth grows with the time since the firm's last deal. Second, the
+observation times
+are event times \emph{of the process being modeled}. The firms that have
+gone longest without a deal have the stalest covariates, and they are
+exactly the low-intensity firms. Staleness is informative: the age of a
+firm's covariates is itself evidence about the firm.
+
+The stakes justify the chapter's rank. Design decision D2.1 of
+\cref{ch:data} predicts that the largest modeling errors will come not
+from wrong model families but from unstated exposure to (C3) and (C5).
+The covariates-dominate hypothesis of \cref{ch:gof} places most of the
+predictive mass in the covariate channel, and a planned covariate-noise
+campaign (\cref{ch:results-synth}) will measure how staleness erodes
+fitted structure before it erodes prediction. A defect that silently
+corrupts the dominant channel, differentially across the risk set,
+deserves its own chapter.
+
+The chapter proceeds in the document's standard order: formalize
+(\cref{ch08:sec:formal}), prove the damage in a tractable case
+(\cref{ch08:sec:consequences}), then commit to a remedy ladder --- R1,
+staleness-aware observed-data modeling, committed and always on
+(\cref{ch08:sec:r1}); R2, supervised drift modeling with regression
+calibration (\cref{ch08:sec:r2}); R3, an explicit covariate state space
+(\cref{ch08:sec:r3}); R4, joint modeling, adopted only if a defined
+trigger fires (\cref{ch08:sec:r4}) --- and close with the bucket-model
+face of the same mathematics, the planned synthetic validation, and the
+defect declaration (\cref{ch08:sec:buckets,ch08:sec:declaration}).
+
+\section{Formalization}\label{ch08:sec:formal}
+
+Throughout, $i$ ranges over tracked firms, $N_i$ is firm $i$'s deal
+counting process, $\Ft$ is the full filtration of
+\cref{def:ch02:market} \emph{enlarged with the latent covariate paths},
+and $\mathcal{G}_t \subset \Ft$ is the \emph{observed} filtration: the
+internal history of the marked point process, the published macro paths,
+and the covariate values recorded at past deals --- everything a
+production pipeline can know at $t$, nothing it cannot.
+
+\begin{assumption}[Latent covariate dynamics]\label{asm:ch08:latent}
+Each tracked firm carries a latent c\`adl\`ag covariate process
+$\xcov_i(t) \in \R^{q}$, partitioned into \emph{mechanical} components ---
+deterministic functionals of the firm's own observed event history and
+marks (raised-to-date, deal count, time-stamped last-round descriptors)
+--- and \emph{drifting} components (revenue, EBITDA, headcount, latent
+valuation). As a working model, the drifting components follow a
+mean-reverting Ornstein--Uhlenbeck diffusion \citep{uhlenbeck1930} with
+sector- and macro-driven mean,
+\begin{equation}\label{eq:ch08:ou}
+\dd \xcov_i(t)
+ \;=\;
+ -\Theta\,\big(\xcov_i(t) - m_i(t)\big)\dd t
+ \;+\; \Sigma_W^{1/2} \dd W_i(t),
+\qquad
+ m_i(t) \;=\; m_{s(i)} + \Gamma\T \xcov^{\mathrm{mac}}(t),
+\end{equation}
+with $\Theta = \diag(\vartheta_1,\dots,\vartheta_q)$, $\vartheta_k > 0$
+(the mean-reversion rates $\vartheta$ are unrelated to the excitation
+decay $\decay$ of \cref{ch:hawkes}), $\Sigma_W$ diagonal, and $W_i$
+idiosyncratic across firms given sector and macro. Where stationarity is
+invoked, coordinate $k$ has stationary variance $\sigma_{X,k}^2 =
+\Sigma_{W,kk}/(2\vartheta_k)$. Only the qualitative content --- mean
+reversion toward an observable anchor, conditional variance growing in
+elapsed time --- is load-bearing; the Gaussian linear form is what makes
+the propositions below exact.
+\end{assumption}
+
+Read concretely, \cref{eq:ch08:ou} says: a firm's revenue and headcount
+track an anchor set by its sector's trajectory and the macro state ---
+rate cuts and sector booms lift the anchor, contractions lower it ---
+while $\vartheta_k$ sets the memory of coordinate $k$, with covariate
+half-life $\log 2 / \vartheta_k$. Nothing in the data pins these
+half-lives a priori --- headcount is plausibly slow, revenue faster,
+reported EBITDA noisier still --- and estimating them is exactly what the
+drift dataset of \cref{ch08:sec:r2} is for. The OU form is chosen
+because it is the tractable member of its qualitative class: it is the
+Gaussian Markov process with mean reversion, it closes the filtering
+recursions of \cref{ch08:sec:r3} in closed form, and it makes every
+distortion formula in \cref{ch08:sec:consequences} exact rather than
+first-order. When the working model fails --- heavy-tailed revenue jumps,
+regime-switching growth --- the exact constants below degrade to
+first-order approximations, but the monotone conclusions (attenuation
+increasing in age, variance increasing in age, survival tilt downward)
+survive, because they use only the qualitative content.
+
+\begin{assumption}[LOCF observation scheme]\label{asm:ch08:locf}
+The data delivers, for each firm and each $t$ past its entry $\entry_i$,
+\begin{equation}\label{eq:ch08:locf}
+\tilde\xcov_i(t) \;=\; \xcov_i\big(\tau_i(t)\big),
+\qquad
+\tau_i(t) \;=\; \sup\{t_m < t : i_m = i\},
+\qquad
+\staleage_i(t) \;=\; t - \tau_i(t),
+\end{equation}
+with the strict inequality of Protocol~\ref{prot:ch02:pit}(b): the value used at
+$t$ comes from deals \emph{strictly before} $t$, so that
+$\tilde\xcov_i$ and the staleness age $\staleage_i$ are left-continuous
+in $t$. At its own deal times the firm's drifting covariates are observed
+(as reported in the deal row); \cref{ch08:sec:r3} adds reporting noise.
+For mechanical components LOCF is \emph{exact} --- they are step
+functions that only move at own deals --- so (C5) binds on the drifting
+components alone. This split is the basis of the column classification in
+\cref{app:columns} and of decision D8.3 below.
+\end{assumption}
+
+\begin{proposition}[The observation scheme is internal and informative]
+\label{prop:ch08:internal}
+Under Assumptions~\ref{asm:ch08:latent} and~\ref{asm:ch08:locf}:
+\begin{enumerate}[label=(\roman*)]
+\item Each observation time of firm $i$'s covariates is a jump time of
+$N_i$, hence a stopping time of the modeled filtration $\{\Ft\}$; the
+processes $\tau_i(t)$, $\staleage_i(t)$, and $\tilde\xcov_i(t)$ are
+left-continuous and adapted to $\{\mathcal{G}_t\}$, hence
+$\mathcal{G}$-predictable --- they are legitimate intensity covariates.
+\item The staleness age is a deterministic functional of the event
+history: $\{\staleage_i(t) > u\} = \{N_i([t-u, t)) = 0\}$; it is the
+backward recurrence time of the modeled process.
+\item The scheme is \emph{informative}: whenever the true intensity
+$\lam_i$ depends on $\xcov_i$, the conditional law of $\xcov_i(t)$ given
+$(\tilde\xcov_i(t), \staleage_i(t))$ differs from the law obtained from
+the free dynamics \cref{eq:ch08:ou} alone, because
+$\Prob\big(\staleage_i(t) > u \st \F^{X}_t \vee \F_{\tau}\big) =
+\exp\big(-\int_{t-u}^{t} \atrisk_i(v)\,\lam_i(v)\dd v\big)$ depends on
+the latent covariate path over the gap.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+(i) Jump times of an adapted counting process are stopping times; between
+jumps $\tau_i$ is frozen and $\staleage_i$ grows deterministically, and
+the strict-inequality convention in \cref{eq:ch08:locf} makes all three
+processes left-continuous adapted, hence predictable. (ii) is
+\cref{eq:ch08:locf} read backwards. (iii) The displayed survival
+probability is the standard conditional-inhomogeneous-Poisson formula
+given the intensity path; if $\lam_i$ is $\xcov_i$-measurable and
+nonconstant in it, the event $\{\staleage_i(t) > u\}$ has different
+probability under different covariate paths, so by Bayes the conditional
+law of the path given the gap is tilted (\cref{lem:ch08:tilt} computes
+the tilt).
+\end{proof}
+
+In the Kalbfleisch--Prentice taxonomy of time-dependent covariates
+\citep[Ch.~6]{kalbfleisch2002}, the macro series are \emph{external}:
+they evolve regardless of the deal process, and survival-type
+probability statements conditioning on their future paths are legitimate.
+The pair $(\tilde\xcov_i, \staleage_i)$ is \emph{internal}: it is a
+functional of the firm's own event history and marks. The consequence,
+inherited verbatim from the internal-covariate discussion of
+\cref{ch:hawkes}, is that intensities conditioned on
+$(\tilde\xcov_i,\staleage_i)$ retain their interpretation, while plug-in
+survival functionals (``probability of no deal in two years at today's
+covariates'') do not --- the covariate would not stay at today's value.
+One-step prediction is clean; multi-step statements must simulate the
+system jointly, covariate observation process included.
+
+How much information does the age itself carry? We treat this as an
+empirical question for \cref{ch:results-synth}. The sign is not obvious:
+in a cooldown world, recent activity can be anti-signal at short range,
+so a recency-only ranker need not beat even a popularity baseline. The
+committed choice models carry an explicit gap covariate because the gap
+is informative, but its fitted functional form is expected to depend on
+the generating process, so it must be validated rather than assumed. The
+age is neither ignorable nor
+monotone in effect: it interacts with everything else, which is why
+\cref{ch08:sec:r1} insists on interactions and why
+\cref{ch08:sec:buckets} argues trees are the natural estimator of that
+surface. The lesson to carry forward: $\staleage$ is simultaneously a
+nuisance index (how corrupted is $\tilde\xcov$) and a signal (how
+long has the market declined to fund this firm), and a correct treatment
+must let the data express both roles at once.
+
+\section{What staleness does to a log-linear intensity}
+\label{ch08:sec:consequences}
+
+Fix one firm, drop the subscript, and let the true intensity be
+log-linear in the current latent covariates,
+\begin{equation}\label{eq:ch08:truelam}
+\lam(t) \;=\; \exp\!\big(\bcoef\T \xcov(t)\big),
+\qquad
+\xcov(t) \;=\; \tilde\xcov(t) + \eps(t),
+\end{equation}
+where $\eps(t) = \xcov(t) - \xcov(\tau)$ is the drift accumulated since
+the last observation. (A baseline and external covariates can be carried
+along untouched; they are omitted for legibility.) We fit with
+$\tilde\xcov$ in place of $\xcov$. Everything in this section is a
+statement about what that substitution does.
+
+\subsection{Attenuation in the Gaussian-drift case}
+\label{ch08:sec:attenuation}
+
+Two benchmark drift laws bracket the mechanism. The first switches off
+mean reversion and the survival information; it isolates the pure
+variance effect.
+
+\begin{proposition}[Independent Gaussian drift: multiplicative
+distortion]\label{prop:ch08:berkson}
+Suppose that, given $(\tilde\xcov, \staleage) = (\tilde x, a)$ and under
+the free drift law (survival information ignored), $\eps(t) \sim
+\mathcal{N}(0, \Sigma(a))$ independent of $\tilde x$ --- the
+$\Theta \to 0$ (Brownian) limit of \cref{eq:ch08:ou}, where $\Sigma(a) =
+\Sigma_W\, a$. Then the intensity implied for the observed data is
+\begin{equation}\label{eq:ch08:berkson}
+\tilde\lam(t)
+ \;=\;
+ \E\big[\exp(\bcoef\T\xcov(t)) \st \tilde x, a\big]
+ \;=\;
+ \exp\!\Big(\bcoef\T\tilde x \;+\; \tfrac12\,\bcoef\T\Sigma(a)\bcoef\Big):
+\end{equation}
+a staleness-dependent multiplicative distortion
+$\exp\{\tfrac12\bcoef\T\Sigma(a)\bcoef\} \ge 1$, increasing in
+$\staleage$, with the coefficient on $\tilde x$ unbiased at fixed $a$.
+\end{proposition}
+
+\begin{proof}
+$\E[\exp(\bcoef\T\eps) \st \tilde x, a] =
+\exp(\tfrac12\bcoef\T\Sigma(a)\bcoef)$ is the Gaussian moment generating
+function; independence lets it factor out of
+$\exp(\bcoef\T\tilde x)$.
+\end{proof}
+
+\begin{remark}
+The structure ``truth $=$ observed $+$ independent error'' is
+Berkson-type, and \cref{eq:ch08:berkson} shows its signature: no slope
+attenuation \emph{conditional on} $\staleage$, but an omitted
+$\staleage$-dependent term. Convexity of $\exp$ makes uncertain firms
+look \emph{more} intense on average --- the variance term rewards
+staleness --- which is one half of the ranking distortion of
+\cref{prop:ch08:ranking}. The classical-error benchmark, $\tilde x =
+\xcov + U$ with $U \perp \xcov$, gives the textbook attenuation instead:
+$\E[\xcov \st \tilde x] = \mu + \Sigma_X(\Sigma_X + \Sigma_U)^{-1}(\tilde
+x - \mu)$, so the induced log-intensity is linear in $\tilde x$ with
+slope $\Sigma_X(\Sigma_X+\Sigma_U)^{-1}\bcoef$ --- in the scalar case
+$\bcoef\,\sigma_X^2/(\sigma_X^2+\sigma_U^2)$
+\citep{prentice1982,carroll2006}. The planned covariate-noise campaign
+realizes exactly this benchmark (\cref{ch08:sec:buckets}).
+\end{remark}
+
+The second benchmark restores mean reversion; it produces genuine,
+staleness-graded attenuation and, as a corollary, the functional form of
+remedy R1.
+
+\begin{proposition}[Stationary OU drift: staleness-graded attenuation]
+\label{prop:ch08:attenuation}
+Let the drifting covariates follow \cref{eq:ch08:ou} with constant mean
+$m$, diagonal $\Theta$, stationary initial condition, and survival
+information ignored. Then, given $(\tilde x, a)$,
+\begin{equation}\label{eq:ch08:oucond}
+\xcov(t) \st \tilde x, a
+ \;\sim\;
+ \mathcal{N}\!\Big(m + e^{-\Theta a}(\tilde x - m),\; V(a)\Big),
+\qquad
+V(a)_{kk} = \sigma_{X,k}^2\big(1 - e^{-2\vartheta_k a}\big),
+\end{equation}
+and the observed-data intensity is
+\begin{equation}\label{eq:ch08:attenuation}
+\tilde\lam(t)
+ \;=\;
+ \exp\!\Big(
+ \underbrace{\big(e^{-\Theta a}\bcoef\big)\T \tilde x}_{\text{attenuated
+ signal}}
+ \;+\;
+ \underbrace{\bcoef\T\big(I - e^{-\Theta a}\big)m
+ + \tfrac12\,\bcoef\T V(a)\bcoef}_{\;=\;g_0(a)\text{, staleness offset}}
+ \Big).
+\end{equation}
+At fixed staleness the coefficient on $\tilde x_k$ is
+$e^{-\vartheta_k a}\bcoef_k$: an attenuation factor $e^{-\vartheta_k a}
+\in (0,1)$, decreasing in the age, equal to the regression-calibration
+factor $\Cov(\xcov_k(t), \tilde x_k)/\Var(\tilde x_k)$.
+\end{proposition}
+
+\begin{proof}
+Variation of constants on \cref{eq:ch08:ou} gives $\xcov(t) = m +
+e^{-\Theta a}(\xcov(\tau) - m) + \int_\tau^t e^{-\Theta(t-u)}
+\Sigma_W^{1/2}\dd W(u)$; the stochastic integral is Gaussian,
+independent of $\xcov(\tau)$, with the stated variance (compute
+$\int_0^a e^{-2\vartheta_k u}\Sigma_{W,kk}\dd u$ and use
+$\sigma^2_{X,k} = \Sigma_{W,kk}/2\vartheta_k$), which proves
+\cref{eq:ch08:oucond}. Then \cref{eq:ch08:attenuation} is the Gaussian
+mgf as in \cref{prop:ch08:berkson}. For the last claim, stationarity
+makes $(\xcov(\tau),\xcov(t))$ jointly Gaussian with
+$\Var(\tilde x_k) = \sigma_{X,k}^2$ and $\Cov(\xcov_k(t),\tilde x_k) =
+\sigma_{X,k}^2 e^{-\vartheta_k a}$, so the ratio is $e^{-\vartheta_k a}$;
+equivalently, time reversibility of the stationary OU lets one write
+$\tilde x_k = m_k + e^{-\vartheta_k a}(\xcov_k(t) - m_k) + U_k$ with
+$U_k \perp \xcov_k(t)$ --- the classical shrink-plus-noise surrogate
+structure of \citet{prentice1982}, with $e^{-\vartheta_k a}$ playing the
+role of $\sigma_X^2/(\sigma_X^2 + \sigma_U^2)$.
+\end{proof}
+
+\begin{corollary}[Pooled fit: risk-set-weighted attenuation plus an
+informativeness term]\label{cor:ch08:pooled}
+Take the scalar case with centered covariate ($m = 0$), and fit the
+misspecified model $\lam = \exp(c + b\,\tilde x)$ across the risk set
+while the truth is \cref{eq:ch08:attenuation}. In the small-signal
+(first-order) regime, the quasi-likelihood fit is the exposure-weighted
+least-squares projection of the true log-intensity onto $(1, \tilde x)$,
+so the estimand is
+\begin{equation}\label{eq:ch08:pooled}
+b
+ \;=\;
+ \frac{\Cov_w\!\big(\tilde x,\; e^{-\vartheta \staleage}\,\tilde x\big)}
+      {\Var_w(\tilde x)}\;\bcoef
+ \;+\;
+ \frac{\Cov_w\!\big(\tilde x,\; g_0(\staleage)\big)}{\Var_w(\tilde x)},
+\end{equation}
+with weights $w$ proportional to exposure. If $\staleage \perp \tilde x$
+across the risk set, $b = \E_w[e^{-\vartheta \staleage}]\,\bcoef$: pure
+attenuation by the average factor. Informativeness breaks the
+independence with a definite sign: if the intensity is increasing in
+$\bcoef\T\xcov$ with $\bcoef > 0$, then $\staleage$ is stochastically
+decreasing in $\tilde x$ (better last-seen firms raise sooner), so for
+the increasing offset $g_0$ the second term is $\le 0$ --- the omitted
+staleness structure biases the fitted slope \emph{further} toward zero,
+beyond the average attenuation.
+\end{corollary}
+
+\begin{proof}
+Linearizing the log-likelihood \cref{eq:ch02:jacod} in the small-signal
+regime reduces the score equations for $(c,b)$ to the normal equations of
+exposure-weighted least squares of the true log-intensity
+$e^{-\vartheta a}\bcoef \tilde x + g_0(a)$ on $(1,\tilde x)$;
+\cref{eq:ch08:pooled} is the resulting projection coefficient. Under
+independence the first ratio is $\E_w[e^{-\vartheta a}]$ and the second
+covariance vanishes. For the sign claim: $\staleage$ stochastically
+decreasing in $\tilde x$ means $\E[g_0(\staleage)\st \tilde x]$ is
+nonincreasing in $\tilde x$ for any increasing $g_0$, hence
+$\Cov_w(\tilde x, g_0(\staleage)) \le 0$.
+\end{proof}
+
+This corollary is the precise version of the chapter's slogan: staleness
+does not merely add noise, it attenuates the fitted covariate effects by
+a factor tied to the age distribution of the risk set, and the
+informativeness of the ages adds a signed omitted-variable term on top.
+Both effects disappear from a model that conditions on the age --- which
+is remedy R1.
+
+\subsection{The informativeness twist: distortion is differential across
+the risk set}\label{ch08:sec:twist}
+
+\Cref{prop:ch08:berkson,prop:ch08:attenuation} deliberately ignored one
+piece of information: the firm has \emph{not} raised during
+$(\tau, t]$. By \cref{prop:ch08:internal}(iii) that silence is evidence.
+The following lemma pins its direction; to stay tractable it summarizes
+the intensity over the gap through the endpoint signal, which is
+adequate for the slowly-varying covariates at issue.
+
+\begin{lemma}[Survival tilt]\label{lem:ch08:tilt}
+Let $S = \bcoef\T\xcov(t)$ have conditional density $p(s)$ given
+$(\tilde x, a)$ under the free drift law, and suppose the integrated
+intensity over the gap is $\int_\tau^t \lam(u)\dd u = a\,\Lambda(S)$
+with $\Lambda$ strictly increasing (e.g.\ covariates approximately
+constant over the gap, $\Lambda(s) = e^{s}$). Then the conditional
+density given additionally $\{$no event in $(\tau, t]\}$ is
+\[
+p_{\mathrm{surv}}(s) \;\propto\; p(s)\, e^{-a\Lambda(s)},
+\]
+which is dominated by $p$ in the likelihood-ratio order; consequently,
+for every increasing $h$ with finite means,
+$\E[h(S) \st \tilde x, a, \text{no event}] \le \E[h(S) \st \tilde x, a]$,
+strictly if $a > 0$, $\bcoef \ne 0$ and $S$ is nondegenerate.
+\end{lemma}
+
+\begin{proof}
+Bayes gives the displayed density; the ratio
+$p_{\mathrm{surv}}/p \propto e^{-a\Lambda(s)}$ is strictly decreasing in
+$s$, which is likelihood-ratio dominance, and likelihood-ratio dominance
+implies the expectation inequality for increasing $h$ (Chebyshev's
+correlation inequality applied to the decreasing weight
+$e^{-a\Lambda(s)}$ and increasing $h$). When the monotone-summary
+assumption fails --- strongly oscillating paths --- the pointwise
+ordering can fail locally, but the mechanism survives: the tilt
+$\exp(-\int\lam)$ always downweights high-intensity \emph{paths}.
+\end{proof}
+
+\begin{proposition}[Sign of the ranking bias under naive LOCF plug-in]
+\label{prop:ch08:ranking}
+Rank firms at time $t$ by the naive plug-in score $\tilde s_i =
+\bcoef\T\tilde\xcov_i(t)$, while the correct observed-data score (the
+log of the projected intensity, \cref{prop:ch08:projection}) is $s_i^* =
+\log\E[\exp(\bcoef\T\xcov_i(t)) \st \mathcal{G}_{t^-}]$. Under
+Assumption~\ref{asm:ch08:latent} with stationary drift and \cref{lem:ch08:tilt}:
+\begin{enumerate}[label=(\roman*)]
+\item \emph{Conditional on the truth}: the score error is $\tilde s_i -
+\bcoef\T\xcov_i(t) = -\bcoef\T\eps_i(t)$; a firm whose covariates
+deteriorated in the $\bcoef$ direction since its last deal
+($\bcoef\T\eps_i < 0$) is over-ranked, one that improved is
+under-ranked, with error magnitude growing in the drift, hence
+stochastically in $\staleage_i$.
+\item \emph{Conditional on the data}: by
+\cref{prop:ch08:attenuation} and \cref{lem:ch08:tilt},
+\[
+s_i^*
+ \;\le\;
+ \bcoef\T m + e^{-\vartheta \staleage_i}\,\bcoef\T(\tilde\xcov_i - m)
+ + \tfrac12\bcoef\T V(\staleage_i)\bcoef ,
+\]
+so for firms whose last-seen signal was above the sector mean
+($\bcoef\T\tilde\xcov_i > \bcoef\T m$), the naive score exceeds the
+correct one by at least
+$(1 - e^{-\vartheta \staleage_i})\,\bcoef\T(\tilde\xcov_i - m)
+- \tfrac12\bcoef\T V(\staleage_i)\bcoef$, a quantity that is positive
+and increasing in $\staleage_i$ once
+$\bcoef\T(\tilde\xcov_i - m)$ clears the variance term, and the survival
+tilt of \cref{lem:ch08:tilt} strictly enlarges the gap. Symmetrically,
+below-mean stale firms are pushed up by mean reversion and down by the
+tilt: their net bias is smaller and can take either sign.
+\item \emph{Across the risk set}: $\staleage$ concentrates on
+low-intensity firms (\cref{prop:ch08:internal}), so the distortion is
+differential --- largest exactly where the naive score trusts old good
+news. The characteristic failure is the \emph{stale champion}: a firm
+that looked excellent at its last round years ago and has been silent
+since is systematically over-ranked by LOCF plug-in, because its signal
+should have been shrunk toward the prior and tilted down for the
+silence, and was neither.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+(i) is arithmetic on \cref{eq:ch08:truelam}. (ii): the unconditional
+(no-tilt) projection is \cref{eq:ch08:attenuation}, whose log is the
+displayed bound; \cref{lem:ch08:tilt} applied to $h = \exp$ shows the
+survival-conditioned expectation is strictly smaller. Subtracting from
+$\tilde s_i = \bcoef\T\tilde\xcov_i$ gives the stated gap. (iii) combines
+(ii) with \cref{prop:ch08:internal}(iii).
+\end{proof}
+
+\begin{example}[The size of the inversion]\label{ex:ch08:inversion}
+Scalar covariate, $m = 0$, $\sigma_X = 1$, $\bcoef = 1$, covariate
+half-life two years ($\vartheta = \log 2 / 2 \approx 0.347$ per year).
+Firm $A$ last raised four years ago looking excellent, $\tilde x_A =
++2$; firm $B$ raised a quarter ago looking merely good, $\tilde x_B =
++1$. Naive LOCF plug-in scores $A$ far above $B$ ($2$ vs $1$). The
+corrected log-scores of \cref{eq:ch08:attenuation}, before any survival
+tilt: for $A$, $e^{-1.386}\cdot 2 + \tfrac12(1 - e^{-2.77}) \approx 0.50
++ 0.47 = 0.97$; for $B$, $e^{-0.087}\cdot 1 + \tfrac12(1 - e^{-0.173})
+\approx 0.92 + 0.08 = 1.00$. The correction alone \emph{reverses} the
+ranking, and the survival tilt of \cref{lem:ch08:tilt} --- four years of
+silence versus one quarter --- pushes $A$ down further. At the risk-set
+scale this is not an edge case: with inter-deal gaps of one to four
+years and covariate half-lives of the same order, the attenuation factor
+$e^{-\vartheta\staleage}$ ranges over $(0.25, 1)$ \emph{within a single
+risk set}, so a model fitting one common slope is wrong for most of its
+members at once.
+\end{example}
+
+\begin{warning}[Look-ahead through deal-time covariates is fatal]
+\label{warn:ch08:lookahead}
+The covariates in deal row $m$ are measured \emph{at or after} the deal:
+revenue as reported in the round's diligence, raised-to-date
+\emph{including} the round, valuation --- the outcome itself. Using row
+$m$'s covariates as features for predicting deal $m$, or any as-of join
+keyed on reference date rather than availability date, imports the label
+into the features. This is the internal-covariate ``price sticker'' in
+its most concrete form: the covariate value exists \emph{because} the
+event happened. The failure mode is silent --- metrics inflate in
+backtest and evaporate in deployment --- and no downstream remedy can
+undo it. Policy: features at $t$ use deals strictly before $t$
+(Protocol~\ref{prot:ch02:pit}); every loader ships a look-ahead audit that
+verifies no feature path changes value at the timestamp of the label
+event it feeds (\cref{ch08:sec:declaration}, code hooks). The synthetic
+loader already enforces the strict inequality; the real-data loader must
+inherit it verbatim.
+\end{warning}
+
+\section{Remedy R1: staleness-aware observed-data modeling}
+\label{ch08:sec:r1}
+
+The first remedy is not an attempt to undo the defect but to model what
+we actually observe. Condition on the pair $(\tilde\xcov, \staleage)$
+and fit
+\begin{equation}\label{eq:ch08:r1}
+\lam_i(t)
+ \;=\;
+ \exp\!\Big(
+ \bcoef\T \tilde\xcov_i(t)
+ \;+\; g\big(\staleage_i(t)\big)
+ \;+\; \tilde\xcov_i(t)\T\, \Gamma_{\!g}\, \phi\big(\staleage_i(t)\big)
+ \;+\; \delta\T \zfeat_i(t)
+ \Big),
+\end{equation}
+with $g$ flexible (a spline or step function on an age grid with knots
+at the empirical staleness quantiles), $\phi$ a low-dimensional basis in
+the age whose interaction with $\tilde\xcov$ lets the covariate
+\emph{slope} vary with staleness, and $\zfeat_i$ the other engineered
+history covariates of \cref{def:ch02:covariates}(iii). By
+\cref{prop:ch08:internal}(i) every term is $\mathcal{G}$-predictable, so
+\cref{eq:ch08:r1} is a well-specified intensity model \emph{for the
+observed filtration} and the likelihood \cref{eq:ch02:jacod} applies
+with its full martingale estimation theory \citep{abgk1993,
+andersengill1982}. This is not a heuristic patch:
+
+\begin{proposition}[Projection: the observed-data intensity is a genuine
+intensity]\label{prop:ch08:projection}
+Let $N$ be a counting process adapted to a subfiltration
+$\{\mathcal{G}_t\} \subseteq \{\Ft\}$ and let $\lam$ be its
+$\F$-intensity. Then the $\mathcal{G}$-predictable projection
+\[
+\lam^{\mathcal{G}}(t) \;=\; \E\big[\lam(t) \st \mathcal{G}_{t^-}\big]
+\]
+is an intensity of $N$ with respect to $\{\mathcal{G}_t\}$: $N(t) -
+\int_0^t \lam^{\mathcal{G}}(u)\dd u$ is a $\mathcal{G}$-local
+martingale. Consequently the best-fitting element of a rich class of
+functions of $(\tilde\xcov, \staleage, \Hist_{t^-})$ estimates the
+projection of the true structural intensity onto the available
+information --- fitting \cref{eq:ch08:r1} is estimating a well-defined
+object, not compensating an error \citep[Ch.~14]{daley2008}
+\citep[II.4]{abgk1993}.
+\end{proposition}
+
+\begin{proof}
+For any bounded nonnegative $\mathcal{G}$-predictable $C$ (which is also
+$\F$-predictable), the $\F$-intensity property gives
+$\E\int_0^\infty C\dd N = \E\int_0^\infty C(u)\lam(u)\dd u$. Tower on
+$\mathcal{G}_{u^-}$: since $C(u)$ is $\mathcal{G}_{u^-}$-measurable,
+$\E[C(u)\lam(u)] = \E[C(u)\,\E(\lam(u)\st\mathcal{G}_{u^-})] =
+\E[C(u)\lam^{\mathcal{G}}(u)]$, whence $\E\int C\dd N =
+\E\int C\lam^{\mathcal{G}}$. This identity for all such $C$ is the
+defining property of a $\mathcal{G}$-intensity (martingale
+characterization via the monotone class theorem; the technical
+identification of $\E[\,\cdot \st \mathcal{G}_{t^-}]$ with the
+predictable projection is \citealp[Ch.~14]{daley2008}).
+\end{proof}
+
+\begin{corollary}[R1 is exactly specified in the OU world]
+\label{cor:ch08:r1exact}
+Under Assumption~\ref{asm:ch08:latent} with stationary drift and the
+monotone-summary approximation of \cref{lem:ch08:tilt}, the projected
+intensity is
+$\exp\{(e^{-\Theta a}\bcoef)\T\tilde x + g_0(a) - d(\bcoef\T\tilde x,
+a)\}$ with $g_0$ as in \cref{eq:ch08:attenuation} and $d \ge 0$ the
+survival-tilt correction, a smooth function of the scalar signal and the
+age. The class \cref{eq:ch08:r1} contains the first two terms exactly
+(the interaction basis reproduces $e^{-\vartheta_k a}\bcoef_k$) and
+approximates the third within the same $(\tilde\xcov\T\gamma,
+\staleage)$ interaction structure. R1 is therefore not merely valid but
+--- in the working model --- essentially well specified.
+\end{corollary}
+
+Two practical points before the caveats. First, the repository already
+implements degenerate cases of \cref{eq:ch08:r1}: the risk-set ranker of
+\modrepo{sector\_ranker.py} carries a months-since-last-funding
+(cooldown) covariate --- a parametric $g$ inside the choice model --- and
+the synthetic loader emits it point-in-time
+(\code{log1p\_months\_since\_last\_funding} in \code{CHOICE\_FEATURES}).
+D8.1 is the commitment that this stops being a per-model accident: the
+pair $(\tilde\xcov, \staleage)$, with interactions where the model class
+allows them, becomes mandatory plumbing in every stack. Second, an
+identifiability warning that doubles as an interpretation warning: the
+fitted $g$ absorbs \emph{everything} that varies with the gap ---
+drift-variance inflation (\cref{prop:ch08:berkson}), mean-reversion
+offsets (\cref{prop:ch08:attenuation}), the survival tilt, \emph{and}
+genuine duration dependence of the hazard itself (post-round cooldown,
+runway mechanics, the renewal structure of \cref{ch:hawkes}). These are
+observationally confounded in $g$ by construction: the projection does
+not distinguish ``covariates have drifted'' from ``the hazard truly
+depends on time since last round.'' For prediction under the observed
+filtration this is harmless --- the projection is the target
+(\cref{prop:ch08:projection}) --- but it means $g$ has no structural
+reading either, and separating the channels requires the state-space
+machinery of \cref{ch08:sec:r3}, which supplies the drift-variance
+component of $g$ from fitted dynamics and leaves the remainder as an
+honest estimate of duration dependence.
+
+What R1 gives up is exactly what the projection destroys. The fitted
+$\bcoef$ in \cref{eq:ch08:r1} is a property of the \emph{observation
+scheme composed with} the structural model: it mixes the true covariate
+effect with mean reversion, drift variance, and the informativeness
+tilt. It must not be read as ``the effect of revenue on funding
+intensity,'' used for counterfactuals (``if this firm's revenue were
+$20\%$ higher\dots'' --- the projection does not move that way), or
+extrapolated to a vendor with a different update policy. And because
+$(\tilde\xcov,\staleage)$ is internal, multi-horizon functionals require
+joint simulation of events and the LOCF update process, never plug-in
+survival formulas (\cref{ch08:sec:formal}). Within those limits, R1 is
+committed, cheap, and always on --- decision D8.1.
+
+\section{Remedy R2: supervised drift modeling and regression
+calibration}\label{ch08:sec:r2}
+
+R1 conditions on staleness; R2 tries to \emph{reverse} it. The key
+observation is that the dataset labels its own drift: at every deal the
+firm's true drifting covariates are re-observed. Every consecutive pair
+of own deals $(\tau_m, \tau_{m'})$ of the same firm therefore yields a
+supervised example
+\[
+\underbrace{\big(\xcov_i(\tau_m),\; a = \tau_{m'} - \tau_m,\;
+\{\xcov^{\mathrm{mac}}_{\mathrm{pub}}(u)\}_{u \in (\tau_m, \tau_{m'}]},\;
+\text{sector activity}\big)}_{\text{inputs}}
+\;\longmapsto\;
+\underbrace{\xcov_i(\tau_{m'})}_{\text{target}},
+\]
+a \emph{drift dataset} on which a conditional model $\hat m(\tilde x, a,
+\cdot)$ with predictive variance $\hat V(\tilde x, a, \cdot)$ can be fit
+--- linear-Gaussian (which is exactly the OU regression of
+\cref{eq:ch08:oucond}, making R2 and R3 two estimators of one object) or
+gradient-boosted with a variance head. The input design follows
+\cref{eq:ch08:ou}: the macro path enters through summaries of the anchor
+movement over the gap --- cumulative rate change, CPI and unemployment
+changes between the two deal dates, as-of joined on publish dates per
+Protocol~\ref{prot:ch02:pit}(a) --- and sector activity through trailing
+deal counts, so that the linear-Gaussian fit is literally a discretized
+regression estimate of $(\Theta, \Gamma, m_s, \Sigma_W)$, one
+consecutive-pair likelihood term per row. The gradient-boosted variant
+keeps the same inputs and relaxes the functional form; it is admitted
+only if it beats the linear-Gaussian model on \emph{temporally} held-out
+pairs (pairs whose second deal falls after the training era, per
+\cref{prot:ch02:pit}(e)) on both mean error and variance calibration ---
+a drift model whose $\hat V$ is uncalibrated poisons
+\cref{eq:ch08:calib} through the exponent. Imputation then replaces the
+stale value by $\hat\xcov_i(t) = \hat m(\tilde\xcov_i(t),
+\staleage_i(t), \text{macro path})$, and the intensity uses regression
+calibration:
+
+\begin{proposition}[Plug-in of the conditional mean, with variance
+correction]\label{prop:ch08:calibration}
+Suppose $\xcov(t) \st \mathcal{G}_{t^-} \sim \mathcal{N}(\hat\xcov(t),
+V(t))$. Then the projected intensity of \cref{prop:ch08:projection} is
+\emph{exactly}
+\begin{equation}\label{eq:ch08:calib}
+\lam^{\mathcal{G}}(t)
+ \;=\;
+ \exp\!\Big(\bcoef\T\hat\xcov(t) + \tfrac12\,\bcoef\T V(t)\,\bcoef\Big).
+\end{equation}
+For a general conditional law with mean $\hat\xcov$ and variance $V$,
+$\log\lam^{\mathcal{G}} = \bcoef\T\hat\xcov + \tfrac12\bcoef\T V \bcoef
++ O(\norm{\bcoef}^3)$ by the cumulant expansion: plugging in the
+conditional \emph{mean} makes the first-order term exact, and the
+variance factor $\exp(\tfrac12\bcoef\T V\bcoef)$ absorbs the second
+order. Plugging in the raw $\tilde\xcov$, or a mode or median, leaves a
+first-order error. This is regression calibration
+\citep[Ch.~4]{carroll2006}, and \cref{eq:ch08:calib} is the log-linear
+analogue of the induced-hazard formula of \citet{prentice1982} ---
+including his caveat, which here is \cref{lem:ch08:tilt}: the
+conditioning $\mathcal{G}_{t^-}$ includes the survival information, so
+the honest $\hat\xcov$ is the \emph{tilted} mean, not the free-drift
+mean.
+\end{proposition}
+
+\begin{proof}
+The Gaussian case is the mgf again. In general, $\log\E[e^{\bcoef\T
+\xcov}] = \sum_{r\ge1} c_r(\bcoef)/r!$ with first and second
+cumulants $\bcoef\T\hat\xcov$ and $\bcoef\T V\bcoef$, the remainder
+collecting third and higher cumulants of order $\norm{\bcoef}^3$.
+\end{proof}
+
+\begin{proposition}[Selection: the drift dataset is drift conditional on
+success]\label{prop:ch08:selection}
+A training pair exists only if a second deal occurred. Under the
+monotone-summary approximation of \cref{lem:ch08:tilt} with
+$\Lambda(s)=e^s$, the drift law represented in pairs with gap $a$ is
+tilted relative to the free law by
+$e^{s}\,e^{-a e^{s}}$ (event density at the endpoint), while the
+population the imputation serves --- firms still waiting at age $a$ ---
+is tilted by $e^{-a e^{s}}$ alone. The ratio of the two tilts is
+$e^{s}$, increasing in $s = \bcoef\T\xcov(\tau + a)$, so the
+pair-conditioned law dominates the survivor-conditioned law in the
+likelihood-ratio order:
+\[
+\E\big[\bcoef\T\xcov(\tau+a) \st \text{pair with gap } a,\ \tilde x\big]
+\;>\;
+\E\big[\bcoef\T\xcov(\tau+a) \st \text{no event by } \tau + a,\ \tilde
+x\big].
+\]
+A drift model fit naively on pairs therefore learns \emph{drift
+conditional on funding success} and systematically over-predicts the
+$\bcoef$-direction state of the silent firms it is deployed on ---
+optimistic imputation, which re-creates the stale-champion over-ranking
+of \cref{prop:ch08:ranking} through the back door.
+\end{proposition}
+
+\begin{proof}
+The next-event density at gap $a$ given the endpoint summary is
+$e^{s} e^{-a e^{s}}$ (hazard times survival), the no-event probability is
+$e^{-a e^{s}}$; both statements are the conditional-Poisson formulas of
+\cref{prop:ch08:internal}(iii). Their ratio $e^s$ is increasing, giving
+likelihood-ratio dominance of the pair law over the survivor law, and
+dominance implies the strict mean inequality for the nondegenerate
+increasing functional $s$.
+\end{proof}
+
+Three remedies for the selection, in the order they will be tried.
+\emph{Censoring-aware drift estimation}: treat pair generation as a
+survival problem --- every firm silent since $\tau_m$ contributes a
+right-censored drift spell $(\xcov_i(\tau_m), \staleage_i(\Tend),
+\text{no endpoint})$, and the drift model is fit by a likelihood that
+includes the survival factor, i.e.\ a small joint model of drift and
+event (this is R4's machinery in miniature, and the honest default).
+\emph{Inverse-probability weighting}: weight each pair by the inverse of
+the estimated probability that a firm with those inputs produces a
+second deal within the observed gap, taken from the discrete-hazard
+bucket model of \cref{ch:buckets}; valid under the bucket model's own
+correctness, cheap, and diagnosable. \emph{Exogenous restriction}: fit
+drift only for covariates whose evolution is plausibly exogenous to the
+funding process on the gap timescale --- headcount and revenue drift
+with the business; raised-to-date, deal counts and last-round
+descriptors are \emph{mechanical}, move only at events, and must never
+be imputed (LOCF is exact for them, Assumption~\ref{asm:ch08:locf}). The
+mechanical-vs-drifting classification of every PitchBook column is
+maintained in \cref{app:columns} and is decision D8.3;
+\cref{tab:ch08:columns} fixes the scheme on the representative columns,
+including the third class that \cref{warn:ch08:lookahead} makes
+necessary: columns that are \emph{outcomes} of the deal they ride on.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{0.34\textwidth} p{0.13\textwidth} p{0.40\textwidth}}
+\toprule
+\textbf{Representative columns} & \textbf{Class} & \textbf{Staleness
+treatment} \\
+\midrule
+\code{total\_raised\_to\_date}; deal count to date;
+\code{last\_financing\_date}/\code{\_size}/\code{\_deal\_type};
+\code{vc\_round} progression; firm age &
+mechanical & LOCF exact by construction; recomputed point-in-time from
+the event log; imputation forbidden (D8.3) \\
+\addlinespace
+\code{revenue}, \code{ebitda}, \code{gross\_profit},
+\code{net\_income}, \code{number\_of\_employees}, growth since last
+deal; valuation between rounds &
+drifting & carried with $\staleage$ always (D8.1); eligible for R2
+imputation with variance; modeled by the R3 state space \\
+\addlinespace
+\code{deal\_size}, \code{pre\_money\_valuation},
+\code{post\_valuation}, up/down/flat flags of the \emph{current} round &
+outcome-at-event & usable as covariates only strictly after their deal;
+as predictors of their own deal they are look-ahead
+(Warning~\ref{warn:ch08:lookahead}); as targets they belong to T4 \\
+\addlinespace
+\code{business\_status} &
+drifting, laggy & exit-proxy territory of (C3); point-in-time only,
+never applied retroactively \\
+\bottomrule
+\end{tabular}
+\caption{The column classification of decision D8.3 on representative
+PitchBook columns; the full dictionary lives in \cref{app:columns}.
+``Mechanical'' columns are deterministic functionals of the observed
+event history, for which LOCF is exact; ``drifting'' columns are the
+carriers of defect (C5).}
+\label{tab:ch08:columns}
+\end{table}
+
+\section{Remedy R3: an explicit covariate state space}
+\label{ch08:sec:r3}
+
+R2's linear-Gaussian special case deserves its own treatment, because it
+is simultaneously the honest uncertainty model and the supplier of the
+$\Sigma(a)$, $V(a)$ objects that R1 and R2 consume. Model the drifting
+components per firm by \cref{eq:ch08:ou} --- OU toward a sector mean
+with macro loadings --- observed at own deals with reporting noise:
+$y_{i,m} = \xcov_i(\tau_m) + \eta_m$, $\eta_m \sim \mathcal{N}(0, R)$
+(PitchBook financials are reported figures, not audited truth; $R = 0$
+recovers exact observation).
+
+\begin{lemma}[OU prediction and deal-time update]\label{lem:ch08:ou}
+Under \cref{eq:ch08:ou} with constant mean $m$ (time-varying $m_i(u)$
+adds the deterministic integral $\int_\tau^t e^{-\Theta(t-u)}\Theta\,
+m_i(u)\dd u$, computable from the published macro path), the exact
+recursions for the conditional law $\xcov_i(t) \st \mathcal{G}_t \sim
+\mathcal{N}(\hat\xcov_i(t), P_i(t))$ are:
+\begin{align}
+\text{predict over } a = t - \tau:\quad
+&\hat\xcov_i(t) \;=\; m + e^{-\Theta a}\big(\hat\xcov_i(\tau) - m\big),
+\nonumber\\
+&P_i(t) \;=\; e^{-\Theta a} P_i(\tau)\, e^{-\Theta a}
+ + V(a), \qquad
+ V(a)_{kk} = \sigma^2_{X,k}\big(1 - e^{-2\vartheta_k a}\big),
+\label{eq:ch08:kalmanpredict}\\[2pt]
+\text{update at an own deal with report } y:\quad
+&K = P\,(P + R)^{-1}, \qquad
+\hat\xcov^{+} = \hat\xcov + K\,(y - \hat\xcov), \qquad
+P^{+} = (I - K)\,P.
+\label{eq:ch08:kalmanupdate}
+\end{align}
+With $R = 0$ the update collapses to $\hat\xcov^+ = y$, $P^+ = 0$, and
+the filter between deals is pure prediction: $\hat\xcov_i(t)$ is exactly
+the shrunk mean of \cref{eq:ch08:oucond} and $P_i(t) = V(\staleage_i(t))$
+is the explicit $\Sigma(a)$ that
+\cref{prop:ch08:berkson,prop:ch08:attenuation} postulated.
+\end{lemma}
+
+\begin{proof}
+The predict step is \cref{eq:ch08:oucond} applied to the current
+posterior (linear-Gaussian closure under the OU transition); the update
+step is the standard Kalman gain for a linear observation with Gaussian
+noise \citep{kalman1960,harvey1989}. The $R=0$ limit is immediate.
+\end{proof}
+
+The state-space parameters $(\Theta, \Sigma_W, m_s, \Gamma, R)$ are
+estimable by exact Gaussian likelihood on the drift dataset of
+\cref{ch08:sec:r2} --- with the same selection caveat, treated by the
+same censoring-aware likelihood: \cref{prop:ch08:selection} applies to
+$\hat\Theta$ too, and ignoring it biases mean-reversion estimates toward
+the reversion experienced by successful firms. Estimation must pool: the
+median tracked firm contributes a handful of deals, far too few to
+identify per-firm dynamics, so $(\Theta, \Sigma_W)$ are shared at sector
+level and $\Gamma$ globally, fitted by summing pair likelihoods across
+firms; the drifting covariates enter on log scales (log revenue, log
+headcount), where the Gaussian working model is tenable and where the
+loaders already live, with missing and undisclosed reports handled by
+the rules of \cref{app:columns}, never ad hoc. Firm-level heterogeneity
+beyond the pooled parameters is precisely the shared random effect that
+R4 would add --- another sense in which the ladder is nested rather than
+branching. What R3 buys beyond R2:
+(i) $V(a)$ in closed form, feeding R1's offset $g_0$ and R2's variance
+correction \cref{eq:ch08:calib} instead of leaving them as free spline
+coefficients; (ii) calibrated per-firm uncertainty that grows honestly
+to the stationary variance as $\staleage \to \infty$ --- the model
+\emph{knows} it knows nothing about a firm silent for a decade, which is
+precisely the epistemic behavior the ranking layer needs; (iii) a
+principled bridge to the doubly-stochastic intensity tradition ---
+default intensities driven by stochastic covariates with fitted dynamics
+--- whose viability at scale is established in credit risk
+\citep{duffie2007}. The cost is the linear-Gaussian straitjacket, which
+is why R3 enters the ladder as the variance model \emph{inside} R2
+rather than as a replacement for the gradient-boosted drift mean.
+
+\section{Remedy R4: joint modeling, gated by a measured trigger}
+\label{ch08:sec:r4}
+
+The statistically complete treatment is a joint model of the
+longitudinal covariates and the event intensity with shared random
+effects \citep{rizopoulos2012,tsiatisdavidian2004}: latent per-firm
+effects $b_i$ drive both the covariate trajectory ($\xcov_i(t) =
+\mu(t) + \Phi(t) b_i + \epsilon_i(t)$) and the intensity
+($\lam_i(t) = \exp(\bcoef\T\xcov_i(t) + \alpha\T b_i + \cdots)$), and the
+likelihood integrates $b_i$ out over both data streams jointly. This is
+the construction that makes the informative observation scheme part of
+the likelihood rather than a correction: the two-stage shortcut --- fit
+the longitudinal model, plug fitted trajectories into the intensity ---
+was shown biased precisely when the event process informs the covariate
+observations \citep{tsiatis1995}, which is our
+\cref{prop:ch08:internal}(iii) verbatim, and the bias direction is the
+one \cref{prop:ch08:selection} derives: trajectories fitted to
+success-selected observations are optimistic for the silent. The joint
+likelihood repairs this by making the no-event stretches pay their
+survival factor inside the same integral that fits the trajectory ---
+R2's censoring-aware drift estimation and R3's censoring-aware
+state-space likelihood are exactly the first two terms of this
+construction, which is why the ladder converges to R4 rather than being
+overturned by it. What R4 adds beyond them is the shared random effect:
+persistent firm-level frailty entering both streams, so that a firm's
+covariate \emph{level and trajectory shape} inform its intensity beyond
+the current imputed value \citep{tsiatisdavidian2004,rizopoulos2012}.
+The price is steep: numerical integration over random effects for every
+firm ($\sim$7{,}000 tracked firms $\times$ quadrature nodes $\times$
+optimizer iterations), delicate identifiability between $\alpha$,
+$\bcoef$ and the drift parameters --- the frailty-versus-contagion
+confounding of \cref{ch07:sec:identifiability} returns
+here in longitudinal form --- and a model class fragile enough that its
+failure modes are harder to audit than the defect it fixes. R4 is
+therefore \emph{escalation, not default}, and it is gated:
+
+\begin{protocol}[Attenuation-gap test, the R4 trigger]
+\label{prot:ch08:gaptest}
+On the synthetic rehearsal world with drifting firm covariates, LOCF
+observation, and known structural $\bcoef$: (i) run the committed
+pipeline R1 $+$ R2 (with R3's variance); (ii) measure the attenuation
+ratio $\hat r$ = slope of the fitted log-intensity scores regressed on
+the oracle scores $\bcoef\T\xcov_i(t)$ over the risk set, and the top-$K$
+ranking gap between fitted and oracle covariates; (iii) the trigger
+fires if the $95\%$ interval for $\hat r$ excludes $[0.9, 1.1]$ \emph{and}
+the oracle-covariate ablation attributes a material top-$K$ loss to
+residual staleness (not to (C3), which is measured separately per
+\cref{ch:data}), in two consecutive evaluation campaigns. Only a fired
+trigger authorizes the R4 build; the same harness then has to show R4
+closing the measured gap on rehearsal data before any real-data use.
+\end{protocol}
+
+\section{The bucket-model face, and the planned measurement}
+\label{ch08:sec:buckets}
+
+\Cref{ch:buckets} attacks the horizon target T3 with gradient boosting
+on a bucketed panel whose feature rows read, in words: ``it has been
+$\staleage$ since this firm's last deal, and these are its last-known
+covariates.'' That is $(\tilde\xcov, \staleage)$ --- and the trees'
+recursive partitioning of the joint feature space fits arbitrary
+piecewise-constant surfaces in $(\tilde\xcov, \staleage)$, i.e.\
+nonparametric estimates of exactly the projected intensity that
+\cref{cor:ch08:r1exact} derived: offset $g_0(\staleage)$,
+age-attenuated slopes $e^{-\Theta\staleage}\bcoef$, and the survival-tilt
+correction, none of which need to be prespecified
+\citep{friedman2001,chenguestrin2016}. Gradient boosting on
+$(\tilde\xcov, \staleage)$ \emph{is} R1, implemented nonparametrically.
+This is the principled reason the discrete-time stack tolerates
+staleness better than a rigid log-linear form fitted without age terms:
+the rigid form suffers the pooled attenuation and signed
+omitted-variable bias of \cref{cor:ch08:pooled}, while the trees simply
+learn the interaction surface. If the boosted-ranker benchmark of the
+evaluation plan finds a gap between trees and the linear conditional
+logit, part of that gap may be exactly this staleness interaction; how
+much is an isolation question assigned to \cref{ch:results-synth}.
+
+The attenuation mechanics themselves will be measured by a planned
+covariate-noise campaign, reported in \cref{ch:results-synth}. It has
+two stages. Stage one applies exogenous, uninformative Gaussian noise to
+the covariates at fit and prediction time --- the \emph{classical-error
+benchmark} of \cref{ch08:sec:attenuation} --- and measures how the
+fitted choice weights attenuate and how the recovered $\bcoef$ degrades
+while the prediction metrics move. The hypothesis, from
+\cref{prop:ch08:attenuation} and \cref{cor:ch08:pooled}, is that
+structure erodes before prediction does: attenuation should hit
+\emph{interpretation} (structural readings of $\bcoef$, cross-regime
+transfer) long before it hits ranking or likelihood. Stage two makes the
+noise informative: the loader emits drifting covariates with LOCF ages,
+and ranking bias is reported by staleness decile. This stage measures
+the differential distortion of \cref{prop:ch08:ranking}, which
+uninformative noise cannot see, and doubles as the standing harness for
+Protocol~\ref{prot:ch08:gaptest}.
+
+Because aggregate metrics are expected to dilute exactly the damage this
+chapter is about --- fitted structure decaying while headline prediction
+numbers barely move --- the chapter installs a standing
+reporting discipline:
+
+\begin{protocol}[Staleness accounting in every evaluation]
+\label{prot:ch08:account}
+Every model evaluation report in the repository includes: (a) the
+distribution of $\staleage$ over the evaluation risk sets (quantiles,
+and the share exceeding one and two estimated covariate half-lives once
+R3 supplies $\hat\Theta$); (b) the headline metrics stratified by
+staleness quartile of the scored firm; (c) for ranking deliverables, the
+share of top-$K$ selections whose drifting covariates are older than one
+year, reported next to the hit rate. Rationale:
+\cref{prop:ch08:ranking} localizes the damage in the stale strata, so a
+model can win on average while being systematically wrong about the
+firms it is most confidently promoting from old information --- and the
+consuming action (a diligence short list) is exposed to exactly those
+firms. The stratified report is the cheap standing detector of residual
+(C5) damage and the attribution input to
+Protocol~\ref{prot:ch08:gaptest}(iii).
+\end{protocol}
+
+\section{Defect declaration and commitments}\label{ch08:sec:declaration}
+
+Per decision D2.1, the models of this chapter declare their position
+against the ledger of \cref{tab:ch02:defects}. \textbf{(C5)} is
+\emph{owned here}: R1 corrects the fitting bias exactly in the OU
+working model (\cref{cor:ch08:r1exact}) and validly in general
+(\cref{prop:ch08:projection}); R2/R3 additionally correct the ranking
+bias under a correct, selection-aware drift model; residual
+vulnerability is the survival-tilt approximation and drift-model error,
+monitored by Protocol~\ref{prot:ch08:gaptest}. \textbf{(C1)}: robust ---
+all constructions are point-in-time and censored spells enter the drift
+likelihood as censored, per \cref{ch08:sec:r2}; dropping them would
+reimport \cref{prop:ch08:selection} with the sign derived there.
+\textbf{(C2)}: robust by construction --- $(\tilde\xcov, \staleage)$ is
+defined only after first observation; pre-entry firms are the newcomer
+problem of \cref{ch:universe}. \textbf{(C3)}: \emph{vulnerable, with a
+signed interaction that must be stated}. An unrecorded-dead firm
+accumulates maximal staleness with frozen covariates: (C3) keeps it in
+the risk set, (C5) keeps its last good numbers on its face. The two
+defects compound on the same firms --- the stale champion of
+\cref{prop:ch08:ranking} is, in the worst case, dead --- and both
+corrupt the risk set's information state in the same direction:
+overstated scores for long-silent firms, hence jointly worse for
+ranking than either alone. The staleness terms $g(\staleage)$ partially
+absorb (C3) (large age predicts death as well as drift), which improves
+ranking but permanently confounds ``quiet'' with ``gone'': no structural
+reading of $g$ is permitted while (C3) is open. \textbf{(C4)}: robust
+--- staleness ages are measured in weeks-to-years and deal-date jitter
+is days; aggregation does not touch the LOCF map. \textbf{(C6)}:
+out-of-universe firms are the $\staleage \to \infty$ limit --- no
+covariates at all --- and are handled by the outside-option construction
+of \cref{ch:universe}, which this chapter's $g$ should be checked
+against for continuity (a firm silent for a decade should not score very
+differently from an unseen firm).
+
+\begin{decision}{D8.1 --- staleness age is a mandatory feature}
+From this document forward, every firm-level model in every stack ---
+event-time intensities, the risk-set ranker, the bucketed panel, mark
+regressions --- includes the staleness age $\staleage_i(t)$ (and, where
+the model class permits, its interactions with $\tilde\xcov_i$) among
+its features. Rationale: $\staleage$ is free, predictable
+(\cref{prop:ch08:internal}), and carries the offset and attenuation
+structure of \cref{prop:ch08:attenuation}; omitting it produces the
+signed biases of \cref{cor:ch08:pooled,prop:ch08:ranking}. Reversal
+trigger: none --- a fitted model may drive its age terms to zero, but
+the feature may not be withheld from it.
+\end{decision}
+
+\begin{decision}{D8.2 --- the remedy ladder}
+Committed sequence: R1 (staleness-aware observed-data modeling,
+\cref{eq:ch08:r1}) now and always on; R2 (drift dataset, supervised
+drift model, regression calibration per \cref{prop:ch08:calibration},
+selection handled censoring-aware first) next quarter; R3 (OU/Kalman
+state layer, \cref{lem:ch08:ou}) folded in as R2's variance model rather
+than a separate stack; R4 (joint model) only if
+Protocol~\ref{prot:ch08:gaptest} fires. Rationale: the ladder is cost-ordered,
+each rung consumes the previous rung's outputs, and the working
+hypothesis --- to be tested in \cref{ch:results-synth} --- is that
+prediction is initially robust to staleness, so the
+expensive rungs must prove their marginal value on a measured gap, not
+on principle. Reversal trigger: a fired gap test promotes R4; a gap
+test passing twice consecutively with R1 alone demotes R2/R3 to
+research status.
+\end{decision}
+
+\begin{decision}{D8.3 --- mechanical vs.\ drifting column classification}
+Every PitchBook covariate column is classified in the data dictionary
+(\cref{app:columns}) as \emph{mechanical} (deterministic functional of
+the observed event history: raised-to-date, deal counts, last-round
+descriptors, ownership accumulations --- LOCF exact, imputation
+forbidden) or \emph{drifting} (revenue, EBITDA, net income, employees,
+growth rates, latent valuation --- LOCF stale, carried with
+$\staleage$, eligible for R2/R3 treatment). The classification is
+maintained under vendor schema changes and consumed by the loaders and
+the drift-dataset builder. Rationale: Assumption~\ref{asm:ch08:locf} shows (C5)
+binds only on drifting columns, and imputing a mechanical column is not
+an approximation but an error. Reversal trigger: none; reclassification
+of individual columns requires a data-dictionary change with review.
+\end{decision}
+
+\begin{codehooks}
+Planned module \modrepo{covstate/}: \code{pairs.py} --- the drift-dataset
+builder (consecutive own-deal pairs with gap, macro path and
+sector-activity summaries; right-censored spells emitted with flags per
+\cref{ch08:sec:r2}; selection diagnostics from
+\cref{prop:ch08:selection}); \code{ou.py} --- OU transition and
+$V(\staleage)$ in closed form, Kalman predict/update of
+\cref{lem:ch08:ou}, censoring-aware Gaussian likelihood for $(\Theta,
+\Sigma_W, m_s, \Gamma, R)$; \code{impute.py} --- the imputation API
+returning $(\hat\xcov_i(t), V_i(t))$ and the calibrated intensity factor
+$\exp(\tfrac12\bcoef\T V\bcoef)$ of \cref{eq:ch08:calib}. Loaders:
+\code{synthetic/loaders.py} already enforces strictly-prior LOCF and
+carries a months-since-last-funding feature; it and the real-data
+adapter \modrepo{data/pitchbook.py} must emit the pair $(\tilde\xcov_i,
+\staleage_i)$ explicitly for every stack (D8.1), keyed to the
+mechanical/drifting classification of \cref{app:columns} (D8.3).
+Audits (\modrepo{data/audits.py}): the look-ahead shift test of
+\cref{warn:ch08:lookahead} --- no feature path may change value at the
+timestamp of the label event it feeds --- plus a staleness-age
+consistency check ($\staleage$ recomputed from the event list must match
+the emitted feature). The gap-test harness of Protocol~\ref{prot:ch08:gaptest}
+extends the planned covariate-noise campaign with LOCF-age worlds and
+staleness-decile ranking reports.
+\end{codehooks}

@@ -1,0 +1,414 @@
+\chapter{Counting Processes and Poisson Calibration}
+\label{ch:poisson}
+
+This chapter is the foundation of Part~III. It fixes the mathematical objects --- counting
+process, filtration, conditional intensity, compensator --- states the two theorems that
+make intensity models \emph{estimable and testable}, and builds the simplest useful model
+family: Poisson processes with macro covariates, in continuous and in weekly time. The
+through-lines of Chapter~\ref{ch:problem} recur throughout: \emph{identifiability}
+(covariate effects are pinned down only by temporal contrast) and \emph{uncertainty}
+(over-dispersion is the rule, and every standard error we report is dispersion-corrected).
+The chapter ends at the exact boundary of the Poisson world --- clustering beyond
+covariates --- which Chapter~\ref{ch:hawkes} crosses.
+
+\section{Counting processes, intensities, compensators}
+\label{sec:poi-setup}
+
+A \emph{counting process} $N(t)$, $t \ge 0$, is a right-continuous step function with
+$N(0) = 0$ and jumps of size $+1$ at event times $t_1 < t_2 < \cdots$; we assume
+simplicity (no coincident points). In our application $N_s(t)$ counts deals in sector $s$
+and $N_i(t)$ counts deals of firm $i$. The filtration $\Hist_t$ collects everything
+observable strictly before $t$: past events, their marks, and point-in-time covariate
+vintages (Chapter~\ref{ch:data}).
+
+\begin{definition}[Conditional intensity]
+\label{def:poi-intensity}
+The conditional intensity of $N$ with respect to $\Hist_t$ is
+\begin{equation}
+\lambda(t) \;=\; \lim_{\dd t \downarrow 0}\;
+\frac{\Prob\big(N(t + \dd t) - N(t) = 1 \mid \Hist_t\big)}{\dd t},
+\label{eq:poi-intensity}
+\end{equation}
+assumed to exist and to be predictable (determined by information strictly before $t$).
+\end{definition}
+
+The intensity is the model: every process in Part~III is specified by writing down
+$\lambda(t)$ as a function of time, covariates, and history. Its integral
+\begin{equation}
+\Lambda(t) \;=\; \int_0^t \lambda(u)\dd u
+\label{eq:poi-compensator}
+\end{equation}
+is the \emph{compensator}: the unique predictable increasing process such that
+$M(t) = N(t) - \Lambda(t)$ is a (local) martingale, a property we use without proof
+\cite{bremaud1996,daley2003}. Its practical content is unbiasedness of counts against the
+model, which is what makes residual analysis on count increments meaningful.
+
+\section{Two foundational theorems}
+\label{sec:poi-theorems}
+
+\begin{theorem}[Watanabe characterization]
+\label{thm:poi-watanabe}
+Let $N$ be a simple point process adapted to $\Hist_t$ with continuous compensator
+$\Lambda$. Then $N$ is an inhomogeneous Poisson process --- increments over disjoint
+intervals independent, with $N(b) - N(a) \sim \mathrm{Poisson}(\Lambda(b) - \Lambda(a))$
+--- if and only if $\Lambda$ is deterministic \cite{daley2003}.
+\end{theorem}
+
+Read as a modelling statement: \emph{Poisson means history-free}. The moment $\lambda(t)$
+depends on past events, the process is no longer Poisson; conversely, any intensity that
+is a deterministic function of time and exogenous covariates inherits the entire Poisson
+toolkit of independent increments and closed-form likelihoods.
+
+\begin{theorem}[Time rescaling]
+\label{thm:poi-rescaling}
+Let $N$ have event times $t_1 < t_2 < \cdots$ and conditional intensity $\lambda(t) > 0$
+with $\Lambda(t) \to \infty$ almost surely. Then the transformed times
+$\tau_k = \Lambda(t_k)$ are the event times of a unit-rate homogeneous Poisson process;
+equivalently, the rescaled inter-arrivals $\delta_k = \tau_k - \tau_{k-1}$ are i.i.d.\
+$\mathrm{Exp}(1)$ \cite{ogata1988}.
+\end{theorem}
+
+Theorem~\ref{thm:poi-rescaling} holds for \emph{any} point process with an intensity, not
+just Poisson --- Hawkes, inhibited, marked, all of them. It is the universal
+goodness-of-fit device: substitute the fitted $\hat{\Lambda}$, compute
+$\hat{\delta}_k = \hat{\Lambda}(t_k) - \hat{\Lambda}(t_{k-1})$, and test.
+
+\begin{corollary}[Everything in Part~III is testable]
+\label{cor:poi-testable}
+Every model class in this manual specifies $\lambda(t;\theta)$ explicitly; hence every
+fitted model yields rescaled inter-arrivals that should be i.i.d.\ $\mathrm{Exp}(1)$ under
+correct specification. Our standing test battery: (i) Kolmogorov--Smirnov test of
+$u_k = 1 - e^{-\hat{\delta}_k}$ against $\mathrm{Uniform}(0,1)$; (ii) autocorrelation of
+the $u_k$ (independence, which the KS test does not check); (iii) the same by sector and
+regime. Failing (ii) while passing (i) means the right intensity level with the wrong
+dynamics: the signature of ignored clustering.
+\end{corollary}
+
+\section{The homogeneous Poisson process}
+\label{sec:poi-homog}
+
+With $\lambda(t) \equiv \lambda$ on an observation window $[0, T]$, the log-likelihood is
+$\ell(\lambda) = n \log \lambda - \lambda T$ for $n$ observed events, maximized at
+\begin{equation}
+\hat{\lambda} \;=\; n / T,
+\label{eq:poi-homog-mle}
+\end{equation}
+with the exact (not asymptotic) confidence interval from the chi-square duality,
+\begin{equation}
+\lambda \;\in\; \Big[\tfrac{1}{2T}\,\chi^2_{2n,\,\alpha/2},\;\;
+\tfrac{1}{2T}\,\chi^2_{2n+2,\,1-\alpha/2}\Big],
+\label{eq:poi-homog-ci}
+\end{equation}
+where $\chi^2_{d,q}$ is the $q$-quantile of the chi-square with $d$ degrees of freedom.
+The homogeneous model is acceptable only over windows short enough that macro conditions
+and sector heat are effectively constant --- a claim Corollary~\ref{cor:poi-testable}
+makes checkable. We use it as a per-window baseline whose rejection is informative.
+
+\section{Inhomogeneous Poisson with covariates}
+\label{sec:poi-inhomog}
+
+The first serious model: a deterministic log-linear intensity driven by the macro state,
+\begin{equation}
+\lambda(t) \;=\; \exp\!\big(a + \beta^{\top} X(t)\big),
+\label{eq:poi-loglinear}
+\end{equation}
+with $X(t)$ piecewise constant at weekly resolution --- the as-of macro vintages of
+Chapter~\ref{ch:data}: policy rate, CPI year-on-year, unemployment, each held at its last
+published value. Let weeks $w = 1, \dots, W$ partition $[0,T]$ with lengths $\Delta_w$ and
+covariate values $X_w$, and let $n_w$ be the event count in week $w$. The log-likelihood
+of an inhomogeneous Poisson process,
+$\sum_k \log \lambda(t_k) - \int_0^T \lambda(u)\dd u$, becomes
+\begin{equation}
+\ell(a, \beta) \;=\; \sum_{w=1}^{W} \Big[ n_w \big(a + \beta^{\top} X_w\big)
+\;-\; \Delta_w \exp\!\big(a + \beta^{\top} X_w\big) \Big].
+\label{eq:poi-loglik}
+\end{equation}
+Under \eqref{eq:poi-loglinear}, timing within a week carries no information beyond $n_w$:
+weekly counts are sufficient, licensing the discrete-time form of
+Section~\ref{sec:poi-discrete}.
+
+\begin{proposition}[Strict concavity]
+\label{prop:poi-concave}
+Write $x_w = (1, X_w^{\top})^{\top}$. The map $(a,\beta) \mapsto \ell(a,\beta)$ in
+\eqref{eq:poi-loglik} is concave, and strictly concave if and only if
+$\{x_w : w = 1,\dots,W\}$ spans $\mathbb{R}^{p+1}$. The MLE, when it exists, is therefore
+unique.
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+Each term is a linear function of $(a,\beta)$ minus $\Delta_w$ times the exponential of a
+linear function; exponentials of linear maps are convex, so $\ell$ is concave. The Hessian
+is $-\sum_w \Delta_w e^{a + \beta^{\top} X_w} x_w x_w^{\top}$, negative definite exactly
+when no nonzero vector is orthogonal to all $x_w$ --- the spanning condition. This is the
+standard exponential-family/log-sum-exp argument.
+\end{proof}
+
+Newton iterations converge in a few steps. For inference, with $H$ the observed
+information and $\hat{S}$ the outer product of weekly score contributions (clustered by
+week, or by sector--week blocks in the multi-sector model), we report the sandwich
+\begin{equation}
+\widehat{\Var}(\hat{a}, \hat{\beta}) \;=\; H^{-1} \hat{S} H^{-1},
+\label{eq:poi-sandwich}
+\end{equation}
+which remains valid as a quasi-likelihood variance when the Poisson assumption fails in
+the ways Section~\ref{sec:poi-overdispersion} documents.
+
+\subsection{Identifiability: covariate effects live in temporal contrast}
+\label{sec:poi-ident}
+
+\begin{proposition}[Information equals weighted covariate variance]
+\label{prop:poi-ident}
+The Fisher information of \eqref{eq:poi-loglik} is
+$I(a,\beta) = \sum_w \Delta_w \lambda_w\, x_w x_w^{\top}$ with
+$\lambda_w = e^{a + \beta^{\top} X_w}$. Profiling out $a$, the information for $\beta$ is
+the intensity-weighted temporal covariance of $X$:
+\begin{equation}
+I_{\beta} \;=\; \sum_w \omega_w \big(X_w - \bar{X}_{\omega}\big)
+\big(X_w - \bar{X}_{\omega}\big)^{\top},
+\qquad
+\omega_w = \Delta_w \lambda_w,\quad
+\bar{X}_{\omega} = \frac{\sum_w \omega_w X_w}{\sum_w \omega_w}.
+\label{eq:poi-fisher}
+\end{equation}
+In particular: (i) a covariate constant over the window is not identified separately from
+$a$; (ii) a covariate that is a near-linear trend is near-collinear with any slow trend in
+the baseline, and its effective information is the variance of its \emph{detrended}
+residual.
+\end{proposition}
+
+The proof is the Schur complement of the $(a,a)$ block in $I(a,\beta)$; we omit it. The
+consequences matter more. Macro series are slow --- rates move in staircase steps,
+unemployment drifts --- so a two-to-three-year window may contain only one or two genuine
+covariate contrasts, near-confounded with the baseline level and any secular trend in deal
+activity. Our standing guidance: (i) include an explicit trend term so that $\beta$ is
+measured against it rather than silently absorbing it; (ii) enter slow series in
+differences (rate \emph{changes}, CPI \emph{changes}), not levels; (iii) report effects as
+finite contrasts $\beta^{\top}(x_{\mathrm{hi}} - x_{\mathrm{lo}})$ between configurations
+that occur in the window, with sandwich intervals; (iv) monitor the condition number of
+\eqref{eq:poi-fisher} --- ill-conditioning is an identifiability warning, not a numerical
+nuisance.
+
+On the shipped testbed this is not hypothetical: in regime~B the weekly-GLM covariate
+estimates recover the daily-world truth with correlation $0.37$ (single seed; protocol in
+Chapter~\ref{ch:selection}). Held-out fit still improves substantially over the
+covariate-free baseline: predictions and contrasts are far better identified than the
+coordinates of $\beta$. Report accordingly.
+
+\section{Discrete-time counts: the weekly GLM}
+\label{sec:poi-discrete}
+
+For sector-level work we pass to weekly buckets directly. With $Y_{s,w}$ the count of
+sector-$s$ deals in week $w$,
+\begin{equation}
+Y_{s,w} \;\sim\; \mathrm{Poisson}(\Lambda_{s,w}),
+\qquad
+\log \Lambda_{s,w} \;=\; a_s + \beta_s^{\top} X_w,
+\label{eq:poi-glm}
+\end{equation}
+independently across $s$ and $w$ given covariates --- a Poisson GLM with log link, one
+intercept and slope vector per sector, estimated by the likelihood \eqref{eq:poi-loglik}
+summed over sectors. By the sufficiency remark above, when the continuous-time intensity
+is constant within weeks this is the same model, not an approximation; feedback enters in
+Section~\ref{sec:poi-feedback}. Figure~\ref{fig:poi-sector-counts} shows the raw material.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.85\textwidth]{fig_sector_counts}
+\caption{Weekly deal counts for three synthetic sectors. Common macro-driven movements are
+visible across sectors (the case for shared covariates $X_w$ with sector-specific
+loadings $\beta_s$), superimposed on sector-specific levels and bursts that
+covariates will turn out not to explain (Section~\ref{sec:poi-overdispersion}).}
+\label{fig:poi-sector-counts}
+\end{figure}
+
+\section{Over-dispersion}
+\label{sec:poi-overdispersion}
+
+The Poisson law imposes $\Var(Y) = \E[Y]$. Deal counts violate it, always, and the
+violation is informative.
+
+\begin{definition}[Dispersion]
+\label{def:poi-dispersion}
+For a fitted count model with means $\hat{\mu}_j$ over $n$ cells and $p$ parameters, the
+Pearson dispersion is
+\begin{equation}
+\hat{\phi} \;=\; \frac{1}{n - p} \sum_{j=1}^{n}
+\frac{(y_j - \hat{\mu}_j)^2}{\hat{\mu}_j},
+\label{eq:poi-dispersion}
+\end{equation}
+with $\hat{\phi} \approx 1$ under correct Poisson specification and $\hat{\phi} > 1$
+indicating over-dispersion (computed on held-out cells to avoid rewarding overfit means).
+\end{definition}
+
+Two distinct mechanisms inflate $\hat{\phi}$, and both are present in deal data.
+\emph{Unobserved heterogeneity}: if $Y \mid Z \sim \mathrm{Poisson}(Z\mu)$ with a latent
+positive factor $Z$, $\E[Z] = 1$ (risk appetite, unmodelled sector health), then
+$\Var(Y) = \mu + \mu^2 \Var(Z) > \mu$. Taking $Z$ gamma-distributed yields the negative
+binomial as a mixture Poisson --- we state this without derivation and use it when a full
+likelihood is needed. \emph{Contagion}: if events raise the intensity of subsequent events
+(Section~\ref{sec:poi-feedback}, Chapter~\ref{ch:hawkes}), counts cluster and the
+marginal variance again exceeds the mean. The cheap, robust correction is quasi-Poisson:
+keep the point estimates from \eqref{eq:poi-glm} and multiply all standard errors by
+$\hat{\phi}^{1/2}$ (consistent with the sandwich \eqref{eq:poi-sandwich}).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.85\textwidth]{fig_dispersion}
+\caption{Weekly variance versus mean per sector, against the Poisson benchmark
+$\Var = \E$ (dashed). Every sector sits above the line. On regime-B held-out weeks the
+fitted covariate GLM \eqref{eq:poi-glm} leaves a Pearson dispersion of $2.72$: conditional
+on the macro covariates, weekly counts are nearly three times more variable than Poisson.
+All GLM standard errors in this manual are quasi-Poisson corrected accordingly.}
+\label{fig:poi-dispersion}
+\end{figure}
+
+\begin{warning}[Dispersion does not identify its cause]
+\label{warn:poi-dispersion}
+A held-out dispersion of $2.72$ tells us the covariate-conditional Poisson model is wrong;
+it does not tell us \emph{how}. Latent common factors and genuine contagion produce the
+same first-order symptom --- variance above the mean and positively autocorrelated
+residual counts. Quasi-Poisson repairs the standard errors under either mechanism, which
+is why it is our default; but any \emph{scientific} claim ("deals beget deals") requires
+separating the two, and that separation cannot be done from dispersion statistics. It
+needs timestamp-level structure, and it is the central identification question of
+Chapter~\ref{ch:hawkes}.
+\end{warning}
+
+\section{Excitation and inhibition in count GLMs}
+\label{sec:poi-feedback}
+
+The GLM extends naturally to history dependence: append lagged counts to the predictor,
+\begin{equation}
+\log \Lambda_{s,w} \;=\; a_s + \beta_s^{\top} X_w
+\;+\; \sum_{\ell=1}^{L} b_{\ell}^{\top} Y_{w-\ell},
+\label{eq:poi-feedback}
+\end{equation}
+where $Y_{w-\ell}$ stacks all sectors' counts, so $b_{\ell}$ captures within- and
+cross-sector feedback at lag $\ell$. By Theorem~\ref{thm:poi-watanabe} this is no longer a
+Poisson process --- the compensator is now random --- but conditional on the past each
+$Y_{s,w}$ is still Poisson, the likelihood factorizes, and estimation is unchanged.
+
+Two features make \eqref{eq:poi-feedback} the right first model for history effects.
+First, \emph{negative coefficients are legal}: the log link keeps $\Lambda_{s,w} > 0$ for
+any sign of $b_{\ell}$, so \emph{inhibition} --- deal flow suppressing near-future deal
+flow through capital absorption or cooldowns --- is expressed as naturally as excitation.
+The linear Hawkes process of Chapter~\ref{ch:hawkes} cannot do this: its intensity is a
+sum of nonnegative kernels, and negative excitation would violate positivity. Second, the
+weekly clock makes stability auditable --- with a subtlety the following analysis makes
+precise.
+
+\paragraph{Stability: two mechanisms.}
+Collect the feedback matrices $B_{\ell}$ ($M \times M$, sectors) and let
+$G = \sum_{\ell} B_{\ell}$.
+
+\emph{Mechanism A (additive feedback).} If the feedback enters the intensity linearly,
+$\Lambda_w = c + \sum_{\ell} B_{\ell} Y_{w-\ell}$ with nonnegative entries, the process is
+a discrete-time branching (INAR-type) system: each event contributes on average $G$
+offspring events, and $\rho(G) < 1$ --- spectral radius below one --- suffices for
+stationarity, with stationary mean $(I - G)^{-1} c$. This is the direct analogue of the
+Hawkes branching-ratio condition of Chapter~\ref{ch:hawkes}.
+
+\emph{Mechanism B (log link on raw counts).} Model \eqref{eq:poi-feedback} feeds raw
+counts through an exponential: the conditional-mean map is
+$\mu(y) = \exp(a + B y)$ elementwise. This is \emph{geometric}, not additive, feedback. A
+useful local summary is the Jacobian at the deterministic fixed point $\mu^{*}$,
+\begin{equation}
+G_{\mathrm{eff}} \;=\; \mathrm{diag}(\mu^{*})\, G,
+\qquad
+\rho_{\mathrm{eff}} \;=\; \rho(G_{\mathrm{eff}}),
+\label{eq:poi-rhoeff}
+\end{equation}
+the \emph{effective spectral radius}. But $\rho_{\mathrm{eff}} < 1$ guarantees only local
+stability of the mean map: the Poisson conditional law has unbounded support, and a
+sufficiently large fluctuation can push counts past the basin of attraction, after which
+the exponential feedback compounds and the process diverges. Global ergodicity for
+log-linear count autoregressions requires genuinely stronger conditions, developed by
+\cite{fokianos2009}; the standard safe designs are to feed $\log(1 + Y_{w-\ell})$ instead
+of raw counts (making the feedback additive on the log scale, Mechanism~A-like), to cap
+counts, or to keep $\rho_{\mathrm{eff}}$ well below one.
+
+\begin{warning}[A measured metastability episode]
+\label{warn:poi-metastable}
+This failure mode is not theoretical. The regime-A synthetic generator originally used
+log-link feedback on raw counts with effective radius $\rho_{\mathrm{eff}} = 0.35$ ---
+comfortably subcritical by the local criterion. The configuration was \emph{metastable}:
+across most weeks it behaved normally, then a single burst crossed the basin boundary and
+tipped a world calibrated to roughly $50\mathrm{k}$ events into $169\mathrm{k}$ events.
+Rebuilt at $\rho_{\mathrm{eff}} = 0.15$, the generator is stable (Chapter~\ref{ch:selection}
+documents the episode). The lesson generalizes: \emph{never} simulate --- or deploy
+forecasts from --- log-link raw-count feedback near criticality; keep excitation terms
+small and let covariates carry the signal, or move the feedback to the $\log(1+Y)$ scale
+where Mechanism~A logic applies.
+\end{warning}
+
+\begin{remark}[Fitted feedback overstates contagion under aggregation]
+\label{rem:poi-aggregation}
+The estimated $\hat{b}_{\ell}$ in \eqref{eq:poi-feedback} must not be read as a measured
+contagion strength. On the testbed, a daily-world generator with \emph{modest} true
+contagion and a $7$-day excitation decay yields a fitted weekly-GLM effective spectral
+radius of $0.57$. Two mechanisms conspire: weekly binning aliases within-week and
+adjacent-week excitation into the lag-one coefficient (an aggregation artifact), and
+latent-quality clustering --- persistent hot sectors --- loads onto lagged counts because
+they are the best available proxy for the latent factor. Treat fitted feedback as an upper
+bound on contagion and as a forecasting device; the identification of true excitation is
+deferred to Chapter~\ref{ch:hawkes}.
+\end{remark}
+
+\section{Simulation}
+\label{sec:poi-simulation}
+
+For piecewise-constant deterministic intensities, simulation is trivial: draw independent
+Poisson counts per week (and uniform timestamps within weeks if needed). History-dependent
+intensities require thinning \cite{lewis1979}.
+
+\paragraph{Algorithm (thinning).}
+Given a predictable intensity $\lambda(t)$ and, at each time, a computable local bound
+$\bar{\lambda} \ge \lambda(u)$ valid on a lookahead interval:
+\begin{enumerate}
+\item Set $t \leftarrow 0$; initialize history $\Hist$; compute the current bound
+$\bar{\lambda}$ valid on $[t, t + \Delta)$.
+\item Draw $E \sim \mathrm{Exp}(\bar{\lambda})$ and propose $t' = t + E$. If
+$t' > \min(T, t + \Delta)$, advance $t$ to that endpoint, refresh $\bar{\lambda}$, and
+repeat from step~2; stop when $t \ge T$.
+\item Draw $U \sim \mathrm{Uniform}(0,1)$; accept an event at $t'$ if
+$U \le \lambda(t') / \bar{\lambda}$, evaluating $\lambda(t')$ with the history up to
+$t'$.
+\item If accepted, append $t'$ to $\Hist$ (excitation raises future $\lambda$, so refresh
+$\bar{\lambda}$). Set $t \leftarrow t'$ and return to step~2.
+\end{enumerate}
+Correctness requires only that $\bar{\lambda}$ dominate $\lambda$ on its validity
+interval. Note the interaction with Section~\ref{sec:poi-feedback}: for log-link feedback
+on raw counts no global bound exists and local bounds explode near bursts --- one more
+reason that family is dangerous to simulate.
+
+\paragraph{Discrete-time simulation with risk-set caps.}
+Our production simulators run on the weekly clock: for $w = 1, \dots, W$ compute
+$\Lambda_{s,w}$ from covariates and lagged counts, draw
+$Y_{s,w} \sim \mathrm{Poisson}(\Lambda_{s,w})$, then cap at the risk set,
+$Y_{s,w} \leftarrow \min(Y_{s,w}, |\RS_{s,w}|)$, where $\RS_{s,w}$ is the set of firms
+currently eligible to transact (alive, not in a post-deal cooldown,
+Chapter~\ref{ch:hawkes}). The cap is substantive --- a finite firm universe cannot
+generate unbounded weekly counts --- and doubles as an explosion guard for feedback
+models. We log every cap activation: a simulator that hits its caps more than rarely is
+reporting a misspecified intensity, and the fix belongs in the model, not in a larger cap.
+
+\section{What Poisson cannot capture}
+\label{sec:poi-limits}
+
+The covariate GLM \eqref{eq:poi-glm} says: given the macro path, disjoint weeks are
+independent and variance equals the mean. The data answer with held-out dispersion $2.72$
+and positively autocorrelated rescaled residuals --- clustering of events beyond anything
+the covariates explain. Within this chapter's model class the only response is defensive:
+quasi-Poisson inflation of uncertainty, feedback terms read as forecasting devices.
+
+The scientific question underneath is sharper. Two generative stories produce exactly
+these symptoms: a \emph{latent common factor} --- unobserved risk appetite multiplying
+every sector's intensity, inducing correlated bursts with no causal link between deals ---
+and \emph{self-excitation} in the sense of \cite{hawkes1971}, where each deal genuinely
+raises the intensity of successors via signaling, competitive urgency, and follow-on
+capital. The two stories have the same second moments at
+the weekly layer (Remark~\ref{rem:poi-aggregation} is this equivalence measured), yet they
+imply different counterfactuals: under contagion, seeding a deal raises subsequent
+activity; under a latent factor, it changes nothing. Distinguishing them requires
+timestamp-level structure, explicit kernels, and honest statements about what remains
+unidentified. That is Chapter~\ref{ch:hawkes}.

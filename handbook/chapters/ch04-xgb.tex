@@ -1,0 +1,362 @@
+\chapter{Prediction with Gradient Boosting}
+\label{ch:xgb}
+
+In the European regime the target of Chapter~\ref{ch:success} --- winsorized EBITDA
+arc-growth over a two-year horizon --- is observable for essentially every firm-year, so
+the first modelling layer is plain supervised learning. This chapter fixes the learning
+problem, the feature catalogue, the validation design, and --- the part practitioners most
+often skip --- the uncertainty quantification. The guiding principle throughout is that
+firm-year panels are \emph{not} i.i.d.\ samples: rows recur within firms and cluster
+within macro eras, and every design choice below (splits, calibration sets, bootstrap
+units) follows from taking that dependence seriously. What the fitted model \emph{means}
+--- association, not effect --- is deferred to Chapter~\ref{ch:causal}.
+
+\section{The learning problem}
+\label{sec:xgb-problem}
+
+A row is a firm-year $(i,y)$. The label is
+$Y_{i,y} = w_c\!\bigl(G^{(h)}_{i,y}\bigr)$, the arc-growth of EBITDA between statement
+years $y$ and $y+h$ with $h=2$, winsorized at level $c$ exactly as defined in
+Chapter~\ref{ch:success}. The feature vector $X_{i,y} \in \mathbb{R}^p$ is assembled
+\emph{point-in-time}: it may use only filings published and macro prints released by the
+information date $t_{\mathrm{info}}(i,y)$ of the row, respecting the publication-lag
+discipline of Chapter~\ref{ch:data}. We estimate two objects:
+\begin{equation}
+m(x) = \E[Y \mid X = x],
+\qquad
+q_\tau(x) = \inf\{a : \Prob(Y \le a \mid X = x) \ge \tau\},
+\label{eq:xgb-targets}
+\end{equation}
+the conditional mean (point screening) and a small grid of conditional quantiles. We
+use $\tau \in \{0.05, 0.10, 0.50, 0.90, 0.95\}$. The quantiles are not decoration: the
+outcome is heavy-tailed even after winsorization, upside screening acts on $q_{0.9}$
+rather than the mean, downside risk control acts on $q_{0.1}$, and the pair
+$(q_{0.05}, q_{0.95})$ is the raw material for the conformal intervals of
+Section~\ref{sec:xgb-uq}.
+
+Two dependence structures dominate. \emph{Within-firm}: rows $(i,y)$ and $(i,y')$ share
+persistent firm effects (management quality, niche economics), so errors are serially
+correlated within $i$. \emph{Within-era}: rows of a given year $y$ share the macro shock,
+so errors are cross-sectionally correlated within $y$. The first dictates firm-grouped
+resampling; the second dictates era-blocked validation. Neither is optional.
+
+\section{Feature catalogue}
+\label{sec:xgb-features}
+
+Table~\ref{tab:xgb-features} lists the feature families. All are computable from the
+fundamentals panel $F_{i,y}$, the deals table where coverage exists, and the macro feed;
+all obey the as-of rule.
+
+\begin{table}[htbp]
+\centering
+\caption{Feature catalogue for the EU prediction layer. All features are as-of
+$t_{\mathrm{info}}(i,y)$; macro features use publication-lagged vintages
+(Chapter~\ref{ch:data}).}
+\label{tab:xgb-features}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Family & Examples & Construction \\
+\midrule
+Lagged levels & EBITDA, revenue, payroll, assets & $\log(1+\cdot)$ where positive; \\
+ & at $y, y{-}1, y{-}2$ & raw for signed EBITDA \\
+Growth rates & 1--3y arc-growth of revenue, & same arc transform as the \\
+ & EBITDA, payroll & target, unwinsorized \\
+Ratios & EBITDA margin, leverage, & clipped at 1st/99th pctile \\
+ & asset turnover, payroll share & per sector-year \\
+Peer position & within-sector-year rank and & computed per $(s,y)$ cell, \\
+ & z-score of margin, growth, size & rank in $[0,1]$ \\
+Sector-year aggregates & median growth, IQR, firm count & cell-level, merged back \\
+Firm statics & age at $y$, size bucket, country & age in years, log assets bucket \\
+Macro as-of & policy rate level and 12m change, & vintage at $t_{\mathrm{info}}$; \\
+ & CPI YoY, unemployment level/change & level \emph{and} change \\
+Deal history & raised-to-date, round count, & zero-filled with indicator \\
+ & months since last round & where firm never in deals \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Missingness.}
+Fundamentals gaps are informative: small companies file abbreviated accounts, distressed
+companies file late, and the propensity to be missing depends on the (unobserved) value
+--- textbook MNAR. We therefore do \emph{not} mean-impute: imputation overwrites exactly
+the signal carried by absence and biases every downstream split. Instead we rely on the
+native sparsity handling of gradient boosting, in which each split learns a default
+direction for missing values from the data \cite{chen2016}, and we add explicit
+indicators (\texttt{ebitda\_missing\_lag1}, \texttt{never\_in\_deals}) for gaps whose
+economic meaning we can articulate. Trees are then free to interact the indicator with
+size and sector --- ``missing EBITDA at small size'' is a different animal from ``missing
+EBITDA at large size'', and the model should be allowed to say so.
+
+\section{Why boosted trees here --- and what they cannot do}
+\label{sec:xgb-why}
+
+The honest case for gradient-boosted trees on this problem is fourfold: (i) the signal is
+riddled with interactions (margin $\times$ sector, growth $\times$ rate regime) that we
+cannot enumerate a priori and trees discover automatically; (ii) the features are mixed
+continuous/ordinal/categorical with wildly different scales, and trees are invariant to
+monotone transforms of each feature, so we spend no effort on marginal calibration;
+(iii) native missingness handling, as above; (iv) strong, well-understood regularization
+(depth, shrinkage, subsampling, $\ell_2$ on leaf weights) \cite{chen2016}.
+
+The honest case against has two entries, and both matter here. First, \emph{no
+extrapolation}: a tree ensemble is piecewise constant, so its prediction outside the
+convex hull of the training features is the value at the nearest boundary cell. If every
+training era has falling policy rates, the fitted rate response is a flat extension ---
+the model literally cannot form an opinion about a rising-rate regime it has never seen.
+Second, \emph{unstable attribution}: correlated features split importance
+unpredictably across refits, so feature rankings are not portable conclusions.
+
+We mitigate rather than solve. Era-aware validation (Section~\ref{sec:xgb-validation})
+at least measures degradation across regimes instead of hiding it. Monotone constraints
+encode signs we are willing to defend economically --- e.g.\ growth non-increasing in the
+12-month rate \emph{change}, downside quantile non-increasing in leverage --- which
+reduces variance in thin regions and prevents sign flips there.
+
+\begin{remark}[Constraints are priors, not facts]
+\label{rem:xgb-mono}
+A monotone constraint changes the model class, not the world. Impose one only where the
+sign survives scrutiny (rates \emph{level} is ambiguous: it proxies both financing cost
+and the demand cycle; the \emph{change} is the cleaner candidate). A wrong constraint is
+worse than none, because it converts local noise into global bias silently.
+\end{remark}
+
+For the conditional-mean model, heavy tails argue against squared error even after
+winsorization. We use the pseudo-Huber objective
+\begin{equation}
+\ell_\delta(r) = \delta^2\left(\sqrt{1 + (r/\delta)^2} - 1\right),
+\label{eq:xgb-phuber}
+\end{equation}
+which is quadratic for $|r| \ll \delta$ and linear for $|r| \gg \delta$, with $\delta$
+set to roughly one cross-sectional standard deviation of $Y$. Note the fitted functional
+then sits between conditional mean and median; we report which loss produced which model
+and never mix them in evaluation.
+
+\section{Validation design}
+\label{sec:xgb-validation}
+
+\paragraph{Never random K-fold.}
+Random row-level K-fold fails three ways on this panel. (i)~\emph{Firm leakage}: rows of
+the same firm land on both sides of the split, and the persistent firm effect makes
+validation loss optimistic --- the model is partly memorizing firms. (ii)~\emph{Target
+overlap}: with $h=2$, the labels of years $y$ and $y+1$ share a statement year, so
+adjacent rows carry overlapping information about each other's targets.
+(iii)~\emph{Era leakage}: the model trains on the future macro regime it will be asked to
+predict, which no deployed model enjoys. All three inflate measured skill precisely where
+the deployment risk is largest.
+
+\paragraph{Rolling-origin splits.}
+We order eras (label years) $y_1 < \dots < y_E$ by information date and build folds
+$k = 1, \dots, K$: train on eras up to $y_{e_k}$, \emph{embargo} the next $h$ eras (their
+labels overlap the training window), validate on the era after the embargo. Every fold
+mimics deployment: fit on the past, predict a disjoint future. The same firm may appear
+in train (early years) and validation (later years) --- that is legitimate and realistic;
+the leakage to prevent is label overlap, handled by the embargo, not firm recurrence
+across time.
+
+\paragraph{Hyperparameter protocol.}
+Random search (100--200 draws) over the ranges in Table~\ref{tab:xgb-hparams}; each draw
+is scored by its \emph{average validation loss across all rolling folds}, with the number
+of boosting rounds chosen by early stopping on the \emph{most recent} fold only ---
+recency-weighting the one knob that matters most. The final model refits on all data with
+the tuned configuration and the early-stopped round count scaled by the ratio of full to
+training rows. Tuning on an average across eras deliberately trades a little peak skill
+for regime stability.
+
+\begin{table}[htbp]
+\centering
+\caption{Search ranges. Depth is kept shallow: firm-year panels reward many weak
+interactions over few deep ones.}
+\label{tab:xgb-hparams}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Parameter & Range & Note \\
+\midrule
+max depth & 3--6 & log-uniform integer \\
+learning rate & 0.01--0.1 & log-uniform \\
+min child weight & 5--100 & guards thin sector cells \\
+row subsample & 0.6--0.9 & per boosting round \\
+column subsample & 0.5--0.9 & decorrelates trees \\
+$\ell_2$ leaf penalty & 0.5--20 & log-uniform \\
+rounds & early stopping & patience 50, most recent fold \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Uncertainty quantification}
+\label{sec:xgb-uq}
+
+Three tools, three targets: per-firm heteroskedastic intervals (quantile regression),
+finite-sample coverage repair (conformal), and model-level uncertainty of scalar
+summaries (cluster bootstrap). Table~\ref{tab:xgb-uqtools} states when each is the right
+instrument.
+
+\subsection{Quantile regression with the pinball loss}
+
+For $\tau \in (0,1)$ the pinball (check) loss is
+\begin{equation}
+\rho_\tau(u) = u\,\bigl(\tau - \ind{u < 0}\bigr)
+= \tau\, u_+ + (1-\tau)\, u_-,
+\label{eq:xgb-pinball}
+\end{equation}
+with $u_+ = \max(u,0)$, $u_- = \max(-u,0)$. Its population minimizer is exactly the
+quantile we want:
+
+\begin{proposition}[The pinball minimizer is the $\tau$-quantile]
+\label{prop:xgb-pinball}
+Let $Y$ have distribution function $F$ and finite first moment, and let
+$\varphi(a) = \E[\rho_\tau(Y - a)]$. Then any $a^*$ with $F(a^{*-}) \le \tau \le F(a^*)$
+minimizes $\varphi$; if $F$ is continuous and strictly increasing,
+$a^* = F^{-1}(\tau)$ uniquely.
+\end{proposition}
+
+\begin{proof}
+$\varphi$ is convex, and for $a$ a continuity point of $F$,
+$\varphi'(a) = -\tau \Prob(Y > a) + (1-\tau)\Prob(Y < a) = F(a) - \tau$.
+A convex function is minimized where its (sub)derivative changes sign, i.e.\ where
+$F(a^{-}) - \tau \le 0 \le F(a) - \tau$.
+\end{proof}
+
+We fit one boosted model per $\tau$ with objective \eqref{eq:xgb-pinball} applied
+conditionally. Separately fitted quantiles can cross in finite samples; we repair by
+sorting the predicted grid per row (monotone rearrangement), which never worsens pinball
+loss.
+
+\subsection{Conformalized quantile regression}
+
+Quantile models are calibrated only insofar as the model class and sample size allow;
+conformal prediction repairs marginal coverage with finite-sample guarantees
+\cite{romano2019}.
+
+\paragraph{Algorithm (split CQR).}
+\begin{enumerate}
+\item Split the available rows into a proper training set $I_1$ and a calibration set
+$I_2$ of size $n_2$, with the split at the firm level and $I_2$ chosen as a
+\emph{block}: the most recent complete era(s) before the deployment date.
+\item On $I_1$, fit lower and upper quantile models $\hat q_{\alpha/2}$,
+$\hat q_{1-\alpha/2}$ as above.
+\item For each $j \in I_2$ compute the conformity score
+$E_j = \max\bigl\{\hat q_{\alpha/2}(X_j) - Y_j,\; Y_j - \hat q_{1-\alpha/2}(X_j)\bigr\}$.
+\item Let $Q_{1-\alpha}$ be the $\lceil (n_2+1)(1-\alpha) \rceil$-th smallest of
+$\{E_j\}_{j \in I_2}$.
+\item Report the interval
+$C(x) = \bigl[\hat q_{\alpha/2}(x) - Q_{1-\alpha},\;
+\hat q_{1-\alpha/2}(x) + Q_{1-\alpha}\bigr]$.
+\end{enumerate}
+
+\begin{theorem}[CQR marginal coverage \cite{romano2019}]
+\label{thm:xgb-cqr}
+If the calibration pairs $\{(X_j, Y_j)\}_{j \in I_2}$ and the test pair $(X, Y)$ are
+exchangeable, then $\Prob\{Y \in C(X)\} \ge 1 - \alpha$; if the scores are almost surely
+distinct, also $\Prob\{Y \in C(X)\} \le 1 - \alpha + 1/(n_2 + 1)$.
+\end{theorem}
+
+\begin{warning}[Temporal data are not exchangeable]
+\label{warn:xgb-exch}
+Theorem~\ref{thm:xgb-cqr} assumes the test row is exchangeable with the calibration
+rows. A macro-era shift between calibration block and deployment breaks this, and no
+finite-sample guarantee survives. Practice: calibrate on the most recent contiguous
+block (as above), \emph{treat the nominal level as approximate}, measure empirical
+coverage per era on every historical fold, and recalibrate at every model vintage. If
+per-era coverage drifts systematically with the macro state, widen intervals by the
+worst observed era's deficit rather than trusting the nominal $\alpha$.
+\end{warning}
+
+\subsection{Cluster bootstrap over firms}
+
+Quantile and conformal intervals describe \emph{per-row} outcome uncertainty. A
+different question --- how uncertain is a scalar summary of the fitted model, such as an
+era MAE, a decile-spread statistic, or the skill gap over a benchmark --- requires
+resampling the fitting process itself \cite{efron1994}.
+
+\paragraph{Algorithm (firm-level percentile bootstrap).}
+\begin{enumerate}
+\item Let $\mathcal{F}$ be the set of firms. For $b = 1, \dots, B$ (we use
+$B \in [200, 500]$): draw $|\mathcal{F}|$ firms from $\mathcal{F}$ with replacement and
+assemble the replicate panel from \emph{all rows} of each drawn firm (duplicates kept).
+\item Re-run the frozen pipeline on the replicate: feature construction, the tuned
+hyperparameter configuration (not re-searched), fit, and compute the scalar summary
+$\hat\theta_b$ on the replicate's validation eras.
+\item Report the percentile interval
+$\bigl[\hat\theta_{(\lceil \alpha B/2 \rceil)},\;
+\hat\theta_{(\lceil (1-\alpha/2) B \rceil)}\bigr]$.
+\end{enumerate}
+Resampling firms, not rows, is the load-bearing choice: within-firm correlation means
+the effective sample size is closer to the number of firms than the number of rows, and
+a row-level bootstrap understates variance accordingly.
+
+\begin{table}[htbp]
+\centering
+\caption{Choosing the uncertainty tool.}
+\label{tab:xgb-uqtools}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Tool & Quantifies & Guarantee & Cost \\
+\midrule
+Quantile regression & per-row outcome spread & none per se & 1 fit per $\tau$ \\
+Split CQR & per-row interval coverage & finite-sample marginal, & 1 calibration \\
+ & & approximate under drift & pass \\
+Firm bootstrap & model-level scalars & asymptotic, within & $B$ refits \\
+ & (MAE, skill gaps) & the observed design & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Evaluation protocol}
+\label{sec:xgb-eval}
+
+We report MAE and $R^2$ \emph{by era} and by horizon, never pooled alone: a pooled MAE
+averages over exactly the regime heterogeneity the model is weakest on. The median model
+(pinball at $\tau = 0.5$) is evaluated with MAE --- matched loss --- and the pseudo-Huber
+mean model with both MAE and RMSE. Quantile calibration is checked per era with
+reliability diagrams: for each $\tau$, the empirical fraction of outcomes below
+$\hat q_\tau(X)$ plotted against $\tau$; a well-calibrated model tracks the diagonal, a
+regime-sensitive one shows era-dependent slope. Subgroup stability: per-cell MAE by
+sector and size tercile relative to pooled MAE, flagging cells where a benchmark of
+Section~\ref{sec:xgb-bench} beats the boosted model --- such cells are candidates for
+exclusion from deployment, not for silent averaging.
+
+\begin{warning}[Attributions are associational]
+\label{warn:xgb-shap}
+SHAP-style attributions decompose the \emph{fitted} $\hat m$, i.e.\ they redistribute
+predicted differences among correlated inputs of an associational object. A large
+attribution on \texttt{months\_since\_last\_round} does not mean financing drives
+growth; it means firms that recently raised look different, which is precisely the
+selection effect Chapter~\ref{ch:causal} is built to separate from the causal one. Use
+attributions for debugging (leakage detection, sanity of signs) and never in an
+investment memo as an effect size.
+\end{warning}
+
+\section{Benchmarks and when not to use gradient boosting}
+\label{sec:xgb-bench}
+
+Every fold carries three benchmarks: \emph{persistence} (predict the firm's last
+observed growth), \emph{sector-year mean} (predict the cell average), and \emph{ridge}
+regression on the identical feature matrix (with the missingness indicators, since ridge
+has no native sparsity handling). The shipping rule is strict: the boosted model is
+deployed only where its out-of-era skill gap over ridge exceeds the half-width of the
+firm-bootstrap interval on that gap. A gap inside the interval is noise, and ridge is
+cheaper, more stable, and partially extrapolates.
+
+\begin{table}[htbp]
+\centering
+\caption{When gradient boosting is the wrong tool.}
+\label{tab:xgb-decision}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Situation & Symptom & Use instead \\
+\midrule
+Tiny sample & $\lesssim 5$k firm-years & ridge on curated features \\
+Regime extrapolation & deployment macro outside & linear/constrained macro \\
+ & training support & term $+$ trees on the rest \\
+Regulatory interpretability & auditable decision rule required & scorecard or shallow \\
+ & & monotone model \\
+Skill gap within noise & bootstrap CI covers zero & ridge; revisit features \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The model of this chapter answers ``which firms will grow?'' conditional on everything
+observable. It is silent on ``what happens if a firm raises?'' --- the fitted dependence
+on deal-history features mixes selection with effect. Chapter~\ref{ch:causal} takes up
+that question with the same data and an explicitly causal contract.

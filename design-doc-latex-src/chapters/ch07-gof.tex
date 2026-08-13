@@ -1,0 +1,745 @@
+% ch07-gof — goodness of fit, model comparison, and calibration discipline
+
+\section{The evaluation constitution}\label{ch07:sec:constitution}
+
+Every preceding chapter builds an estimator; this chapter fixes the court in
+which all of them are tried. Its deliverables are not models but rules: a
+definition of ``calibrated'' for each of the four targets of
+\cref{ch:question}, the test batteries that operationalize those
+definitions, the comparison ladder that decides which model family is
+promoted, and the reporting discipline that keeps every number attached to
+the caveats it needs. We call this the \emph{evaluation constitution}
+because it is meant to be hard to amend: metrics chosen after seeing
+results are not metrics, and the repository's synthetic rehearsals
+(\cref{app:results}) demonstrated repeatedly that the difference between a
+defensible claim and an embarrassing one was almost never the model --- it
+was whether the evaluation respected the risk set, the temporal split, and
+the identifiability limits of the parameter being quoted.
+
+The word ``calibrated'' means something different for each target, and
+conflating the meanings is the failure mode
+\cref{ch01:sec:targets} warns against.
+
+\begin{definition}[Calibration, per target]\label{def:ch07:calibrated}
+Fix an evaluation era and the point-in-time discipline of
+\cref{prot:ch02:pit}.
+\begin{enumerate}[label=(\roman*)]
+\item \emph{T2 (timing).} An intensity or count model is calibrated if it
+survives the time-rescaling battery of \cref{prot:ch07:rescaling} at the
+finest resolution its event times honestly support, \emph{and} the
+count-calibration battery of \cref{prot:ch07:pit} (PIT uniformity,
+dispersion near $1$, reliability per sector-week) at weekly resolution.
+Both are required: rescaling sees timing structure that counts hide, and
+PIT sees marginal-distribution failures that rescaling averages out.
+\item \emph{T3 (horizon events).} A horizon classifier is calibrated if its
+predicted probabilities match conditional frequencies:
+$\Prob(\text{event within } \horizon \st \hat p = p) = p$ across the
+support of $\hat p$, assessed by reliability diagram, calibration
+intercept and slope. Discrimination (PR-AUC, lift at $K$) is necessary
+but never sufficient; recalibration maps
+\citep{platt1999,zadroznyelkan2002,niculescumizil2005} are legal but are
+model components, fitted on the validation era only.
+\item \emph{T1 (identity).} A ranker is judged by ranking metrics
+(recall at $K$, MRR, computed on the declared risk set) \emph{and} by
+held-out conditional likelihood (nats per deal of the mark factor). Each
+alone is gameable: recall at $K$ is blind to the probabilities attached to
+the ranks it gets right, and conditional NLL can improve while the tail
+ordering that sourcing consumes inverts. Both must be reported; neither
+may be traded silently for the other.
+\item \emph{T4 (marks).} Mark models are scored by proper scoring rules per
+mark (\cref{ch07:sec:counts}), with the same temporal split.
+\end{enumerate}
+\end{definition}
+
+\begin{decision}{D7.1 --- the evaluation constitution}
+The definitions in \cref{def:ch07:calibrated}, the protocols
+\cref{prot:ch07:rescaling,prot:ch07:pit,prot:ch07:recovery,prot:ch07:temporal},
+and the ladder of \cref{ch07:sec:comparison} are the only admissible
+evaluation for models in this repository. A new metric enters the
+constitution only together with a new consuming action, per decision D1.1
+of \cref{ch:question}; a metric may never be added because a model
+happens to do well on it. Rationale: post hoc metric selection is the
+cheapest way to fool ourselves, and the rehearsal campaigns showed that
+every family looks good on \emph{some} score. Reversal trigger: a change
+in the decision layer (\cref{ch:decision}) that adds or retires a
+consuming action.
+\end{decision}
+
+\section{Continuous-time goodness of fit}\label{ch07:sec:continuous}
+
+\subsection{Time rescaling in practice}\label{ch07:sec:rescaling}
+
+The instrument for event-time fit is the time-rescaling theorem, proved in
+\cref{ch:foundations} from Watanabe's characterization and restated here
+in the form the diagnostics use \citep{brown2002,ogata1988,daley2003}.
+
+\begin{theorem}[Time rescaling, evaluation form]\label{thm:ch07:rescale}
+Let $\counting$ be a point process on $[0,\Tend]$ with event times
+$t_1 < t_2 < \cdots < t_n$, adapted to $\{\Ft\}$, admitting a strictly
+positive conditional intensity $\lam(t)$ whose compensator
+$\Lam(t)=\int_0^t \lam(u)\dd u$ is a.s.\ finite and continuous. Then the
+rescaled times $\tau_m = \Lam(t_m)$ form a unit-rate Poisson process on
+$[0,\Lam(\Tend)]$; equivalently, with $\tau_0=0$, the gaps
+\begin{equation}\label{eq:ch07:gaps}
+\xi_m \;=\; \tau_m - \tau_{m-1} \;\sim\; \mathrm{Exp}(1)
+\quad\text{i.i.d.},
+\qquad
+u_m \;=\; 1 - e^{-\xi_m} \;\sim\; U(0,1)
+\quad\text{i.i.d.}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Since $\lam>0$, $\Lam$ is continuous and strictly increasing, so
+$s\mapsto\Lam^{-1}(s)$ is a well-defined family of $\{\Ft\}$-stopping
+times. Set $\tilde\counting(s)=\counting(\Lam^{-1}(s))$ and
+$\tilde\F_s = \F_{\Lam^{-1}(s)}$. Because
+$\counting(t)-\Lam(t)$ is a local martingale
+(\cref{ch:data}, \cref{eq:ch02:martingale}), optional stopping at
+$\Lam^{-1}(s)$ shows $\tilde\counting(s)-s$ is a local
+$\{\tilde\F_s\}$-martingale: $\tilde\counting$ is a counting process with
+deterministic continuous compensator $s$, hence a unit-rate Poisson
+process by Watanabe's characterization (\cref{ch:foundations}). The gap
+and uniform statements are the standard exponential-spacings and
+probability-integral facts. The proof fails exactly where its hypotheses
+do: if $\lam$ vanishes on at-risk gaps, rescale over at-risk time only;
+and if the $t_m$ are jittered (defect (C4)), the theorem still holds for
+the \emph{true} times but the computed $\tau_m$ use corrupted ones --- the
+test then interrogates model and jitter jointly
+(\cref{ch07:sec:reporting}).
+\end{proof}
+
+In practice $\Lam$ is the \emph{fitted} compensator $\hat\Lam$, and three
+details separate a usable diagnostic from a misleading one: the open final
+interval, the null distribution under estimated parameters, and
+localization.
+
+\begin{protocol}[Time-rescaling battery]\label{prot:ch07:rescaling}
+\leavevmode
+\begin{enumerate}[label=(\alph*)]
+\item \emph{Residuals.} Compute $\xi_m$ from \cref{eq:ch07:gaps} with the
+fitted compensator, integrating over at-risk time only, per sector and
+pooled (\modrepo{mbpp/gof.py}, \code{time\_rescaling\_residuals}).
+\item \emph{The last interval is censored.} The final gap
+$\hat\Lam(\Tend)-\tau_n$ is a right-censored $\mathrm{Exp}(1)$ draw by
+memorylessness. It is either excluded from the KS sample or included as a
+censored observation in a likelihood-based check; it is \emph{never}
+treated as a complete gap. Treating it as complete injects one draw that
+is stochastically too small per unit --- across many sectors this
+manufactures a spurious excess of short gaps, i.e.\ phantom clustering.
+\item \emph{KS and QQ.} Test the complete gaps against $\mathrm{Exp}(1)$
+(KS, \code{ks\_test\_exp1}) and plot QQ coordinates (\code{qq\_exp1})
+with envelope bands. Report the statistic per sector and pooled.
+\item \emph{Localization.} A rejection is the beginning, not the end:
+identify \emph{which} sectors, which calendar windows, and which
+covariate strata carry the misfit, using the stratified residuals of
+\cref{eq:ch07:mres} --- this is Ogata's residual-analysis program
+\citep{ogata1988}.
+\item \emph{Defect exposure.} Under (C4) this battery is run only at the
+resolution the dates honestly support (daily-resolved deals in the
+event-time track; never sub-week on jittered dates); under (C3) the
+fitted $\hat\lam$ absorbs dead exposure and the test inherits the
+optimism of \cref{warn:ch07:deadgof}.
+\end{enumerate}
+\end{protocol}
+
+\begin{warning}[Estimated parameters make standard bands optimistic for the model]\label{warn:ch07:estimated}
+The KS null distribution assumes a fixed hypothesized law. When the
+compensator is fitted on the same data, $\hat\Lam$ adapts to the sample,
+the KS statistic is stochastically smaller than under a fixed truth, and
+standard $p$-values are conservative: a model can \emph{pass} while
+wrong. The honest null is simulation-based: simulate from the fitted
+model, refit, recompute the statistic, and compare the observed value to
+this refit-in-loop distribution. The envelope machinery of
+\cref{prot:ch07:envelope} provides the harness; held-out-era residuals
+(fit on train, rescale on test) are the cheap partial fix and are the
+repository default.
+\end{warning}
+
+\subsection{Martingale residuals over strata}\label{ch07:sec:mres}
+
+Time rescaling compresses the whole fit into one distributional statement;
+martingale residuals decompose it. For any predictable stratum $g$ --- a
+set of (unit, time) pairs selected by sector, calendar window, or
+covariate values known at $t^-$ --- define
+\begin{equation}\label{eq:ch07:mres}
+R(g) \;=\; \sum_{m}\ind{(e_m,t_m)\in g}
+ \;-\; \sum_{e}\int_0^{\Tend} \ind{(e,u)\in g}\,\atrisk_e(u)\,
+ \hat\lam_e(u)\dd u,
+\qquad
+Z(g) \;=\; \frac{R(g)}{\sqrt{\hat\Lam(g)}},
+\end{equation}
+where $\hat\Lam(g)$ is the integral term. Under a correctly specified
+model $R(g)$ is the terminal value of a mean-zero martingale with
+predictable variation $\Lam(g)$, so $Z(g)$ is approximately standard
+normal when $\hat\Lam(g)$ is large \citep{abgk1993}. The design use is
+\emph{systematic lack-of-fit localization}: compute $Z(g)$ over a fixed
+grid of strata --- sector $\times$ calendar quarter, staleness-age bands
+of $\staleage_i(t)$, macro-covariate terciles --- and read the sign
+pattern. A block of positive $Z$ across all sectors in one era is a
+missing calendar covariate; positive $Z$ concentrated at high staleness
+age is the (C5) signature that \cref{ch:stale} predicts; one wild cell is
+usually data hygiene, not model failure. Isolated $|Z|>2$ values among
+dozens of strata are expected; structure is what indicts the model.
+
+\subsection{Simulation-based envelope tests}\label{ch07:sec:envelope}
+
+Likelihood-based diagnostics ask whether the data look probable under the
+model; envelope tests ask whether the model's own sample paths look like
+the data. They are the only GOF instrument that sees \emph{functionals we
+did not fit}.
+
+\begin{protocol}[Envelope battery]\label{prot:ch07:envelope}
+\leavevmode
+\begin{enumerate}[label=(\alph*)]
+\item Simulate $B$ (default $999$) replicates of the evaluation era from
+the fitted model using the simulators of \cref{ch:hawkes}: Ogata thinning
+\citep{ogata1981}, the cluster representation \citep{hawkesoakes1974}, or
+exact exponential-kernel simulation \citep{dassioszhao2013}; pass each
+replicate through the same observation layer (aggregation, at-risk masks)
+as the real data.
+\item Compute, per replicate and for the data, a fixed pre-registered
+statistic vector: weekly-count autocorrelations at lags $1$--$8$, the
+dispersion index of \cref{prop:ch07:dispersion}, the coefficient of
+variation of inter-event gaps, the maximum weekly count, and the
+sector-level count cross-correlations.
+\item Reject a statistic at (pointwise) level $\alpha \approx 2/(B+1)$ if
+the observed value falls outside the central simulated band; report all
+statistics together and treat the multiplicity honestly --- one excursion
+among a dozen statistics at $B=999$ is weak evidence.
+\item \emph{Defect exposure.} Simulating through the observation layer is
+mandatory: envelopes from the latent (uncorrupted) model test the wrong
+null. (C1)/(C4) are reproduced by construction; (C3) cannot be reproduced
+(we do not know who is dead) and the envelope inherits the same
+contaminated risk set as the fit.
+\end{enumerate}
+\end{protocol}
+
+The double-use caveat of \cref{warn:ch07:estimated} applies verbatim:
+parameters estimated from the data pull the envelope toward the data, so
+envelope non-rejection is weak; envelope \emph{rejection} is strong and
+localizes what the model cannot reproduce (typically: the real data's
+overdispersion or its cross-sector comovement).
+
+\section{Count-level goodness of fit}\label{ch07:sec:counts}
+
+At weekly resolution the model emits a predictive distribution
+$F_{s,w}$ for each sector-week count $Y_{s,w}$, and the calibration
+question becomes: are the observed counts distributed as the model says?
+The continuous-data answer --- the probability integral transform
+$F(Y)\sim U(0,1)$ --- fails for discrete data: $F(Y)$ is a discrete random
+variable, stochastically larger than uniform, and naive PIT histograms
+read miscalibration where there is none, most severely in sparse cells
+where $\Prob(Y=0)$ is large. Two standard repairs exist
+\citep{smith1985,brockwell2007,czado2009}.
+
+\begin{proposition}[Randomized PIT]\label{prop:ch07:rpit}
+Let $Y$ have cumulative distribution $F$ on $\N_0$ with
+$p_y=F(y)-F(y-1)$, and let $V\sim U(0,1)$ independent of $Y$. Then
+\begin{equation}\label{eq:ch07:rpit}
+U \;=\; F(Y-1) + V\,p_Y
+\end{equation}
+satisfies $U \sim U(0,1)$.
+\end{proposition}
+
+\begin{proof}
+Fix $u\in(0,1)$ and let $y^{*}$ be the unique value with
+$F(y^{*}-1) < u \le F(y^{*})$. Conditioning on $Y=y$:\ if $F(y)\le
+u$ (i.e.\ $y<y^{*}$) then $U\le u$ with probability $1$; if $y>y^{*}$
+then $F(y-1)\ge u$ and $U\le u$ has probability $0$; if $y=y^{*}$ then
+$\Prob(U\le u \st Y=y^{*}) = (u - F(y^{*}-1))/p_{y^{*}}$. Summing,
+\[
+\Prob(U\le u)
+ = \sum_{y<y^{*}} p_y + p_{y^{*}}\cdot\frac{u-F(y^{*}-1)}{p_{y^{*}}}
+ = F(y^{*}-1) + u - F(y^{*}-1) = u. \qedhere
+\]
+\end{proof}
+
+Under a correctly calibrated sequence of predictive distributions the
+$U_{s,w}$ are i.i.d.\ uniform and the whole continuous toolkit (KS,
+histograms, drift plots) applies. The price is randomization: two
+analysts get two dashboards. The non-randomized alternative of
+\citet{czado2009} replaces each draw by its conditional expectation: with
+$a=F_{s,w}(y_{s,w}-1)$, $b=F_{s,w}(y_{s,w})$, define the conditional PIT
+$c(u;a,b) = \min\{\max\{(u-a)/(b-a),0\},1\}$ and the aggregate
+$\bar F(u) = \frac{1}{n}\sum_{s,w} c(u;a_{s,w},b_{s,w})$; calibration
+implies $\E\,\bar F(u)=u$, and the histogram of increments of $\bar F$ is
+the deterministic analogue of the PIT histogram. Repository rule: the
+non-randomized version drives dashboards and regressions (reproducible),
+the randomized version drives formal tests (exact uniformity).
+
+\begin{proposition}[Dispersion index and its sampling distribution]\label{prop:ch07:dispersion}
+Let $Y_i \sim \mathrm{Poisson}(\mub_i)$ independently, $i=1,\dots,n$, and
+\begin{equation}\label{eq:ch07:dispersion}
+\hat\phi \;=\; \frac{1}{n-p}\sum_{i=1}^{n}
+ \frac{(Y_i-\hat\mub_i)^2}{\hat\mub_i},
+\end{equation}
+with $p$ fitted parameters. With known means ($p=0$, $\hat\mub_i=\mub_i$):
+$\E\,\hat\phi = 1$ and
+$\Var\big(\hat\phi\big) = n^{-2}\sum_i \big(2 + 1/\mub_i\big)$, so that if
+$n^{-1}\sum_i 1/\mub_i \to \bar m < \infty$,
+\[
+\sqrt{n}\,\big(\hat\phi - 1\big) \;\xrightarrow{d}\;
+\mathcal{N}\!\big(0,\; 2 + \bar m\big).
+\]
+Estimated means reduce the degrees of freedom, whence the divisor $n-p$.
+\end{proposition}
+
+\begin{proof}
+For $Y\sim\mathrm{Poisson}(\mub)$ the central moments are
+$m_2=\mub$, $m_4=\mub+3\mub^2$. Hence
+$\E[(Y-\mub)^2/\mub]=1$ and
+$\Var[(Y-\mub)^2/\mub] = (m_4-m_2^2)/\mub^2
+ = (\mub+2\mub^2)/\mub^2 = 2 + 1/\mub$. Independence gives the variance
+sum; the Lindeberg CLT (bounded $1/\mub_i$ suffices) gives normality.
+The proof shows what practitioners forget: the null variance is
+\emph{not} $2/n$ --- the $1/\mub_i$ term dominates in sparse cells, and
+sector-weeks with $\mub_i \lesssim 1$ (common in this data) widen the
+honest acceptance band. Judging $\hat\phi$ against
+$1 \pm 2\sqrt{2/(n-p)}$ in a sparse panel manufactures false
+overdispersion alarms.
+\end{proof}
+
+Overdispersion ($\hat\phi>1$) is the escalation trigger of the model
+ladder --- it says history or heterogeneity is missing --- but it is
+\emph{never} evidence for excitation specifically, because frailty and
+contagion produce it identically (\cref{ch:hawkes},
+\cref{ch07:sec:identifiability}).
+
+\begin{protocol}[Count-calibration battery]\label{prot:ch07:pit}
+For every count model, on the evaluation era: (a) non-randomized PIT
+diagram pooled and per sector; (b) randomized-PIT KS test, seeds logged;
+(c) dispersion \cref{eq:ch07:dispersion} with the honest band of
+\cref{prop:ch07:dispersion}, reported \emph{alongside every count NLL};
+(d) reliability per sector-week: bin cells by predicted mean decile,
+compare observed to predicted bin means with Poisson error bars;
+(e) PIT drift over calendar time, plotted --- drift is the cheapest
+detector of vendor-coverage change and of (C5) staleness confounding.
+Defect exposure: complete sector counts make this battery robust to (C6)
+at sector level; (C3) does not bite sector counts (sectors do not die);
+(C4) is absorbed by construction --- weekly counts are the honest
+resolution.
+\end{protocol}
+
+\paragraph{Scoring rules for counts.}
+A scoring rule $S(F,y)$ assigns a loss to forecasting $F$ when $y$
+materializes; it is \emph{proper} if $\E_{Y\sim G}\,S(G,Y) \le
+\E_{Y\sim G}\,S(F,Y)$ for all $F$, and \emph{strictly proper} if equality
+forces $F=G$ \citep{gneitingraftery2007}. Propriety is not decoration: an
+improper score rewards hedged or sharpened forecasts and corrupts every
+comparison built on it. We use two:
+\begin{equation}\label{eq:ch07:scores}
+\mathrm{logS}(F,y) \;=\; -\log f(y),
+\qquad
+\mathrm{RPS}(F,y) \;=\; \sum_{k=0}^{\infty}\big(F(k) - \ind{y\le k}\big)^2 .
+\end{equation}
+
+\begin{proposition}[Strict propriety of the log score]\label{prop:ch07:logscore}
+On the class of probability mass functions with common support,
+$\mathrm{logS}$ is strictly proper.
+\end{proposition}
+
+\begin{proof}
+Let $g$ be the true pmf and $f$ any competitor with the same support.
+Then
+\[
+\E_g\big[-\log f(Y)\big] - \E_g\big[-\log g(Y)\big]
+ \;=\; \sum_y g(y)\log\frac{g(y)}{f(y)}
+ \;=\; \KL{g}{f} \;\ge\; 0,
+\]
+with equality iff $f=g$, by Jensen's inequality applied to the strictly
+concave logarithm ($\sum g\log(f/g) \le \log\sum f = 0$, strict unless
+$f/g$ is constant). Hence the expected score is uniquely minimized at the
+truth. If supports differ the score can be infinite --- which is a
+feature: a model that assigns zero mass to an observed count is
+infinitely wrong, and the repository treats $f(y)=0$ on observed data as
+a bug, not an outlier.
+\end{proof}
+
+The ranked probability score is proper on distributions with finite mean
+\citep{gneitingraftery2007,czado2009} but not local: it rewards mass
+\emph{near} the outcome. The two scores are complementary --- logS is the
+likelihood and dominates the ladder (\cref{ch07:sec:comparison}); RPS is
+distance-sensitive and robust to a single mis-tailed cell --- and both are
+reported, logS as primary, RPS as the sanity companion.
+
+\section{Model comparison}\label{ch07:sec:comparison}
+
+\subsection{The held-out NLL ladder}\label{ch07:sec:ladder}
+
+The primary comparison metric of the repository is held-out negative log
+likelihood, in two units: \emph{nats per event} for event-time models
+($-\loglik/n$ over test-era events) and \emph{nats per sector-week cell}
+for count models ($-\frac{1}{|\text{cells}|}\sum_{s,w}\log
+\hat f_{s,w}(y_{s,w})$). Every model is reported as a difference against
+three named baselines fitted on the same train era: \emph{random}
+(homogeneous Poisson, one global rate), \emph{historical-mean}
+(per-sector constant rate), and \emph{seasonal NHPP} (the
+covariate/seasonal Poisson model of \cref{ch:poisson}). A model that has
+not been run against all three has not been evaluated.
+
+\begin{warning}[Units are not exchangeable]\label{warn:ch07:units}
+Nats per event and nats per cell are different currencies: they condition
+on different information and normalize by different denominators. No
+number in one unit may be compared to a number in the other. Comparing an
+event-time model to a count model requires evaluating both at a common,
+honest resolution --- in practice, aggregating the event-time model's
+predictive distribution to weekly cells and paying the aggregation cost
+explicitly (\cref{ch:censoring}).
+\end{warning}
+
+\begin{decision}{D7.2 --- NLL ladder with the covariates-dominate prior}
+Held-out NLL against the three named baselines is the primary promotion
+metric for T2 models, with \cref{prot:ch07:temporal} governing the split.
+The standing prior, inherited from the rehearsal campaigns
+(\cref{app:results}), is that \emph{covariates dominate and excitation is
+decimal points}: moving from the seasonal baseline to the covariate NHPP
+was worth $+3.5$/$+5.7$/$+1.5$ nats across the three rehearsal worlds,
+while adding weekly excitation contributed $+0.04$/$-1.15$/$+0.53$.
+Consequently, any claim that excitation matters must clear the seasonal
+NHPP \emph{and} the covariate NHPP under rolling-origin evaluation, not
+merely improve on a weak baseline. Reversal trigger: excitation
+contributing $\ge 0.5$ nats per cell over the covariate NHPP on real data
+in two consecutive campaigns retires the prior.
+\end{decision}
+
+AIC and BIC have a narrow legal scope here: quick screening \emph{within}
+a family, on the train era, when models differ by a few regular interior
+parameters. Three limits keep them off headlines. First, they are
+in-sample devices, and our risk is out-of-era: a temporal regime shift is
+invisible to them. Second, their penalty calculus assumes regular
+asymptotics, which fail exactly at the comparison we care most about ---
+excitation present versus absent --- because $\branch=0$ is a boundary
+point, where even the effective parameter count is wrong (below). Third,
+under misspecification neither estimates what its derivation promises.
+Held-out NLL is the arbiter; information criteria are a screen.
+
+\subsection{Testing for excitation at the boundary}\label{ch07:sec:boundary}
+
+The natural test of ``is there any excitation?'' is the likelihood ratio
+between the covariate NHPP ($\branch=0$) and the exponential-Hawkes
+extension ($\branch\ge 0$). But $\branch=0$ lies on the boundary of the
+parameter space --- negative branching is not in the model --- so the
+classical $\chi^2_1$ asymptotics fail \citep{selfliang1987}.
+
+\begin{theorem}[Chi-bar-square limit for one bounded parameter]\label{thm:ch07:chibar}
+Let the model have parameter $(\branch,\psi)$ with $\branch\ge 0$ on the
+boundary at the null, $\psi$ interior nuisance parameters, and the decay
+$\decay$ \emph{fixed} (a decay bank, \cref{ch:hawkes}). Assume the LAN
+regularity conditions of \citet{selfliang1987}: consistency, a
+nonsingular Fisher information $\Fisher$ at the true value
+$(\,0,\psi_0)$, and differentiability in quadratic mean in a neighborhood
+intersected with the cone $\{\branch\ge0\}$. Then the likelihood-ratio
+statistic $\lambda_n = 2\big(\sup_{\branch\ge0,\psi}\loglik -
+\sup_{\psi}\loglik|_{\branch=0}\big)$ satisfies
+\begin{equation}\label{eq:ch07:chibar}
+\lambda_n \;\xrightarrow{d}\;
+\tfrac12\,\chi^2_0 + \tfrac12\,\chi^2_1,
+\qquad\text{i.e.}\qquad
+\Prob(\lambda_n \le x) \to \tfrac12 + \tfrac12\,\Prob(\chi^2_1\le x),
+\end{equation}
+where $\chi^2_0$ is the point mass at zero.
+\end{theorem}
+
+\begin{proof}
+Profile out $\psi$: under LAN, uniformly over
+$\branch = O(n^{-1/2})$,
+\[
+\loglik(\branch) - \loglik(0)
+ \;=\; \branch\,\tilde S_n \;-\; \tfrac12\,\branch^2\,\tilde\Fisher_n
+ \;+\; o_p(1),
+\]
+where $\tilde S_n$ is the efficient score for $\branch$ (the score
+residualized on the nuisance scores) and $\tilde\Fisher_n$ the efficient
+information, with $Z_n \defeq \tilde S_n/\tilde\Fisher_n^{1/2}
+\xrightarrow{d} \mathcal{N}(0,1)$ at the null. Maximizing the quadratic
+over the half-line $\branch\ge0$ gives
+$\hat\branch = \max(\tilde S_n,0)/\tilde\Fisher_n$ and
+\[
+\lambda_n \;=\; \big(\max(Z_n,0)\big)^2 + o_p(1).
+\]
+For $Z\sim\mathcal{N}(0,1)$:\ $\Prob(\max(Z,0)^2 \le x) = \Prob(Z\le 0) +
+\Prob(0<Z\le\sqrt{x}) = \tfrac12 + \tfrac12\Prob(\chi^2_1\le x)$. The
+mixture is exactly the geometry: with probability $\tfrac12$ the
+unconstrained optimum wants negative excitation, the constrained optimum
+sits at the boundary, and the LR is zero. When more than one parameter is
+bounded (e.g.\ a nonnegative excitation matrix), the mixture weights
+become the probabilities that the projected Gaussian lands on each face
+of the cone \citep{selfliang1987}, and closed forms disappear ---
+simulate instead.
+\end{proof}
+
+\emph{Practical rule.} The $p$-value for the boundary LRT is
+$p = \tfrac12\,\Prob(\chi^2_1 \ge \lambda_{\mathrm{obs}})$ --- halve the
+naive $p$-value; the $5\%$ critical value is $2.71$, not $3.84$. A team
+using $\chi^2_1$ tables is running a conservative test and will
+under-detect excitation; the direction of this error is at least safe,
+which is why the mistake survives unnoticed.
+
+\begin{warning}[When the decay is free, the mixture is wrong]\label{warn:ch07:boundary}
+Under $H_0:\branch=0$ the decay $\decay$ is unidentified --- every
+$\decay$ yields the same null model --- so if $\decay$ is estimated, the
+LR is effectively a supremum over the decay bank and is stochastically
+larger than \cref{eq:ch07:chibar}; the $50{:}50$ rule then
+\emph{over}-detects excitation. Two legal responses: (i) test per fixed
+decay-bank member (each obeys \cref{thm:ch07:chibar}) with a multiplicity
+correction across the bank; (ii) parametric bootstrap --- simulate from
+the fitted null NHPP, refit both models, and compare
+$\lambda_{\mathrm{obs}}$ to the simulated null distribution, reusing the
+envelope harness of \cref{prot:ch07:envelope}. Separately: Wald standard
+errors from the inverse Hessian are invalid for any parameter whose
+estimate sits at a boundary (fitted zeros in nonnegative excitation
+matrices accumulate there); report profile-likelihood intervals or
+held-out NLL instead.
+\end{warning}
+
+\section{Identifiability diagnostics}\label{ch07:sec:identifiability}
+
+A model comparison is only as meaningful as the parameters it compares
+are identified. Three diagnostics are standing obligations for the Hawkes
+layer.
+
+\paragraph{The $\branch$--$\decay$ ridge.}
+Define the profile likelihood
+$\loglik_p(\branch) = \max_{\decay,\psi}\loglik(\branch,\decay,\psi)$ and
+its two-dimensional analogue over $(\branch,\decay)$. On event-time data
+the profile is curved in both directions at sufficient volume; on
+aggregated counts it is not, and the reason is elementary.
+
+\begin{proposition}[Stationary counts pin $\branch$ and hide $\decay$]\label{prop:ch07:ridge}
+For a stationary exponential Hawkes process with baseline $\mub$ and
+kernel $\kernel(\tau)=\branch\decay e^{-\decay\tau}$, $\branch<1$, the
+mean bucket count over width $\horizon$ is
+$\Xi = \mub\,\horizon/(1-\branch)$. Hence
+\[
+\frac{\partial \Xi}{\partial\branch}
+ = \frac{\mub\,\horizon}{(1-\branch)^2} > 0,
+\qquad
+\frac{\partial \Xi}{\partial\decay} = 0 :
+\]
+first moments of counts identify $\branch$ and carry \emph{zero}
+information about $\decay$. All $\decay$-information in counts lives in
+the temporal covariance structure, whose sensitivity to $\decay$
+collapses at rate $\horizon^2 e^{-2\decay(1-\branch)\horizon}$ as the
+bucket widens (\cref{ch:censoring}).
+\end{proposition}
+
+\begin{proof}
+The stationary mean intensity solves the first-moment equation
+$\bar\xi = \mub + \bar\xi\int_0^\infty \kernel(\tau)\dd\tau
+ = \mub + \branch\,\bar\xi$ (\cref{ch:hawkes}), so
+$\bar\xi = \mub/(1-\branch)$, and $\Xi = \bar\xi\horizon$ does not
+involve $\decay$. Differentiation is immediate. The covariance statement
+is \cref{ch:censoring}'s Fisher-information computation, restated here
+because it is the operative rule: the exponential factor beats any
+polynomial, so no amount of clever estimation recovers a timescale from
+buckets much wider than the kernel's half-life.
+\end{proof}
+
+The consequences were measured (\cref{app:results}): $\decay$ estimated
+from 28-day buckets came in biased low by ${\sim}20\%$ with a deceptively
+tight spread --- the signature of an unidentified direction collapsing
+onto a ridge --- while $\branch$ was stable at every width. The standing
+rule, restated from \cref{ch:censoring}: bucket width at most one kernel
+half-life is safe for timing; four or more half-lives destroys it; when
+in the destroyed regime, fix $\decay$ to a decay bank and report
+$\branch$ only. Operationally, every Hawkes fit ships its profile slices:
+if $\loglik_p$ varies by less than $0.5$ nats across an order of
+magnitude in $\decay$, the fit \emph{declares} $\decay$ unidentified and
+the reporting layer refuses to print a decay estimate.
+
+\paragraph{Frailty versus contagion: the upper-bound rule.}
+Overdispersion and clustering are produced identically by contagion
+(past deals raise future intensity) and by frailty (persistent latent
+heterogeneity) \citep{duffie2009,azizpour2018}; a fitted Hawkes model
+channels both into $\hat\branch$. The rehearsal quantified the
+masquerade: under a latent AR($0.90$) frailty factor the fitted effective
+excitation radius came out $2.4\times$ the truth (\cref{app:results}).
+Since additional structure (shared covariates, factor models) can only
+remove apparent excitation, every fitted branching ratio in this
+repository is reported as an \emph{upper bound} on contagion --- the
+sentence ``$\hat\branch=0.3$'' is banned; the sentence ``excitation plus
+unmodeled common factors account for at most $\hat\branch=0.3$'' is the
+template (\cref{ch:hawkes} develops the decomposition attempts and their
+limits).
+
+\paragraph{Parameter recovery as a shipping gate.}
+
+\begin{protocol}[Parameter-recovery rehearsal]\label{prot:ch07:recovery}
+No new model family ships until it passes, on synthetic data, all of:
+\begin{enumerate}[label=(\alph*)]
+\item \emph{Gradient check.} Analytic gradients of the likelihood agree
+with finite differences at relative error $10^{-6}$--$10^{-8}$ at random
+interior points --- the repository's standing discipline
+(\cref{app:results}); a family whose gradients do not check does not
+proceed to fitting.
+\item \emph{Recovery.} Simulate $\ge 20$ datasets from the family at
+parameter values matched to fitted real-data scale, pass them through
+the synthetic observation layer with defects (C1)--(C6) active
+(\cref{ch02:sec:synthetic}), fit with the production code path, and
+verify: parameters claimed interpretable are recovered with bias small
+against their sampling spread; parameters known unidentified under the
+observation scheme (e.g.\ $\decay$ under coarse aggregation,
+\cref{prop:ch07:ridge}) are \emph{declared} non-recoverable, and the
+declaration is part of the family's documentation.
+\item \emph{Coverage.} Whatever interval procedure the family advertises
+(profile, bootstrap, posterior) achieves approximately nominal coverage
+in the rehearsal.
+\item \emph{Archival.} The rehearsal is an \code{experiments/} script
+with logged seed and config, its results filed under the conventions of
+\cref{prot:ch07:temporal}(d).
+\end{enumerate}
+A family failing (b) for some parameter may still ship \emph{for
+prediction}, but that parameter is barred from interpretation until a
+passing rehearsal exists. Defect exposure: the gate is exactly as honest
+as the observation layer's reproduction of (C1)--(C6); (C3)'s unlabeled
+exits are simulated, which is the one place we can rehearse a defect we
+cannot observe.
+\end{protocol}
+
+\section{The temporal evaluation protocol}\label{ch07:sec:temporal}
+
+All of the above presumes an evaluation era. Choosing it is not
+bookkeeping: with 13.5 years of data spanning a zero-rate boom (2021), a
+rate-shock bust (2022--2023), and a partial normalization (2024), the
+split determines which regime the headline numbers describe.
+
+\begin{protocol}[Temporal evaluation]\label{prot:ch07:temporal}
+\leavevmode
+\begin{enumerate}[label=(\alph*)]
+\item \emph{Development split (fixed).} One split serves all model
+development: train on data through 2019-12-31; validate (model selection,
+hyperparameters, calibration maps) on 2020-01-01--2021-12-31; test on
+2022-01-01--2024-06-30, touched only when a family is frozen. No result
+computed on the test era before freezing may influence any modeling
+choice.
+\item \emph{Rolling-origin evaluation (headline).} Frozen families are
+reported by rolling origin: expanding-window refits at quarterly steps
+across the test era, each evaluated on the following quarter; the
+headline number is the mean across origins with its range. Rolling
+origins convert one number into a small distribution and are the only
+defense against a verdict that is an artifact of a single split point.
+\item \emph{No post-split information, anywhere.} Every transform ---
+imputation, scaling, feature construction, probability recalibration ---
+obeys \cref{prot:ch02:pit}: fitted on train (calibration maps on
+validation), applied frozen downstream. Covariate support is checked:
+test-era covariate ranges are reported next to every NLL, because a
+log-linear intensity extrapolated outside the train support is
+exponential extrapolation.
+\item \emph{Reproducibility.} Every evaluation run logs its seed, config
+hash, split boundaries, and code version; randomized-PIT draws and
+bootstrap resamples are seeded; results are machine-readable files under
+\code{results/}, one per experiment, following the \code{experiments/}
+conventions.
+\item \emph{Defect exposure.} (C1) is respected by construction (the
+test era ends at the administrative censoring time and open spells carry
+their survival factors); (C2)/(C3) exposure is inherited from the risk
+sets used, and every reported metric names its risk-set rule
+(\cref{ch07:sec:reporting}).
+\end{enumerate}
+\end{protocol}
+
+\begin{decision}{D7.3 --- default temporal split}
+The default development split is train $\le$ 2019, validation 2020--2021,
+test 2022--June 2024, as in \cref{prot:ch07:temporal}(a). Rationale: the
+validation era contains a violent regime change (COVID shock, then the
+2021 boom), so model selection is stress-tested against nonstationarity
+rather than sheltered from it; the test era contains the bust and
+normalization, which is the regime a deployed model faces next; and
+train ends before any of it, so no family is selected on the regime it
+will be scored on. The known risk is that 2021--2023 spans a structural
+break, so fixed-split verdicts may be regime artifacts --- which is
+precisely why headlines come from rolling origins, not from the fixed
+split. Reversal trigger: if rolling-origin family orderings disagree with
+fixed-split validation orderings in two consecutive campaigns, the fixed
+split is replaced by a multi-split (nested rolling) development scheme
+and this box is rewritten.
+\end{decision}
+
+\section{Reporting discipline and defect exposure}\label{ch07:sec:reporting}
+
+\begin{decision}{D7.4 --- no number without its caveat}
+The following pairings are mandatory in every report, dashboard, README
+table, and paper draft produced from this repository:
+\begin{enumerate}[label=(\roman*)]
+\item no hazard or intensity estimate without its \emph{risk-set rule}
+(who was at risk, from when, closed by what);
+\item no branching ratio without its \emph{upper-bound caveat}
+(\cref{ch07:sec:identifiability});
+\item no probability without its \emph{calibration plot} (reliability
+diagram or PIT, per \cref{def:ch07:calibrated});
+\item no ranking metric without its \emph{risk-set definition} (the
+top-5 rate 0.14 vs 0.29 observed-vs-oracle gap of \cref{app:results} is
+the standing proof that the risk set, not the model, can be the largest
+term);
+\item no count NLL without its \emph{dispersion} printed alongside
+(\cref{prot:ch07:pit}).
+\end{enumerate}
+Rationale: each rule is the fossil of a specific rehearsal failure in
+which the naked number was misleading and its caveat reversed the
+conclusion. Reversal trigger: none anticipated; amendments add pairings,
+they do not remove them.
+\end{decision}
+
+\paragraph{Defect declaration (per decision D2.1).}
+The ``models'' of this chapter are the tests themselves, and they are
+corrupted by the same six defects of \cref{tab:ch02:defects} they are
+meant to police. (C1) \emph{robust}: administrative censoring is handled
+exactly --- the open final rescaled interval is treated as censored
+(\cref{prot:ch07:rescaling}b) and censored cells enter count likelihoods
+with their survival factors. (C2) \emph{robust at sector level,
+conditional at firm level}: all firm-level GOF statements are statements
+about the entered (post-first-deal) universe; the protocols do not
+correct the selection, they inherit \cref{ch:universe}'s scope. (C3)
+\emph{vulnerable, optimistic} --- see \cref{warn:ch07:deadgof}. (C4)
+\emph{corrects by resolution}: the batteries are run at the honest
+resolution only --- weekly PIT always; event-time rescaling only on the
+daily-resolved track --- so date jitter is absorbed rather than tested
+against; the cost is that sub-weekly misfit is invisible by design. (C5)
+\emph{vulnerable, detectable}: stale covariates push lack of fit into the
+staleness-age strata of \cref{eq:ch07:mres} and into calendar PIT drift;
+the diagnostics detect the damage but cannot attribute it without
+\cref{ch:stale}'s machinery. (C6) \emph{robust for the ground process}
+(sector counts are complete), \emph{thinned for the mark factor} (ranker
+metrics run on tracked risk sets with the outside option of
+\cref{ch:universe}).
+
+\begin{warning}[GOF cannot detect dead exposure]\label{warn:ch07:deadgof}
+Under (C3), dead firms held at risk deflate every fitted firm-level
+hazard --- and the \emph{same} contaminated risk set is used at
+evaluation time, so the deflated model is scored against the corruption
+that produced it: held-out NLL, time-rescaling, and reliability can all
+pass while the hazard is wrong for every living firm. Goodness of fit is
+a consistency check between model and observed data, not between model
+and truth. This is why risk-set truthfulness has its own diagnostics
+(\cref{ch:poisson,ch:ranking}), why the exit-classifier AUC of $0.877$
+was insufficient to repair it (\cref{app:results}), and why rule (i) of
+decision D7.4 exists: the risk-set rule \emph{is} part of the estimate.
+\end{warning}
+
+\begin{codehooks}
+Existing: \modrepo{mbpp/gof.py} implements
+\code{time\_rescaling\_residuals}, \code{ks\_test\_exp1} (numpy-only KS),
+\code{qq\_exp1}, \code{poisson\_pearson\_residuals}, and
+\code{dispersion} --- the cores of
+\cref{prot:ch07:rescaling,prot:ch07:pit}. To be written:
+\modrepo{eval/}, the evaluation harness that makes the constitution
+executable: \modrepo{eval/ladders.py} (held-out NLL versus the three
+named baselines, nats per event and per cell, decision D7.2);
+\modrepo{eval/pit.py} (randomized and non-randomized PIT, reliability
+binning, PIT-drift series); \modrepo{eval/rescaling.py} (wraps
+\code{mbpp.gof} with censored-final-gap handling, stratified martingale
+residuals \cref{eq:ch07:mres}, bootstrap bands per
+\cref{warn:ch07:estimated}); \modrepo{eval/envelope.py} (simulation
+envelopes over \modrepo{eventtime/simulate.py} and
+\modrepo{mbpp/ic\_simulate.py}, doubling as the bootstrap null for
+\cref{warn:ch07:boundary}); \modrepo{eval/boundary.py} (chi-bar LRT,
+\cref{thm:ch07:chibar}); \modrepo{eval/rolling.py} (the rolling-origin
+driver of \cref{prot:ch07:temporal}). Conventions: every campaign is an
+\code{experiments/expNN\_name.py} script emitting seeded, config-stamped
+JSON to \code{results/}; the recovery gate of \cref{prot:ch07:recovery}
+reuses \code{synthetic/} world generation; profile-likelihood slices and
+the gradient check attach to the fitters in
+\modrepo{sector\_stability.py}, \modrepo{eventtime/estimate.py}, and
+\modrepo{mbpp/}.
+\end{codehooks}

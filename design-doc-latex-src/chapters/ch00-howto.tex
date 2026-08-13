@@ -1,0 +1,43 @@
+% ch00-howto — reading guide (unnumbered front-matter chapter)
+
+This document is the master reference for the \code{hawkes-sim} modeling
+effort: every future code modification in \modrepo{} should be traceable to a
+numbered decision, assumption, or protocol stated here. It supersedes the
+earlier working notes (\code{THEORY.md}, \code{MATH\_NOTES.md},
+\code{STRATEGY.md}) as the single source of truth, while carrying forward
+their results wherever those results survived scrutiny; the numerical
+verdicts inherited from the synthetic rehearsal campaigns are collected in
+\cref{app:results} so that the main text can cite them without re-deriving
+them.
+
+The document is organized around one organizing question --- \emph{what is
+valuable to know?} --- posed in \cref{ch:question} and answered differently
+by every subsequent part. \Cref{ch:data} fixes, once, what the
+PitchBook/FactSet data actually delivers and the six ways observation
+corrupts it. \Cref{ch:foundations,ch:poisson,ch:hawkes,ch:censoring,ch:gof}
+build the continuous-time machinery: point-process foundations, Poisson and
+exponential-Hawkes models with covariate-driven excitation and inhibition,
+the treatment of untrusted and censored deal times, and the goodness-of-fit
+discipline. \Cref{ch:stale} confronts the covariate staleness that PitchBook
+imposes. \Cref{ch:buckets,ch:ranking} develop the discrete-time bucket
+formulation solved with gradient boosting and the ranking view evaluated by
+recall at $K$. \Cref{ch:universe} handles deals arriving from companies
+outside the tracked universe. \Cref{ch:decision,ch:roadmap} close the loop:
+from model outputs to investment decisions, and from decisions to code.
+
+Three reading conventions. First, \emph{assumptions are contracts}: every
+model result is stated under numbered assumptions, and the text says
+explicitly which assumptions are believed, which are convenient fictions,
+and which are known to be false in the data (with the consequence of the
+violation). Second, \emph{Design decision} boxes record commitments --- a
+choice among alternatives, with the rationale and the trigger that would
+reverse it. Third, \emph{Code hooks} boxes at the end of each chapter map
+the mathematics onto modules of \modrepo{}, existing or to be written; these
+boxes, together with \cref{ch:roadmap}, are the implementation contract.
+
+Proofs are given in the running text when they are short and instructive;
+longer arguments are deferred to the ends of chapters. Citations are
+restricted to work we have actually relied on --- either for a theorem, a
+method we implement, or a warning we heed --- and the bibliography is
+annotated in that spirit throughout the text rather than in a separate
+rubric.

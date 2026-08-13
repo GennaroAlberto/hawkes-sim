@@ -1,0 +1,341 @@
+\chapter{Choosing a Method: Decision Framework and Testbed Evidence}
+\label{ch:selection}
+
+Chapters~\ref{ch:success} through~\ref{ch:censored} each argued for a method inside its own regime of
+observability. This chapter is the exit interview. Given a dataset, a question, and a tolerance for
+assumptions: which pipeline do we run, what does it estimate, how do we attach uncertainty, and what is most
+likely to go wrong? We compress the manual into two decision tables (Section~\ref{sec:sel-decisions}), then
+present the measured evidence from the synthetic testbed behind the recommendations
+(Section~\ref{sec:sel-testbed}). Section~\ref{sec:sel-benchmarks} states two standing benchmarks that any
+revision of the pipelines must pass or explicitly fail; Section~\ref{sec:sel-causal} explains why the
+synthetic worlds make the causal pipeline of Chapter~\ref{ch:causal} \emph{testable} rather than merely
+arguable. Sections~\ref{sec:sel-uq}--\ref{sec:sel-limits} close with the uncertainty-quantification summary,
+the production checklist, and the honest list of what this manual does not solve.
+
+\section{Two decision tables}
+\label{sec:sel-decisions}
+
+There are two natural entry points. Either we start from the \emph{data situation} (what the vendor gave us,
+which geography, how reliable the timestamps are) and ask what is estimable at all, or we start from the
+\emph{question} and ask which pipeline answers it. Table~\ref{tab:sel-master} takes the first route;
+Table~\ref{tab:sel-pipeline} the second. Both cite the chapter developing each recommendation; neither is a
+substitute for reading it. The most common failure we observe in practice is running a question-driven
+pipeline on a data situation that cannot support its estimand --- most often event-time excitation models on
+bucketed exports (row three of Table~\ref{tab:sel-master}), or causal claims read off predictive fits (rows
+five and six).
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabular}{p{2.5cm}p{3.4cm}p{2.9cm}p{2.6cm}p{3.0cm}}
+\toprule
+Scenario & Recommended model & Estimand & UQ method & First-order risk \\
+\midrule
+EU fundamentals panel & feature-engineered XGBoost on point-in-time panel (Ch.~\ref{ch:xgb}) &
+$\E[\text{success}\mid X]$; EBITDA-growth quantiles & split conformal / CQR & snapshot-field leakage \\
+US marks, reliable day timestamps & marked Hawkes, ground $\times$ mark two-stage (Ch.~\ref{ch:hawkes}) &
+excitation kernel; branching ratio & Laplace interval; parametric bootstrap & latent common factor
+inflates excitation \\
+US weekly or bucketed exports & covariate count GLM; MBPP interval-censored likelihood
+(Ch.~\ref{ch:poisson},~\ref{ch:censored}) & covariate semi-elasticities; effective radius $\kappa$ &
+quasi-Poisson sandwich; cluster bootstrap & aggregation manufactures apparent excitation \\
+Short history or tiny sectors & pooled Poisson GLM with hierarchical shrinkage (Ch.~\ref{ch:poisson}) &
+sector rate levels and trends & parametric bootstrap & overdispersion; a few large weeks dominate \\
+Causal: financing effect on outcomes & backdoor adjustment; AIPW / DML (Ch.~\ref{ch:causal}) &
+ATT of a round on survival / growth & cluster bootstrap CI; E-value & unobserved quality selects into
+treatment \\
+Causal: contagion between firms or sectors & event-time Hawkes with factor proxies and sensitivity
+analysis (Ch.~\ref{ch:hawkes}) & excitation net of common shocks & profile CI; sensitivity band & radius
+absorbs latent risk appetite \\
+Macro-effect question & count GLM with publish-lag exposure design (Ch.~\ref{ch:us},~\ref{ch:poisson}) &
+rate semi-elasticity to macro series & HAC / sandwich & publication-lag leakage; few macro cycles \\
+\bottomrule
+\end{tabular}
+\caption{Master decision table: from data situation to method. Every row assumes the point-in-time
+discipline of Chapter~\ref{ch:data} has already been enforced.}
+\label{tab:sel-master}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{4.4cm}p{9.8cm}}
+\toprule
+Question & Pipeline \\
+\midrule
+Success prediction & feature-engineered XGBoost \cite{chen2016} with conformal intervals
+\cite{romano2019} on the point-in-time panel (Ch.~\ref{ch:xgb}) \\
+Who-gets-funded ranking & two-stage sector count process plus funded-pool conditional logit
+\cite{mcfadden1974} with an explicit newcomer option (Ch.~\ref{ch:hawkes}) \\
+Contagion measurement & event-time Hawkes \cite{hawkes1971,bacry2015} with macro-factor proxies and
+sensitivity analysis (Ch.~\ref{ch:hawkes}) \\
+Macro sensitivity & covariate count GLM with exposure and publish-lag designs
+(Ch.~\ref{ch:us},~\ref{ch:poisson}) \\
+Censored or bucketed exports & MBPP interval-censored likelihood; report the effective radius $\kappa$,
+never the raw kernel parameters $\theta$ (Ch.~\ref{ch:censored}) \\
+\bottomrule
+\end{tabular}
+\caption{Question-driven decision table: from estimand to pipeline.}
+\label{tab:sel-pipeline}
+\end{table}
+
+\section{Testbed evidence}
+\label{sec:sel-testbed}
+
+All quantitative claims below come from the synthetic testbed that ships with the code
+(Appendix~\ref{app:code}), seed 0 throughout. Two worlds are simulated, both mirroring the schemas of
+Chapter~\ref{ch:data}. \emph{Regime A} is well specified for our tools: a weekly two-stage DGP over 520
+weeks, 12 sectors, and 8{,}000 firms (7{,}031 tracked), in which sector counts follow a count GLM with lagged
+excitation and firms are selected by a risk-set softmax with a 26-week cooldown indicator (true coefficient
+approximately $-2.7$); it produces 50{,}036 observed deals. \emph{Regime B} is deliberately misspecified: a
+daily firm-level block Hawkes process with 30-day-half-life self-inhibition, 7-day-half-life sector
+contagion, and a latent quality mark, producing 49{,}788 deals fitted with the same weekly tools. Both worlds
+pass through an observation-noise layer calibrated to Chapter~\ref{ch:data}: 28\% undisclosed deal sizes, a
+further 15\% only estimated (18\% relative error), 55\% missing valuations, 3\% sector mislabels, 1.2\%
+duplicates, date jitter of up to 6 days, and 12\% of firms untracked. Regime A shows what the estimators
+recover when their assumptions hold but the data are dirty; regime B shows what the same numbers mean when
+the world is event-time and the export is not.
+
+\subsection{Stage 1: sector-level count model recovery}
+\label{sec:sel-stage1}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+Quantity & Regime A & Regime B \\
+\midrule
+Covariate $\beta$ correlation with truth & 0.675 & 0.37 \\
+Intercept bias & $-0.09$ & --- \\
+Excitation--entry correlation & 0.27 & --- \\
+Fitted effective spectral radius & 0.355 & 0.57 \\
+True effective spectral radius & 0.172 & (not weekly-defined) \\
+Held-out Pearson dispersion & --- & 2.72 \\
+\bottomrule
+\end{tabular}
+\caption{Stage-1 recovery (seed 0). Regime A is well specified; regime B is a daily block Hawkes fitted
+with weekly tools.}
+\label{tab:sel-stage1}
+\end{table}
+
+Table~\ref{tab:sel-stage1} carries three lessons. First, observation noise alone attenuates: in regime A,
+where the fitted class contains the truth, the covariate coefficients correlate 0.675 with the true $\beta$
+--- roughly 25\% attenuation, consistent with errors-in-variables from estimated sizes and jittered dates.
+Signs and rankings survive; magnitudes are lower bounds. Second, the fitted effective radius of 0.355
+against a true 0.172 is \emph{not} noise: it is the latent serially correlated risk-appetite factor being
+absorbed into the excitation term, exactly the confounding mechanism of Section~\ref{sec:sel-causal}. Third,
+regime B shows what misspecification does: coefficient correlation collapses to 0.37, the fitted radius of
+0.57 is mostly a daily-to-weekly aggregation artifact, and the held-out Pearson dispersion of 2.72 flags the
+failure --- hence the dispersion check on the production checklist. What generalizes: the direction of every
+bias (attenuation, radius inflation, dispersion under aggregation). What is synthetic-specific: the exact
+factors, which depend on the noise calibration above.
+
+\subsection{Stage 2: funded-pool conditional logit}
+\label{sec:sel-choice}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+Metric & Regime A & Regime B \\
+\midrule
+Held-out NLL per event & 3.346 & 3.796 \\
+Random-choice NLL per event & 4.011 & 4.172 \\
+Top-5 accuracy & 0.446 & 0.316 \\
+Log-gap coefficient & $+1.146$ & $+0.437$ \\
+Newcomer ASC & 6.856 & 4.691 \\
+Newcomer share of events & $\approx 0.27$ & $\approx 0.27$ \\
+Dropped immediate-repeat events & 35 & 2 \\
+\bottomrule
+\end{tabular}
+\caption{Choice-model performance: 64-candidate sampled softmax on truthful risk sets, held-out weeks,
+seed 0.}
+\label{tab:sel-choice}
+\end{table}
+
+The model in Table~\ref{tab:sel-choice} is the funded-pool conditional logit with a 64-candidate sampled
+softmax (consistency argument in Appendix~\ref{app:proofs}) on truthful risk sets. In regime A the recovered
+feature weights are: raised-to-date 0.336 (truth 0.30), employees 0.253 (truth 0.30), age 0.054 (truth
+$-0.15$), stage 0.132 (truth 0.15). Three of four are recovered to within attenuation; the age sign is
+missed because the 26-week cooldown indicator and the fitted log-gap term ($+1.146$) absorb the age-adjacent
+recency structure --- the mechanism is captured but attributed to timing features rather than to age. The
+large newcomer alternative-specific constant is not a pathology: it prices the size of the unobserved
+entrant pool, and by the integrated-entrant identity of Appendix~\ref{app:proofs} it is interpretable only
+jointly with the assumed pool size. In regime B every number degrades but the ordering of models is
+preserved, which is the property we actually rely on when ranking candidates.
+
+\subsection{Risk-set contamination}
+\label{sec:sel-riskset}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lcl}
+\toprule
+Risk-set construction $\RS_t$ & Held-out NLL & Weight behaviour \\
+\midrule
+Naive observed-active mask & 3.886 & inverted: recency $+1.94$ vs.\ true 0 \\
+Oracle membership mask & 3.558 & all weights recovered \\
+\bottomrule
+\end{tabular}
+\caption{Risk-set contamination, regime A. The only difference between rows is who is deemed at risk at
+each event time.}
+\label{tab:sel-riskset}
+\end{table}
+
+\begin{warning}
+\label{warn:sel-riskset}
+Risk-set validity is first-order. In Table~\ref{tab:sel-riskset} the naive mask --- treating a firm as at
+risk only when the vendor happens to show it active --- does not merely cost likelihood; it \emph{inverts}
+the recency weight to $+1.94$ against a true value of 0, because firms enter the observed mask by
+transacting. No feature engineering repairs an estimate whose conditioning set is wrong. Audit $\RS_t$
+before touching the utility specification.
+\end{warning}
+
+\subsection{A stability episode, and the operator surrogate}
+\label{sec:sel-stability}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lccl}
+\toprule
+Feedback specification & Eff.\ radius & Outcome & Consequence \\
+\midrule
+Log-link, raw-count feedback & 0.35 & metastable & 50k-event world tipped to 169k events \\
+Log-link, raw-count feedback & 0.15 & stable & simulation matches fitted moments \\
+\bottomrule
+\end{tabular}
+\caption{Stability episode. Linear-Hawkes intuition (explosion only at radius $\ge 1$) does not transfer
+to log-link feedback on raw counts.}
+\label{tab:sel-stability}
+\end{table}
+
+Table~\ref{tab:sel-stability} records the incident behind checklist item 4: a log-link model feeding back
+raw counts at effective radius 0.35 --- comfortably subcritical by linear intuition --- is metastable, and one
+excursion tipped a 50{,}000-event world to 169{,}000 events. Stability theory for nonlinear self-excitation
+\cite{bremaud1996,fokianos2009} makes clear that the linear threshold is not the relevant boundary once the
+link is convex in the feedback; bounded transforms such as $\log(1+n)$ restore contractivity. Separately,
+the PINO operator surrogate for the MBPP Volterra equation (derivation in Appendix~\ref{app:proofs}) reaches
+sub-2\% relative $L^2$ error across 3--8 sector configurations under the full training protocol, at roughly
+3\,ms per solve; a 600-epoch demonstration run reaches only 8.2\%, so the cheap configuration is a demo, not
+a substitute.
+
+\section{Standing benchmarks}
+\label{sec:sel-benchmarks}
+
+We maintain two permanent falsifiability devices. They are not experiments run once; they are challenges
+every revision of the pipelines must confront, with targets frozen from Section~\ref{sec:sel-testbed}.
+
+\textbf{Benchmark 1 (XGBoost ranking baseline).} Fit a gradient-boosted ranker \cite{chen2016} on
+\emph{identical} choice sets --- same 64 candidates, same truthful risk sets, same temporal splits --- and
+compare top-5 accuracy against the conditional logit's 0.446 (regime A) and 0.316 (regime B). Decision
+rule: if the boosted ranker wins materially, the linear-in-features utility is missing features or
+nonlinearity, and the remedy is feature work, not model exotica; if it does not, we keep the logit for its
+interpretable weights and the ASC decomposition. Either outcome is informative; a run that skips the
+identical-choice-set discipline is informative about nothing.
+
+\textbf{Benchmark 2 (non-homogeneous Poisson null).} For any claimed excitation effect, fit the nested
+ladder: covariates-only inhomogeneous Poisson (simulated by thinning \cite{lewis1979}), then covariates plus
+excitation, then the full event-time timing model, and decompose the held-out improvement across the rungs.
+If the excitation rung contributes approximately nothing at this data scale, drop it: an excitation term
+that does not pay its way in held-out likelihood is a liability in simulation
+(Table~\ref{tab:sel-stability}) and an attractive nuisance in interpretation (Table~\ref{tab:sel-stage1}).
+The residual-analysis toolkit of \cite{ogata1988} supplies the diagnostics for each rung.
+
+\section{Causal validation on synthetic ground truth}
+\label{sec:sel-causal}
+
+For a manager deciding whether to trust the causal layer, the testbed changes the conversation: because the
+DGP is fully known, the pipeline of Chapter~\ref{ch:causal} is \emph{testable}, not merely defensible. The
+protocol: (i) generate a binary treatment (say, receiving a growth round) with known selection on
+observables \emph{and} on the latent quality mark; (ii) estimate the effect four ways --- naive difference in
+means, backdoor-adjusted regression \cite{pearl1995}, AIPW, and double/debiased ML
+\cite{imbens2015,chernozhukov2018} --- and compare each to the known truth; (iii) attach cluster bootstrap
+confidence intervals \cite{efron1994}; (iv) compute E-values \cite{vanderweele2017} and check them against
+the known strength of the latent confounding. The code asserts the expected qualitative outcomes as
+hypotheses: the naive estimate is biased in the direction of selection; backdoor adjustment removes the
+observable component; AIPW matches backdoor with better robustness to nuisance misspecification; and the
+residual gap to truth is attributable to latent quality, with magnitude consistent with the computed
+E-value. Where an assertion fails, the pipeline --- not the world --- is wrong.
+
+The count-process analogue is already in evidence: the fitted effective radius of 0.355 against a true 0.172
+(Table~\ref{tab:sel-stage1}) is the point-process version of a confounded treatment effect. ``Past events
+excite future events'' is a causal claim in which past events are the treatment; the latent serially
+correlated risk-appetite factor is the unmeasured common cause, and its omission violates exchangeability in
+precisely the sense of \cite{hernan2020}. The excitation-vs-latent-factor experiment therefore doubles as
+the standing reminder that no in-sample fit statistic distinguishes contagion from common shocks; only
+design (factor proxies, sensitivity bands, and, on the simulator, $\Do$-style interventions) does.
+
+\section{Uncertainty quantification: summary}
+\label{sec:sel-uq}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabular}{p{2.9cm}p{2.9cm}p{3.6cm}p{4.4cm}}
+\toprule
+Method & Technique & Guarantee & Key assumptions \\
+\midrule
+Count GLM (Ch.~\ref{ch:poisson}) & quasi-Poisson sandwich &
+asymptotic SE validity for mean parameters & correct mean function; dispersion as nuisance \\
+Two-stage / choice (Ch.~\ref{ch:hawkes}) & cluster bootstrap by week &
+asymptotic CI coverage & weak dependence across clusters; clustering at the right level \\
+XGBoost prediction (Ch.~\ref{ch:xgb}) & split conformal / CQR \cite{romano2019} &
+finite-sample marginal coverage & exchangeability; weakened under temporal splits \\
+Hawkes MLE (Ch.~\ref{ch:hawkes}) & Laplace / posterior interval &
+local asymptotic normality & correct specification; stationarity \\
+MBPP (Ch.~\ref{ch:censored}) & parametric bootstrap &
+coverage under the fitted DGP & model correctness; report $\kappa$, not $\theta$ \\
+\bottomrule
+\end{tabular}
+\caption{UQ summary: what each interval means and what it silently assumes.}
+\label{tab:sel-uq}
+\end{table}
+
+Table~\ref{tab:sel-uq} is deliberately blunt about guarantees. Only the conformal row carries a
+finite-sample statement, and even that one is marginal (not conditional) and degrades when temporal splits
+break exchangeability. Every other interval in this manual is asymptotic and specification-dependent; the
+dispersion of 2.72 in Table~\ref{tab:sel-stage1} means naive Poisson standard errors in regime B are
+understated by about $\sqrt{2.72} \approx 1.65$ before correction.
+
+\section{Production checklist}
+\label{sec:sel-checklist}
+
+\begin{enumerate}
+\item \textbf{Point-in-time audit.} Reconstruct every feature from data knowable at the prediction date;
+join macro series on \texttt{publish\_date}, never \texttt{ref\_date} (Ch.~\ref{ch:data},~\ref{ch:us}).
+\item \textbf{Deduplication.} Apply the 3-day-window convention before any counting; the testbed carries
+1.2\% duplicates and date jitter up to 6 days, and both alias into spurious short-lag excitation.
+\item \textbf{Risk-set truthfulness audit.} Validate the membership mask $\RS_t$ against a labelled
+subsample of known entrants and exits; contamination inverts weights (Table~\ref{tab:sel-riskset}).
+\item \textbf{Effective-radius guard.} Refuse to simulate any fitted model with effective radius $\ge 0.95$;
+for log-link raw-count feedback refuse well below that (metastability observed at 0.35,
+Table~\ref{tab:sel-stability}), or use bounded transforms.
+\item \textbf{Dispersion correction.} Report the held-out Pearson dispersion and scale standard errors
+accordingly; treat dispersion far above 1 as a specification alarm, not a nuisance.
+\item \textbf{Universe coverage and newcomer calibration.} Track the untracked-firm share (12\% in the
+testbed) and recalibrate the newcomer ASC whenever the pool definition changes; the ASC is meaningless
+detached from the pool (Appendix~\ref{app:proofs}).
+\item \textbf{Temporal splits only.} No random splits anywhere in the stack --- not for model selection, not
+for conformal calibration, not for the benchmarks of Section~\ref{sec:sel-benchmarks}.
+\item \textbf{Seeds and reproducibility.} Every reported number carries a seed (this chapter: seed 0) and a
+regeneration command; Appendix~\ref{app:code} maps each table here to its entry point.
+\end{enumerate}
+
+\section{Limitations and roadmap}
+\label{sec:sel-limits}
+
+Four limitations stand. First, entity resolution is single-vendor: without a second source,
+\texttt{company\_id} merges and splits cannot be audited, and every firm-level count inherits that
+fragility. Second, latent-factor confounding is mitigated, not solved: the 0.355-versus-0.172 radius gap
+persists under our best factor proxies, and we know of no observational design that closes it; sensitivity
+reporting is the honest ceiling. Third, cross-border generalization is untested: the two synthetic worlds
+mirror the EU-fundamentals and US-marks regimes respectively, and nothing here licenses transporting a model
+fitted in one to the other. Fourth, the outcome space is too coarse: ``next event'' conflates a follow-on
+round with an acquisition and with quiet failure. The next modelling step is competing risks ---
+cause-specific hazards for M\&A versus next round in the spirit of \cite{cox1972}, marked into the
+point-process machinery of \cite{daley2003} --- for which the survival scaffolding in the code base
+(Appendix~\ref{app:code}) is already laid.

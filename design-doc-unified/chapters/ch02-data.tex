@@ -1,0 +1,348 @@
+% ch02-data — the data, the formal observation model, and the defect ledger
+
+\section{Sources and window}\label{ch02:sec:sources}
+
+Two data sources feed every model in this document.
+
+\paragraph{PitchBook: the event-driven layer.} The deal history of the
+private market, delivered as three relational tables whose column-level
+dictionary is given in \cref{app:columns}. The \emph{deals} table is the
+event log: one row per financing event, keyed by \code{deal\_id} and
+\code{company\_id}, carrying the deal date, sector taxonomy
+(\code{primary\_industry\_sector} / \code{group} / \code{code}), round
+descriptors (\code{vc\_round}, \code{deal\_type}, \code{deal\_class},
+up/down/flat flags), economics (\code{deal\_size} with a status flag
+distinguishing \code{Actual}/\code{Estimated}/\code{Undisclosed},
+\code{pre\_money\_valuation}, \code{post\_valuation},
+\code{raised\_to\_date}, invested capital and ownership fields), firm
+financials as reported around the deal (\code{revenue}, \code{ebitda},
+\code{gross\_profit}, \code{net\_income}, employees, growth since last
+deal), and geography. The \emph{companies} table is a snapshot per tracked
+firm: identity, sector, founding year, business status, and
+last-observed-deal summaries (\code{last\_financing\_date}, \code{\_size},
+\code{\_valuation}, \code{\_deal\_type}). The \emph{investors} table links
+firms to their investors with first-investment dates. The universe flag
+\code{company\_universe} marks whether a deal belongs to a firm PitchBook
+tracks; deals do occur with \code{company\_universe = 'Out of Universe'},
+whose firms have \emph{no row} in the companies table --- defect (C6)
+below.
+
+\paragraph{FactSet: the market-clock layer.} A small panel of macro series
+in FactSet Standardized Economics form: policy and effective rates
+(\code{FFUNDT}, \code{FFUND}, daily), inflation (\code{CPI\_RAW} level and
+\code{CPI\_YOY}, monthly), unemployment (\code{RUNEMP}, monthly), each
+published with a lag of days to weeks after its reference period. These
+series are the exogenous covariates of the ground process: they move on
+calendar time regardless of deal activity, which makes them the only
+covariates in the system that are \emph{never stale} in the sense of
+\cref{ch:stale} --- but they are \emph{lagged}, and the lag matters for
+point-in-time discipline (\cref{ch02:sec:pit}).
+
+\paragraph{Window.} The joined history runs from January 2011 through June
+2024: $T \approx 13.5$ years, i.e.\ roughly $704$ weeks of joint
+deal-and-macro history. All development described in this document uses a
+temporal split: a training window, a validation window for model selection,
+and a strictly held-out test window at the end (the split protocol is fixed
+in \cref{ch:gof}). The 2011 start postdates the crisis regime shift of
+2008--2010 by design; the June 2024 end is an administrative censoring
+time in the precise sense of defect (C1).
+
+\section{The formal observation model}\label{ch02:sec:formal}
+
+We now fix, once, the probabilistic description of what the data is. Every
+later chapter states its assumptions relative to this model.
+
+\begin{definition}[Market process]\label{def:ch02:market}
+Work on a filtered probability space $(\Omega,\F,\{\Ft\},\Prob)$. The
+market is a marked point process
+\[
+\{(t_m,\, s_m,\, i_m,\, \dmark_m)\}_{m \ge 1},
+\qquad
+t_1 \le t_2 \le \cdots,
+\]
+where $t_m \in [0,\Tend]$ is the (true) time of the $m$-th deal, $s_m \in
+\sectors$ its sector, $i_m \in \firms \cup \firms^{\dagger}$ the receiving
+firm --- $\firms$ the tracked universe, $\firms^{\dagger}$ the untracked
+remainder --- and $\dmark_m$ the deal marks (size, valuation, round type,
+\dots). For each sector $s$, $N_s(t)$ counts deals in $s$ up to $t$; for
+each tracked firm $i$, $N_i(t)$ counts firm $i$'s deals. The filtration
+$\Ft$ contains the internal history of the marked process and the paths of
+all exogenous covariates up to $t$.
+\end{definition}
+
+\begin{definition}[Covariate processes]\label{def:ch02:covariates}
+Three covariate processes enter the models:
+\begin{enumerate}[label=(\roman*)]
+\item \emph{Macro covariates} $\xcov^{\mathrm{mac}}(t) \in \R^{p}$:
+exogenous, c\`adl\`ag, observed for all $t$ but only through their
+\emph{published} version $\xcov^{\mathrm{mac}}_{\mathrm{pub}}(t) =
+\xcov^{\mathrm{mac}}(t - L(t))$, where $L(t)$ is the publication lag
+process (\cref{ch02:sec:pit}).
+\item \emph{Firm covariates} $\xcov_i(t) \in \R^{q}$ for $i \in \firms$:
+the true, latent, evolving state of firm $i$ (scale, financials,
+capitalization). The data does \emph{not} deliver $\xcov_i(t)$; it
+delivers the last value recorded at firm $i$'s most recent deal,
+\begin{equation}\label{eq:ch02:locf}
+\tilde{\xcov}_i(t) \;=\; \xcov_i\!\big(\tau_i(t)\big),
+\qquad
+\tau_i(t) \;=\; \sup\{t_m < t : i_m = i\},
+\end{equation}
+the last-observation-carried-forward (LOCF) covariate, whose observation
+times are themselves event times of the modeled process. This is defect
+(C5), the subject of \cref{ch:stale}.
+\item \emph{Engineered history covariates}: deterministic functionals of
+the observed history $\Hist_{t^-}$ chosen by us --- time since firm $i$'s
+last deal, deal counts in trailing windows, sector activity summaries,
+staleness ages. These are always available and always point-in-time
+correct; \cref{ch:hawkes} uses them to build excitation \emph{and}
+inhibition into intensity models, and \cref{ch:buckets} feeds them to
+gradient boosting.
+\end{enumerate}
+\end{definition}
+
+\begin{definition}[Conditional intensity and at-risk indicator]\label{def:ch02:intensity}
+For a counting process $N_e$ ($e$ a sector, firm, or firm-transition
+index), a \emph{conditional intensity} $\lam_e(t)$ is a nonnegative
+predictable process such that
+\begin{equation}\label{eq:ch02:martingale}
+M_e(t) \;=\; N_e(t) - \int_0^{t} \atrisk_e(u)\, \lam_e(u) \dd u
+\end{equation}
+is a local martingale, where $\atrisk_e(t)\in\{0,1\}$ is the at-risk
+indicator: the unit is under observation and eligible for the event at
+$t^-$ \citep{abgk1993}. All likelihoods in this document are instances of
+the point-process (Jacod) likelihood
+\begin{equation}\label{eq:ch02:jacod}
+\loglik(\thetamodel)
+ \;=\;
+ \sum_{m} \log \lam_{e_m}(t_m;\thetamodel)
+ \;-\;
+ \sum_{e} \int_{0}^{\Tend} \atrisk_e(u)\, \lam_e(u;\thetamodel) \dd u,
+\end{equation}
+whose martingale estimation theory (unbiased score at the truth, Fisher
+information as predictable variation, asymptotic normality) is developed in
+\cref{ch:foundations} following \citet{abgk1993} and
+\citet{andersengill1982}.
+\end{definition}
+
+Most of the data's pathology concentrates in the at-risk indicator:
+nearly every defect below corrupts either $\atrisk$ (who is really at
+risk, and since when), or the event times $t_m$ (when did it really
+happen), or the covariates the intensity conditions on.
+
+\section{The defect ledger}\label{ch02:sec:defects}
+
+Six defects, (C1)--(C6), exhaust the ways this dataset deviates from the
+ideal of \cref{def:ch02:market}. For each: the formal statement, the
+consequence if ignored, and the chapter that owns the treatment. The first
+four restate, in final form, defects identified in the repository's
+earlier theory notes; (C5) and (C6) are treated as first-class defects
+here because the data review showed they bind hardest.
+
+\subsection*{(C1) Administrative right censoring at the window end}
+
+Every firm alive in June 2024 has its next round unobserved. Formally,
+censoring is the predictable process $C_i(t) = \ind{t \le \Tend}$;
+under independent censoring the observed process $\int C_i \dd N_i$ has
+intensity $C_i(t)\lam_i(t)$ and the likelihood \cref{eq:ch02:jacod}
+computed on observed data is a genuine partial likelihood
+\citep[III.2]{abgk1993}. Administrative censoring at fixed $\Tend$ is
+independent by construction. The censored spell contributes exactly its
+survival factor $\exp(-\int \lam)$: no term dropped, no term invented.
+This is the benign defect --- \emph{provided open spells are kept}.
+
+\begin{warning}\label{warn:ch02:openspells}
+Dropping open (censored) spells converts right censoring into right
+\emph{truncation}: selection on the event occurring in-window, which
+oversamples short inter-deal gaps and biases every fitted hazard upward.
+This is not classical length bias (which oversamples \emph{long} spells in
+prevalent-cohort designs); the correct treatment of sampling schemes and
+truncation is \citet{kalbfleisch2002}. Policy: every dataset builder in
+the repository must emit censored spells with an explicit censoring flag,
+and every likelihood must consume them. \Cref{ch:poisson,ch:censoring}
+implement this for Poisson and Hawkes calibration respectively;
+\cref{ch:buckets} implements the bucketed analogue (censored buckets are
+labeled, not silently dropped).
+\end{warning}
+
+\subsection*{(C2) Left truncation: firms enter observation by raising}
+
+A firm is invisible to PitchBook until its first recorded financing: it
+enters observation at $\entry_i$ = first-deal date, and enters
+\emph{because of an event}. Mechanically this is delayed entry
+\citep{keiding1990}: risk sets are $\atrisk_i(t) = \ind{\entry_i \le t <
+U_i}$ and every integral in \cref{eq:ch02:jacod} starts at $\entry_i$.
+Statistically it is a selection: the observed universe is ``firms
+conditioned on having raised at least once,'' so unconditional statements
+about companies are not identified from tracked data alone.
+\Cref{ch:universe} is where this selection is modeled rather than ignored.
+
+\subsection*{(C3) Unlabeled exits: the immortal-firm problem}
+
+Failures and quiet wind-downs are mostly unrecorded (\code{business\_status}
+is coarse and laggy). A dead firm keeps $\atrisk_i(t)=1$ in any naive risk
+set. Three facts must be kept distinct. (i) The contamination bias ---
+dead firms held at risk deflate every fitted hazard --- arises under
+\emph{any} unlabeled-exit mechanism, even exit independent of funding
+propensity: it is a misrecorded $\atrisk_i$, not a dependence effect.
+(ii) Because exit also correlates with the latent quality that drives
+funding, we do not expect the defect to be correctable from observables:
+even a good exit classifier is unlikely to reconstruct truthful risk sets,
+and we expect risk-set truthfulness to be one of the largest sensitivities
+in the whole system. Both expectations are to be tested on the synthetic
+world (\cref{ch:results-synth}). (iii) If
+exits \emph{were} labeled, removing firms at exit would be valid for
+cause-specific funding intensities with no independence assumption at all
+--- the standard competing-risks fact \citep{putter2007}. The problem is
+that exits are unobserved, not that they are dependent. Treatments ---
+exposure windows, mover--stayer mixtures \citep{farewell1982}, and
+ranking-layer mitigations --- are developed where they bind:
+\cref{ch:poisson,ch:buckets,ch:ranking}.
+
+\subsection*{(C4) Untrusted deal dates and aggregation}
+
+Two distinct corruptions of $t_m$. First, \emph{date jitter}: PitchBook
+records announced vs.\ closed dates that can differ by days, and a
+nontrivial fraction of dates are back-filled or rounded; the recorded
+$\hat t_m$ is best modeled as $t_m$ observed through a small-window error.
+Second, \emph{deliberate aggregation}: for modeling at weekly resolution we
+replace times by bin counts, which is interval censoring by construction.
+Both are instances of one statement: the event count over an interval is
+trusted, the position within the interval is not. \Cref{ch:censoring}
+builds the corresponding likelihoods: interval-censored NHPP calibration
+in closed form, and interval-censored Hawkes via the mean-intensity
+(mean-Poisson-process) approximation of \citet{rizoiu2022}, with the
+information loss quantified --- branching-scale parameters survive
+aggregation, timescale parameters do not (the $\branch$--$\decay$ ridge of
+\cref{ch:gof}; Fisher information in the decay $\to 0$ as bin width grows
+past the kernel half-life).
+
+\subsection*{(C5) Stale firm covariates, updated only at own deals}
+
+Defect \cref{eq:ch02:locf}: firm covariates are observed only at the
+firm's own deals, so at any $t$ the available $\tilde\xcov_i(t)$ has age
+$\staleage_i(t) = t - \tau_i(t)$, and the age is largest exactly for the
+firms that have gone longest without raising --- the observation times are
+\emph{informative}, being event times of the process under study. This is
+simultaneously a measurement-error problem (attenuation of covariate
+effects; \citealp{carroll2006,prentice1982}) and an
+internal-covariate problem in the sense of \citet{kalbfleisch2002}.
+\Cref{ch:stale} formalizes both faces and commits to a layered remedy:
+staleness-age features always; an explicit covariate-evolution state layer
+where it pays; joint-model escalation
+\citep{rizopoulos2012,tsiatisdavidian2004} only if a trigger fires. The
+size of the attenuation is to be measured on the synthetic world
+(\cref{ch:results-synth}).
+
+\subsection*{(C6) Out-of-universe deals: events with no covariates}
+
+Deals occur from firms not in the tracked universe
+(\code{company\_universe = 'Out of Universe'}, no companies-table row, no
+covariates, no history). Consequences: sector deal counts are complete but
+firm-attributable counts are thinned; any firm-level risk set is missing
+members who \emph{do} compete for deals; and the mark factor must own an
+outside option or it will overstate every tracked firm's probability.
+\Cref{ch:universe} develops the treatment: an explicit newcomer/outside
+component in the mark factor (with the discipline that \emph{newcomer
+probability} --- first appearance in the data --- must never be conflated
+with \emph{entrant probability} --- economic entry), a ghost/external
+component in the ground process, and unseen-mass estimation in the
+Good--Turing spirit \citep{good1953,galesampson1995} as the model-free
+check on how much deal mass the tracked universe can see.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{0.06\textwidth} p{0.30\textwidth} p{0.28\textwidth} p{0.22\textwidth}}
+\toprule
+\textbf{Defect} & \textbf{What is corrupted} & \textbf{If ignored} &
+\textbf{Owned by} \\
+\midrule
+(C1) & spells open at June 2024 & upward-biased hazards if open spells
+dropped & \cref{ch:poisson,ch:censoring,ch:buckets} \\
+(C2) & entry into observation ($\atrisk_i$ before first deal) &
+selection mistaken for dynamics & \cref{ch:universe} \\
+(C3) & $\atrisk_i$ after unrecorded death & deflated hazards, inverted
+rankings & \cref{ch:poisson,ch:buckets,ch:ranking} \\
+(C4) & event times $t_m$ & spurious timing estimates; broken
+$\decay$ & \cref{ch:censoring,ch:gof} \\
+(C5) & firm covariates $\xcov_i(t)$ & attenuated, staleness-confounded
+effects & \cref{ch:stale} \\
+(C6) & firm identity $i_m$, risk-set membership & overstated tracked-firm
+probabilities & \cref{ch:universe} \\
+\bottomrule
+\end{tabular}
+\caption{The defect ledger. Every modeling chapter states which defects it
+is robust to and which assumptions it needs about the rest.}
+\label{tab:ch02:defects}
+\end{table}
+
+\section{Point-in-time discipline}\label{ch02:sec:pit}
+
+A model that consumes information not available at prediction time is
+worthless regardless of its metrics. The repository already enforces the
+following discipline, and this document makes it policy (implemented in
+\code{synthetic/loaders.py}, to be preserved verbatim by every real-data
+loader):
+
+\begin{protocol}[Point-in-time construction]\label{prot:ch02:pit}
+\leavevmode
+\begin{enumerate}[label=(\alph*)]
+\item \emph{Macro covariates are as-of joined on publish date}: the value
+of $\xcov^{\mathrm{mac}}_{\mathrm{pub}}(t)$ is the last value whose
+\emph{publication} date (not reference date) precedes $t$.
+\item \emph{Firm features are LOCF from past deals only}: $\tilde\xcov_i(t)$
+uses deals strictly before $t$; the staleness age $\staleage_i(t)$ is
+always carried alongside as a feature, never discarded.
+\item \emph{Risk-set membership is inferred from observables}: founding
+year and first-deal date determine entry; any exit proxy used to close
+spells must itself be point-in-time.
+\item \emph{Deduplication and hygiene run before everything}: duplicate
+deal rows (same firm within a few days, jittered size) are collapsed by
+the documented rule; sector mislabels and undisclosed sizes are handled by
+the imputation rules of \cref{app:columns}, never ad hoc.
+\item \emph{Evaluation splits are temporal}, with model selection strictly
+inside the training era. No hyperparameter, feature transform, or
+calibration map may see post-split data.
+\end{enumerate}
+\end{protocol}
+
+\section{The synthetic world}\label{ch02:sec:synthetic}
+
+The real data's defects cannot be switched off, so the repository
+maintains a synthetic world for validation: generated PitchBook-style
+tables (deals/companies/investors) and a FactSet-style macro feed with
+publication lags, passed through an observation layer that reproduces
+defects (C1)--(C6) with known ground truth (\code{synthetic/}). Two
+regimes matter: regime A is generated by the exact two-stage model family
+we fit (a well-specified test), and regime B is a daily firm-level
+block-Hawkes world with self-inhibition and latent quality, deliberately
+\emph{not} in the fitted family (a misspecification stress test). The
+synthetic world is a planned validation tool, not a source of standing
+results. The experiments it supports are specified in
+\cref{ch:results-synth}, under a fixed transfer convention: synthetic
+outcomes set \emph{priors and vetoes} for real-data work, never
+substitutes for real-data evaluation.
+
+\begin{decision}{D2.1 --- defects are assumptions, stated per model}
+Every model chapter opens by declaring, defect by defect against
+\cref{tab:ch02:defects}, whether the model (i) is robust to the defect,
+(ii) corrects it under stated assumptions, or (iii) is vulnerable and
+accepts the bias with a documented sign. No silent vulnerability is
+permitted. Rationale: we expect the largest errors to come not from wrong
+models but from unstated exposure to (C3) and (C5); the synthetic
+experiments of \cref{ch:results-synth} are designed to test this.
+\end{decision}
+
+\begin{codehooks}
+Real-data ingestion will mirror \code{synthetic/loaders.py}: an adapter
+\modrepo{data/pitchbook.py} (to be written) emitting the same
+fitter-ready arrays --- weekly sector counts, as-of macro matrix, LOCF firm
+features \emph{plus staleness ages}, at-risk masks, and the event list ---
+so that every fitter downstream is source-agnostic. The defect ledger of
+\cref{tab:ch02:defects} becomes a validation suite
+(\modrepo{data/audits.py}): open-spell retention check, entry-date
+consistency, duplicate-collapse idempotence, as-of-join look-ahead test,
+and universe-share reporting (\code{off\_universe\_share} is already a
+first-class output of the synthetic loader and must be one for the real
+loader).
+\end{codehooks}

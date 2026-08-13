@@ -1,0 +1,460 @@
+\chapter{Hawkes Processes and the Two-Stage Marked Decomposition}
+\label{ch:hawkes}
+
+Chapter~\ref{ch:poisson} ended with a diagnosis: after conditioning on macro covariates
+and seasonality, the time-rescaled residuals of the Poisson model still cluster. Deal flow
+excites deal flow --- the canonical model for this is the Hawkes process. But private
+markets also exhibit the \emph{opposite} effect at the firm level: a company that closed a
+round last month is much \emph{less} likely to raise again this month. This chapter
+resolves the tension with a single architectural decision --- an exact factorization of
+the firm-level intensity into a sector \emph{ground process} (where linear Hawkes
+excitation is appropriate) and a \emph{conditional choice model} over firms (where
+inhibition lives harmlessly as a feature weight). The newcomer problem, the risk-set
+discipline, and the causal status of fitted excitation all follow from that decision.
+
+\section{The linear Hawkes process}
+\label{sec:hw-linear}
+
+\begin{definition}[Linear Hawkes process \cite{hawkes1971}]
+\label{def:hw-hawkes}
+A counting process $N$ on $[0,\infty)$ with event times $t_1 < t_2 < \dots$ is a linear
+Hawkes process with baseline $s(\cdot) \ge 0$ and kernel $\phi(\cdot) \ge 0$ if its
+conditional intensity given $\Hist_t$ is
+\begin{equation}
+\label{eq:hw-intensity}
+\lambda(t) \;=\; s(t) \;+\; \sum_{t_k < t} \phi(t - t_k).
+\end{equation}
+The workhorse kernel is exponential, $\phi(u) = \kappa\,\theta\, e^{-\theta u}$, $u>0$,
+parametrized so that the \emph{branching ratio}
+$\kappa = \int_0^\infty \phi(u)\dd u$ and the \emph{decay rate} $\theta$ (mean lag
+$1/\theta$) are separate parameters.
+\end{definition}
+
+In the multivariate version with $M$ sectors, sector $\ell$ has intensity
+\begin{equation}
+\label{eq:hw-multi}
+\lambda_\ell(t) \;=\; s_\ell(t) \;+\; \sum_{m=1}^{M} \sum_{t^m_k < t}
+\phi_{\ell m}(t - t^m_k),
+\qquad
+K_{\ell m} = \int_0^\infty \phi_{\ell m}(u) \dd u ,
+\end{equation}
+where $K$ is the matrix of branching ratios: $K_{\ell m}$ is the expected number of
+sector-$\ell$ deals directly triggered by one sector-$m$ deal.
+
+\begin{theorem}[Cluster representation and stability]
+\label{thm:hw-cluster}
+Let $\phi \ge 0$ with $\kappa < 1$ (multivariate: spectral radius $\rho(K) < 1$). Then the
+Hawkes process is equal in law to a Poisson cluster process: \emph{immigrants} arrive as an
+inhomogeneous Poisson process with rate $s(t)$; every event, independently, produces a
+Poisson($\kappa$) number of direct \emph{offspring} whose lags from the parent are i.i.d.\
+with density $\phi(u)/\kappa$; the process is the superposition of all generations. Under
+constant $s$ the process admits a stationary version if and only if $\kappa < 1$
+($\rho(K)<1$), with mean intensity $s/(1-\kappa)$ (vector $(I-K)^{-1}s$) and mean total
+cluster size $1/(1-\kappa)$ \cite{bremaud1996}.
+\end{theorem}
+
+\begin{remark}[Reading the branching structure as deal contagion]
+\label{rem:hw-contagion}
+The cluster representation is the economic interpretation, not just a proof device.
+Immigrants are deals the macro baseline $s_\ell(t)$ would have produced anyway; offspring
+are deals \emph{caused} (in the sense examined in Section~\ref{sec:hw-ident}) by earlier
+deals: competitors raising defensively, investors crowding into a heating sector. At
+$\rho(K)=0.2$ roughly $17\%$ of deals are offspring; as $\rho(K) \to 1$ activity becomes
+self-sustaining. Rounds take months to assemble, so we expect modest branching in this
+asset class, and the testbed confirms it (true effective radius $0.172$ in regime~A;
+naive fits report more, Section~\ref{sec:hw-ident}).
+\end{remark}
+
+\section{Likelihood, simulation, goodness of fit}
+\label{sec:hw-lik}
+
+For events $t_1 < \dots < t_n$ observed on $[0,T]$ the exact log-likelihood is
+\begin{equation}
+\label{eq:hw-loglik}
+\ell(\vartheta) \;=\; \sum_{k=1}^{n} \log \lambda(t_k) \;-\; \int_0^T \lambda(u) \dd u .
+\end{equation}
+Naively both terms cost $O(n^2)$. The exponential kernel makes them $O(n)$: writing
+$\lambda(t_k) = s(t_k) + \kappa\theta A_k$, the excitation state obeys the recursion
+\begin{equation}
+\label{eq:hw-recursion}
+A_k \;=\; e^{-\theta (t_k - t_{k-1})}\bigl(1 + A_{k-1}\bigr), \qquad A_1 = 0,
+\end{equation}
+and the compensator is $\int_0^T s(u)\dd u + \kappa \sum_k
+\bigl(1 - e^{-\theta(T - t_k)}\bigr)$. This recursion is why the exponential family is the
+default: likelihood, gradients, and the online production intensity are one data pass.
+
+\paragraph{Algorithm (simulation by thinning \cite{lewis1979,ogata1988}).}
+To simulate on $[0,T]$:
+\begin{enumerate}
+\item Set $t \leftarrow 0$ and initialize the history (empty, or a burn-in realization).
+\item Compute a local upper bound $M \ge \lambda(u)$ for $u > t$; for the exponential
+kernel excitation only decays between events, so $M = s^{\max} + \kappa\theta A(t^+)$.
+\item Draw $E \sim \mathrm{Exp}(M)$ and propose $t' = t + E$; stop if $t' > T$.
+\item Draw $U \sim \mathrm{Unif}(0, M)$; accept $t'$ as an event iff $U \le \lambda(t')$;
+either way set $t \leftarrow t'$ and refresh $M$ (mandatory after an accepted event or a
+baseline increase).
+\item Repeat from step 2.
+\end{enumerate}
+Thinning is exact and is the engine of every parametric bootstrap in this chapter.
+
+Goodness of fit uses time-rescaling exactly as in Chapter~\ref{ch:poisson}: under the
+model, the rescaled times $\Lambda(0, t_k]$ form a unit-rate Poisson process, so the
+QQ-plots and autocorrelation checks of that chapter apply verbatim. The key diagnostic:
+clustered rescaled gaps indicate missing excitation; over-regular gaps, missing
+inhibition.
+
+\section{The inhibition obstruction}
+\label{sec:hw-inhib}
+
+\begin{proposition}[Linear Hawkes kernels must be nonnegative]
+\label{prop:hw-nonneg}
+Let $\lambda(t) = s(t) + \sum_{t_k<t} \phi(t-t_k)$ with $s$ bounded. If $\phi < -\epsilon$
+on some interval of positive length, there exist admissible histories for which
+$\lambda(t) < 0$. Hence \eqref{eq:hw-intensity} defines a valid intensity for all histories
+only if $\phi \ge 0$ almost everywhere.
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+Contributions enter \eqref{eq:hw-intensity} additively, one per past event. Place $n$
+events inside a short window positioned so that each contributes less than $-\epsilon$ at
+time $t$; such histories have positive probability since $\lambda \ge s > 0$ before the
+window ends. Then $\lambda(t) \le \sup s - n\epsilon < 0$ for $n$ large. Truncating at
+zero, $\lambda = (s + \sum \phi)_+$, restores validity but destroys linearity --- and with
+it the cluster representation of Theorem~\ref{thm:hw-cluster}, the moment equations, and
+the interval-censored machinery of Chapter~\ref{ch:censored}, all of which rely on taking
+expectations through a linear equation.
+\end{proof}
+
+This is not a technicality: inhibition is the \emph{dominant} firm-level effect in our
+data. Figure~\ref{fig:hw-gap} shows the empirical refunding hazard against weeks since the
+previous deal. In regime~A the generative truth is a hard 26-week cooldown and the
+empirical hazard shows exactly that: suppressed and flat for about 26 weeks, then a jump
+to the ambient level. In regime~B the truth is smooth exponential inhibition with a 30-day
+half-life, and the hazard rises smoothly toward its plateau. Either way, a just-funded
+firm is far less likely to raise --- the opposite sign of what a linear kernel can encode.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.85\textwidth]{fig_gap_hazard}
+\caption{Empirical refunding hazard versus weeks since a firm's previous deal. Regime~A
+(hard 26-week cooldown indicator) versus regime~B (smooth exponential inhibition,
+30-day half-life). Both regimes contradict the nonnegativity that a linear Hawkes kernel
+requires at the firm level.}
+\label{fig:hw-gap}
+\end{figure}
+
+Two escapes exist.
+\emph{(a) Nonlinear link.} Model $\lambda_i(t) = \exp\{\mu_i + \sum_k g(t - t_k)\}$ with
+$g$ unrestricted in sign. This is coherent and estimable in event time, but the
+expectation of an exponential of a sum no longer solves a linear equation: the cluster
+representation, the Volterra first-moment equation, and hence the entire censored-data
+programme of Chapter~\ref{ch:censored} are lost, and stability conditions become delicate.
+\emph{(b) Factorization.} Keep the linear Hawkes process where its positivity is
+economically true --- sector-level contagion --- and move firm-level inhibition into a
+conditional model of \emph{which firm} transacts, where a negative coefficient is just a
+score, never an intensity. This manual chooses (b): the split is exact
+(Section~\ref{sec:hw-factor}), each factor gets the estimator best suited to it, and the
+censored-data machinery of Chapter~\ref{ch:censored} continues to apply to the sector
+layer.
+
+\section{The factorization theorem}
+\label{sec:hw-factor}
+
+Treat the deal stream of sector $s$ as a \emph{marked} point process: events are deal
+times, marks are firm identities.
+
+\begin{theorem}[Exact two-stage decomposition]
+\label{thm:hw-factor}
+Let $N_s$ be the ground process of sector-$s$ deals with $\Hist_t$-intensity
+$\lambda^{g}_{s}(t)$, and let each event carry a mark $i$ (the transacting firm). Then the
+firm-level intensities factorize exactly:
+\begin{equation}
+\label{eq:hw-factor}
+\lambda_i(t) \;=\; \lambda^{g}_{s(i)}(t)\; \cdot\; p\bigl(i \mid s(i), t, \Hist_t\bigr),
+\end{equation}
+where $p(\cdot \mid s, t, \Hist_t)$ is the conditional mark distribution --- the
+probability that the firm transacting at $t$, given that some sector-$s$ deal occurs at
+$t$, is firm $i$. Consequently the log-likelihood of the marked stream splits into a
+ground-process term depending only on $\lambda^g$ plus a sum of $\log p$ terms, and the
+two factors can be estimated separately without loss \cite{daley2003}.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+By construction $\lambda^g_s(t) = \sum_{j: s(j)=s} \lambda_j(t)$, and the conditional mark
+kernel of a marked point process is precisely the ratio $\lambda_i / \lambda^g_{s}$ on
+$\{\lambda^g_s > 0\}$; existence and uniqueness follow from the definition of a marked
+point process via its ground process and mark kernel. The likelihood factorization is then
+term-by-term. Full details are in the appendix (see Chapter~\ref{ch:selection}).
+\end{proof}
+
+\begin{remark}[Where the approximations actually enter]
+\label{rem:hw-lossless}
+Equation~\eqref{eq:hw-factor} is an identity, so the two-stage architecture is
+\emph{lossless at population level}: no information is discarded by the split itself.
+Approximation enters only through the parametrizations. Stage~1 restricts $\lambda^g_s$
+to an exponential-kernel multivariate Hawkes with a log-linear covariate baseline (or its
+discrete GLM surrogate); Stage~2 restricts the mark distribution to a conditional logit
+with utilities linear in a \emph{finite} feature list (so $\Hist_t$ enters only through
+those features) and the softmax's independence-of-irrelevant-alternatives structure.
+Every misspecification found later is attributable to one of these restrictions, which is
+what makes the architecture auditable.
+\end{remark}
+
+\section{Stage 1: the sector ground process}
+\label{sec:hw-stage1}
+
+Stage~1 is the multivariate Hawkes model~\eqref{eq:hw-multi} for the twelve sector
+streams, with macro covariates in the baseline, $s_\ell(t) = \exp\{\beta_\ell^\top x_t\}$,
+joined point-in-time as in Chapter~\ref{ch:data}. When timestamps are trustworthy we fit
+the exact likelihood~\eqref{eq:hw-loglik}; when the data arrive weekly we fall back on the
+discrete count GLM of Chapter~\ref{ch:poisson} \cite{fokianos2009} or the
+interval-censored construction of Chapter~\ref{ch:censored}. We expect a modest effective
+spectral radius (well below $0.5$) and decay scales of days-to-weeks; a fit reporting
+$\rho(K)$ near one is a red flag for latent-factor contamination, not a discovery of
+near-critical contagion (Section~\ref{sec:hw-ident}). The immigrant/offspring split of
+Theorem~\ref{thm:hw-cluster} acquires a second job in Section~\ref{sec:hw-newcomer}:
+immigrants are first financings, offspring are repeats.
+
+\section{Stage 2: conditional choice over the risk set}
+\label{sec:hw-stage2}
+
+Given that a sector-$s$ deal occurs at $t$, Stage~2 models which firm it is with a
+conditional logit \cite{mcfadden1974}:
+\begin{equation}
+\label{eq:hw-logit}
+p(i \mid s, t) \;=\;
+\frac{\exp(q_{i,t})}{\sum_{j \in \RS_{s,t}} \exp(q_{j,t})},
+\qquad
+q_{i,t} = w^\top z_{i,t},
+\end{equation}
+where $\RS_{s,t}$ is the \emph{risk set} and $z_{i,t}$ the point-in-time feature vector:
+log amount previously raised, log employees, firm age, stage, and --- carrying the
+inhibition --- the gap feature $\log(1 + \mathrm{gap}_{i,t}/30)$ with
+$\mathrm{gap}_{i,t}$ the days since firm $i$'s last deal. A \emph{positive} gap weight is
+inhibition: recently funded firms score low --- the effect a linear kernel cannot encode
+is here one bounded coefficient.
+
+\paragraph{The funded-pool construction.}
+$\RS_{s,t}$ contains the previously funded, currently active firms of sector $s$,
+\emph{excluding the most recently funded firm}. Each clause is load-bearing.
+\emph{Previously funded}: features exist only after a first deal (entrants are handled in
+Section~\ref{sec:hw-newcomer}). \emph{Currently active}: activity status must come from
+point-in-time fields, never be inferred from future silence
+(Warning~\ref{warn:hw-riskset}). \emph{Excluding the last winner}: vendors record tranches
+of one round as separate rows days apart; without the exclusion, an artifactual mass of
+immediate self-repeats at $\mathrm{gap} \approx 0$ corrupts the gap coefficient.
+
+\paragraph{Kinship with the Cox partial likelihood.}
+Equation~\eqref{eq:hw-logit}, multiplied over event times, is formally the partial
+likelihood of Cox \cite{cox1972}: a product of softmax terms over risk sets, one per
+event. The shared insight is that \emph{positive-only data suffice}: we never observe
+``firm $i$ tried to raise and failed'', and we never need to. The choice model conditions
+on a deal occurring and estimates only \emph{relative} propensities of candidates; how
+many deals occur, and when, is entirely Stage~1's job --- the division that makes the
+architecture estimable from a vendor deal table at all.
+
+\begin{proposition}[Sampled softmax is consistent]
+\label{prop:hw-sampled}
+Fix $m$ and, for each event, replace $\RS_{s,t}$ in \eqref{eq:hw-logit} by the winner plus
+a uniform random subsample of $m$ non-winners, drawn independently of utilities. The
+maximizer of the resulting conditional likelihood is consistent for $w$; uniform sampling
+satisfies McFadden's uniform-conditioning property, under which subsampling alternatives
+perturbs only the alternative-specific constants \cite{mcfadden1974}.
+\end{proposition}
+
+In practice $m = 64$ candidates per event puts the held-out loss within noise of full-pool
+fits on the testbed while making the cost per event constant; we use $m=64$ throughout.
+
+\section{The newcomer problem}
+\label{sec:hw-newcomer}
+
+Around $27\%$ of deals in both regimes are won by firms \emph{outside} the funded pool:
+first financings, or firms the vendor did not previously track
+(Figure~\ref{fig:hw-newcomer}). Entrants have no covariates --- every feature in
+$z_{i,t}$ exists only after a first deal --- yet a model that ignores a quarter of the
+probability mass is not calibratable. We handle entrants as one aggregate alternative
+``a newcomer wins'' with score $q_{\mathrm{new}}$, in a ladder of increasing structure:
+
+\begin{enumerate}
+\item \textbf{Alternative-specific constant.} $q_{\mathrm{new}} = b_0$. Calibrates the
+average newcomer share and nothing else; the share visibly co-moves with sector heat, so
+this is a floor, not a default.
+\item \textbf{Context covariates (the calibratable default).}
+$q_{\mathrm{new}} = b_0 + \gamma^\top g_{s,t}$, where $g_{s,t}$ stacks sector heat, the
+macro block, and log pool size. This is what we ship: it tracks the cyclical variation of
+Figure~\ref{fig:hw-newcomer} with a handful of parameters.
+\item \textbf{Representative entrant.} Entrants are unobserved before their first deal
+but \emph{observed at it}; the at-first-funding feature distribution is estimable, and we
+integrate a pseudo-candidate's utility over it (Proposition~\ref{prop:hw-entrant}).
+\item \textbf{Immigrant/offspring split.} The Hawkes-native reading: first financings are
+the \emph{immigrant} stream of the sector process (the covariate-driven $s_\ell(t)$ of
+Theorem~\ref{thm:hw-cluster}); repeats are the history-dependent stream. Stage~1 models
+the two streams separately; Stage~2 ranks the funded pool within the repeat stream only.
+This aligns the semantics of both stages and is recommended at event resolution.
+\end{enumerate}
+
+\begin{proposition}[Gaussian representative entrant]
+\label{prop:hw-entrant}
+Suppose at time $t$ there are $N_{\mathrm{pool}}$ latent entrants whose (unobserved)
+features are i.i.d.\ $\mathcal{N}(\mu, \Sigma)$, independent of $\Hist_t$, with utilities
+$w^\top z$. Replacing the entrant block of the softmax denominator by its expectation
+yields the single pseudo-candidate score
+\begin{equation}
+\label{eq:hw-entrant}
+q_{\mathrm{new}} \;=\; w^\top \mu \;+\; \tfrac{1}{2}\, w^\top \Sigma\, w
+\;+\; \log N_{\mathrm{pool}} ,
+\end{equation}
+since $\E\!\sum_z e^{w^\top Z_z} = N_{\mathrm{pool}}\, e^{w^\top\mu + w^\top\Sigma w/2}$
+by the Gaussian moment generating function. Proof and the accuracy of the mean-field step
+are in the appendix (Chapter~\ref{ch:selection}).
+\end{proposition}
+
+In practice $(\mu, \Sigma)$ are estimated per sector from at-first-funding features, and
+$\log N_{\mathrm{pool}}$ is absorbed into $b_0$ unless a defensible pool proxy exists.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.85\textwidth]{fig_newcomer}
+\caption{Quarterly share of deals won by newcomers (first financings or previously
+untracked firms). The share fluctuates around $27\%$ and co-moves with sector activity,
+motivating rungs 2--4 of the ladder over a bare constant.}
+\label{fig:hw-newcomer}
+\end{figure}
+
+\section{Measured evidence}
+\label{sec:hw-evidence}
+
+Table~\ref{tab:hw-choice} reports the Stage-2 fits on both regimes (single seed; the
+five-seed protocol and full tables are in Chapter~\ref{ch:selection}). Regime~A is the
+well-specified weekly two-stage world (520 weeks, 12 sectors, 8{,}000 firms, roughly
+50{,}000 deals); regime~B is the misspecified daily world of Chapter~\ref{ch:problem}.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+ & Regime A & Regime B \\
+\midrule
+Held-out NLL per event & 3.346 & 3.796 \\
+NLL, random-choice benchmark & 4.011 & 4.172 \\
+Top-5 accuracy & 0.446 & 0.316 \\
+Log-gap weight & $+1.146$ & $+0.437$ \\
+Newcomer intercept & 6.856 & 4.691 \\
+Newcomer share & $\approx 27\%$ & $\approx 27\%$ \\
+\bottomrule
+\end{tabular}
+\caption{Funded-pool conditional logit with sampled softmax (64 candidates), both testbed
+regimes. Single-seed values; see Chapter~\ref{ch:selection}.}
+\label{tab:hw-choice}
+\end{table}
+
+Three readings. \emph{First, covariate recovery is good where the model is
+well-specified}: in regime~A the fitted weights on log raised, log employees, and stage
+are $0.336$, $0.253$, $0.132$ against generative truths $0.30$, $0.30$, $0.15$. The age
+coefficient is the honest exception: fitted $0.054$ against a true $-0.15$. Age is
+entangled with the recency block --- older firms mechanically have longer funding
+histories and larger gaps --- so the gap and newcomer terms absorb it; report it as part
+of a correlated block, never causally.
+\emph{Second, the gap feature recovers the inhibition shape it can express}: the true
+regime-A cooldown is a 26-week \emph{indicator} of strength about $-2.7$; the fitted
+smooth surrogate $\log(1+\mathrm{gap}/30)$ with weight $+1.146$ cannot reproduce the
+discontinuity of Figure~\ref{fig:hw-gap} but ranks candidates correctly through it. In
+regime~B the truth is itself smooth (30-day half-life) and the weight $+0.437$ matches
+the shape closely. \emph{Third, lift over random is the metric that matters
+operationally}: NLL $3.346$ vs $4.011$ and top-5 accuracy $0.446$ mean the true winner is
+in the model's top five candidates almost half the time in a pool of thousands.
+
+\begin{warning}[Risk-set contamination inverts the economics]
+\label{warn:hw-riskset}
+In a controlled experiment we replaced the true activity mask by a naively inferred one
+(firms marked inactive after a fixed dormancy window --- an inference that peeks at future
+silence). The fitted ranker then \emph{inverted} the economics: the recency weight came
+out $+1.94$ in a world where the truth is $0$ (held-out NLL $3.886$); with the true mask
+the weights recover (NLL $3.558$). The mechanism: dormant firms wrongly kept in
+$\RS_{s,t}$ are never winners and all have long gaps, so ``long gap'' becomes evidence of
+being a loser and the sign flips. The production lesson is first-order: \emph{audit the
+risk set before the feature list}. Build activity masks from point-in-time status fields
+only; never from the absence of future events.
+\end{warning}
+
+\section{Identifiability and the causal status of excitation}
+\label{sec:hw-ident}
+
+A fitted kernel $\phi_{\ell m} \ne 0$ is, by construction, a statement of \emph{Granger
+causality}: past sector-$m$ events improve prediction of sector-$\ell$ intensity
+\cite{bacry2015}. Whether it supports the interventional claim ``an exogenous extra deal
+in $m$ causes extra deals in $\ell$'' is separate, and the principal threat is concrete.
+
+\begin{warning}[A latent common factor masquerades as contagion]
+\label{warn:hw-factor}
+Regime~A contains a latent, serially correlated risk-appetite factor that multiplies all
+sector baselines. Its autocorrelation is not representable in the baseline the model was
+given, so the fit absorbs it into the excitation matrix: the fitted effective spectral
+radius is $0.355$ against a true $0.172$ --- contagion overstated by a factor of two. In
+regime~B the fit reports $0.57$ where true contagion is modest with 7-day decay.
+Figure~\ref{fig:hw-recovery} shows the anatomy: covariate coefficients are recovered
+tightly, individual excitation entries are not. Treat any fitted $\rho(K)$ as an
+\emph{upper bound} on contagion unless the latent-factor channel has been addressed.
+\end{warning}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.85\textwidth]{fig_recovery}
+\caption{Parameter recovery in regime~A. Left: true versus fitted covariate coefficients
+--- tight recovery. Right: true versus fitted excitation-matrix entries --- weak recovery,
+with systematic inflation attributable to the latent risk-appetite factor.}
+\label{fig:hw-recovery}
+\end{figure}
+
+Three remedies, in order of practical value. \emph{(i) Proxy the factor}: put observable
+risk-appetite proxies (the macro block, aggregate cross-sector deal heat --- lagged, to
+avoid mechanical endogeneity) into the baseline; whatever the proxies explain is removed
+from $K$. \emph{(ii) Restrict $K$}: sparsity or within-sector-only structure means fewer
+free parameters available to soak up common variation; cross-sector entries with no
+plausible economic channel double as placebos. \emph{(iii) Refine timing}: a factor
+moving monthly and contagion decaying in 7 days are separable at day resolution and
+hopelessly confounded at monthly buckets --- a preview of Chapter~\ref{ch:censored}.
+
+A causal reading of the fitted excitation is defensible when one is willing to state, and
+defend, the following: (A1)~no unmeasured common driver of the sector intensities given
+the baseline covariates --- the point-process transposition of the unconfoundedness
+behind $\Do(\cdot)$ claims \cite{pearl1995}; (A2)~the kernel family and baseline are
+correctly specified, so excitation is not a repository for misspecification;
+(A3)~timestamps are fine relative to the kernel decay (A3 fails by construction under
+weekly exports); (A4)~the sector graph is known --- no hidden intermediary streams. Under
+(A1)--(A4) the cluster representation licenses the interventional statement above. We
+recommend two cheap sensitivity exercises: refit with and without factor proxies and
+report $\rho(K)$ under each (the gap --- here $0.355$ versus $0.172$ with an
+oracle-complete proxy set --- is the measured confounding load); and inject a synthetic
+latent factor of plausible magnitude into data simulated from the fitted model to measure
+how much spurious radius it induces.
+
+\section{Uncertainty quantification}
+\label{sec:hw-uq}
+
+Four instruments, matched to what each is for.
+\begin{enumerate}
+\item \textbf{Sandwich variances} for all maximum-likelihood point estimates:
+misspecification is the norm here, so inverse-Hessian standard errors are systematically
+optimistic; the robust form is the default in the shipped fitters.
+\item \textbf{Parametric bootstrap by simulation.} Simulate replicas from the fitted model
+by thinning (Section~\ref{sec:hw-lik}), refit, and read off the dispersion of the refits
+\cite{efron1994}. This captures finite-sample and boundary effects --- $\kappa$ near zero,
+$\rho(K)$ near its constraint --- where quadratic approximations fail.
+\item \textbf{Laplace or posterior summaries for $(\kappa, \theta)$.} The
+likelihood surface in $(\kappa,\theta)$ develops a curved ridge as timing information
+degrades (Chapter~\ref{ch:censored} derives why); a Laplace approximation at the mode
+understates joint uncertainty along the ridge, so we prefer posterior summaries from a
+short MCMC or a dense profile scan.
+\item \textbf{Cluster bootstrap over sectors for the choice model.} Stage-2 events within
+a sector share shocks (the same heat, the same latent factor), so i.i.d.-event resampling
+is anticonservative. Resample \emph{sectors} with replacement, refit
+\eqref{eq:hw-logit}, and report percentile intervals; with twelve sectors, also report
+the jackknife-over-sectors range as a stability check.
+\end{enumerate}
+
+The through-line, restated once: the decomposition is exact, so every modelling risk
+lives in the parametrization of a factor, and each has a named diagnostic and a named
+uncertainty instrument. Chapter~\ref{ch:censored} takes up the remaining failure mode:
+what to do when even the timestamps cannot be trusted.

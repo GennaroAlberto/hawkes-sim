@@ -1,0 +1,408 @@
+\chapter{Defining Success in the Transparent Regime}
+\label{ch:success}
+
+In the European regime, statutory filings make firm fundamentals observable, and
+``success'' can be defined directly on accounting data rather than inferred from deal
+marks. This freedom is a liability as much as an asset: there are a dozen plausible
+success metrics, they disagree on rankings, and several of them silently break on the
+empirical distribution of private-company financials (EBITDA is negative for roughly a
+third of firm-years in growth-heavy sectors). This chapter fixes the fundamentals panel,
+defines the candidate metrics precisely, states the estimand and its timing, handles
+censoring, and commits to a single primary metric. The commitment matters: every design
+choice in Chapters~\ref{ch:xgb} and~\ref{ch:causal} is conditional on it.
+
+\section{The fundamentals panel}
+\label{sec:success-panel}
+
+For each EU firm $i$ and fiscal year $y$ we observe, from registry filings,
+\begin{equation}
+\label{eq:success-panel}
+F_{i,y} \;=\; \big(\text{revenue}_{i,y},\ \text{EBITDA}_{i,y},\
+\text{payroll}_{i,y},\ \text{employees}_{i,y},\ \text{assets}_{i,y},\
+\text{equity}_{i,y},\ \text{debt}_{i,y}\big),
+\end{equation}
+at yearly frequency, with near-complete coverage of limited-liability companies. The
+filing for fiscal year $y$ is published at a date $\tau_{i,y}$ that lags fiscal year end
+by 9--12 months in typical jurisdictions (statutory deadlines plus registry processing);
+$\tau_{i,y}$ is recorded in the registry metadata and is itself firm-informative (late
+filers are disproportionately distressed). Filings exist in \emph{vintages}: the
+as-reported figures published at $\tau_{i,y}$, and later restatements that overwrite
+them in most commercial extracts.
+
+\begin{warning}[Use as-reported vintages]
+\label{warn:success-vintage}
+Restated figures incorporate information (audits, corrections, insolvency
+administrators' revisions) that did not exist at $\tau_{i,y}$. Training features on
+restated fundamentals violates Definition~\ref{def:data-admissible} exactly as the
+snapshot columns of Warning~\ref{warn:data-snapshot} do, and the bias is not neutral:
+restatements are concentrated among firms that later failed, so restated features leak
+failure. Features must be built from the as-reported vintage; restated data may be used
+for labels only when the label is explicitly defined on final figures, and then the
+choice must be stated.
+\end{warning}
+
+\section{Candidate success metrics}
+\label{sec:success-metrics}
+
+Fix a horizon $h$ (years) and write $E_y = \text{EBITDA}_{i,y}$,
+$R_y = \text{revenue}_{i,y}$, $L_y = \text{employees}_{i,y}$, suppressing $i$.
+
+\paragraph{EBITDA growth.} The naive candidate $\log(E_{y+h}/E_y)$ is undefined whenever
+$E_y \le 0$ or $E_{y+h} \le 0$ --- which, for private growth companies, is not a corner
+case but a third of the sample. Dropping those firm-years selects on profitability and
+destroys the target's meaning. We instead use the \emph{arc (symmetric) growth rate}:
+
+\begin{definition}[Arc growth]
+\label{def:success-arc}
+For a fundamental $F$ with values $F_y$, $F_{y+h}$ not both zero,
+\begin{equation}
+\label{eq:success-arc}
+g^{(h)}_y \;=\; \frac{F_{y+h} - F_y}{\tfrac{1}{2}\big(|F_{y+h}| + |F_y|\big)}
+\;\in\; [-2,\, 2],
+\end{equation}
+with $g^{(h)}_y = 0$ when $F_{y+h} = F_y = 0$.
+\end{definition}
+
+\begin{proposition}
+\label{prop:success-arc}
+The arc growth rate is defined for all sign patterns, is bounded in $[-2,2]$, is
+antisymmetric under swapping $F_y \leftrightarrow F_{y+h}$, and for
+$F_y, F_{y+h} > 0$ satisfies
+$g^{(h)}_y = \log(F_{y+h}/F_y) + O\big(\log^3(F_{y+h}/F_y)\big)$,
+so it agrees with log-growth to second order near zero growth.
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+Boundedness and antisymmetry are immediate from (\ref{eq:success-arc}). For the
+expansion, set $u = \log(F_{y+h}/F_y)$; then
+$g = 2(e^{u}-1)/(e^{u}+1) = 2\tanh(u/2) = u - u^3/12 + O(u^5)$.
+\end{proof}
+
+\begin{example}[Arc growth across a sign change]
+\label{ex:success-arc}
+A firm improves from $E_y = -0.4$m to $E_{y+2} = +1.2$m. Log-growth is undefined; arc
+growth gives $g = (1.2 - (-0.4)) / \tfrac{1}{2}(1.2 + 0.4) = 2.0$, the upper bound:
+sign-crossing improvements saturate the scale, which is the intended reading (crossing
+into profitability is a categorical success, and the metric does not pretend to rank
+magnitudes across the sign change). By contrast a doubling from $0.6$m to $1.2$m gives
+$g = 0.6/0.9 = 0.667$ against $\log 2 = 0.693$: in the ordinary regime the two scales
+agree to within 4\%, as Proposition~\ref{prop:success-arc} predicts.
+\end{example}
+
+The boundedness is a feature, not a bug: a firm going from $E_y = 10$k to
+$E_{y+h} = 5$m is a success, but not five hundred times the success of a doubling, and a
+bounded target prevents a handful of small-denominator observations from dominating any
+squared-error fit. A sign-preserving alternative when unbounded scale matters is the
+difference of inverse-hyperbolic-sine transforms,
+$\operatorname{asinh}(F_{y+h}) - \operatorname{asinh}(F_y)$ with
+$\operatorname{asinh}(x) = \log(x + \sqrt{x^2+1})$, which behaves like the log-difference
+for $|F| \gg 1$ and remains defined through zero. In either case we winsorize the
+realized target at its 1st and 99th percentiles, computed \emph{within training folds
+only}, to control residual tail leverage.
+
+\paragraph{Revenue CAGR.} $\mathrm{CAGR}^{(h)}_y = (R_{y+h}/R_y)^{1/h} - 1$, defined
+since $R_y > 0$ for operating firms (pre-revenue firm-years are flagged and excluded
+from this metric, itself a selection to be aware of). Robust to margin accounting;
+blind to profitability.
+
+\paragraph{Margin expansion.} $\Delta m^{(h)}_y = E_{y+h}/R_{y+h} - E_y/R_y$, defined
+where both revenues are positive. Captures operating-leverage improvement; extremely
+heavy-tailed for small $R$ and sensitive to cost-capitalization choices.
+
+\paragraph{Employment growth.} Arc growth (\ref{eq:success-arc}) applied to $L_y$.
+Nearly immune to accounting discretion and currency; economically coarser.
+
+\paragraph{Survival.} $S^{(h)}_y = \ind{\text{firm}~i~\text{is not insolvent or
+liquidated by fiscal year}~y{+}h}$, from registry status events. Unambiguous and
+cheap, but nearly uninformative in the bulk: most firms survive two years, so the
+indicator separates the left tail only.
+
+\begin{table}[htbp]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccc}
+\toprule
+Metric & Interpretability & Acct.\ robustness & Tail behaviour & ML target \\
+\midrule
+EBITDA arc growth      & high     & moderate & bounded        & high \\
+EBITDA log-growth      & high     & moderate & undefined $E \le 0$ & unusable \\
+Revenue CAGR           & high     & high     & heavy right tail & moderate \\
+Margin expansion       & moderate & low      & very heavy      & low \\
+Employment arc growth  & moderate & high     & bounded        & high \\
+Survival indicator     & high     & high     & degenerate bulk & low (imbalanced) \\
+\bottomrule
+\end{tabular}
+\caption{Candidate success metrics. ``Acct.\ robustness'' is robustness to
+discretionary accounting choices (depreciation schedules, cost capitalization, revenue
+recognition); ``ML target'' summarizes definedness, tail control, and
+informativeness for ranking.}
+\label{tab:success-metrics}
+\end{table}
+
+\section{The formal estimand and its timing}
+\label{sec:success-estimand}
+
+\begin{definition}[Success label]
+\label{def:success-label}
+Fix a metric $g$ from Section~\ref{sec:success-metrics} and horizon $h$. The label of
+firm $i$ at base year $y$ is $Y_{i,y} = g\big(F_{i,y}, F_{i,y+h}\big)$, the metric
+evaluated over $(y, y+h]$. The \emph{information date} of the pair is
+$\tau_{i,y}$, the publication date of the year-$y$ filing; a feature vector $Z_{i,\tau_{i,y}}$
+is admissible if it satisfies Definition~\ref{def:data-admissible} at $\tau_{i,y}$.
+\end{definition}
+
+The predictive estimand of Chapter~\ref{ch:xgb} is
+$\E[\,Y_{i,y} \mid Z_{i,\tau_{i,y}}\,]$; the causal estimand of Chapter~\ref{ch:causal}
+replaces conditioning with intervention on a financing exposure,
+$\E[\,Y_{i,y} \mid \Do(A_{i,y}{=}a)\,]$. Both require $Y$ to be a single well-defined
+scalar attached to a single well-defined date \cite{hernan2020}. Four label-engineering
+pitfalls recur in practice:
+
+\begin{enumerate}
+\item \textbf{Horizon misalignment.} Features dated at fiscal year end $y$ instead of at
+$\tau_{i,y}$ grant the model 9--12 months of foresight; conversely a label read at
+$\tau_{i,y+h}$ but indexed as ``$h$-year growth'' actually spans up to $h{+}1$ years of
+calendar time. We index everything by $\tau$ and record the realized calendar span.
+\item \textbf{Fiscal-year heterogeneity.} Fiscal year ends vary across firms and
+jurisdictions; ``year $y$'' is not a common calendar interval. Cross-sectional
+comparisons and time-based validation splits must use $\tau_{i,y}$, not $y$.
+\item \textbf{Consolidation changes.} A firm switching between solo and consolidated
+accounts (or acquiring a subsidiary) exhibits spurious jumps in every fundamental. We
+flag consolidation-scope changes from registry metadata and either exclude the spanning
+label or difference within a constant scope.
+\item \textbf{Currency.} Fundamentals are filed in local currency. Growth rates of the
+form (\ref{eq:success-arc}) are currency-invariant only if both endpoints are in the
+same currency; we compute growth in local currency and never convert at two different
+dates' exchange rates.
+\end{enumerate}
+
+\section{Censoring and the survivor trap}
+\label{sec:success-censoring}
+
+A label $Y_{i,y}$ at horizon $h$ requires the year-$(y{+}h)$ filing. It is missing for
+two very different reasons: the cohort is young (the calendar has not yet produced the
+filing --- administrative censoring) or the firm exited (insolvency, acquisition,
+migration out of filing obligations). Simply dropping unlabelled firm-years conditions
+the training distribution on surviving $h$ more years, which biases every estimate
+toward the survivor population --- precisely the firms for which success is
+overrepresented, in the same way that conditioning on the risk set must respect who is
+still observable \cite{cox1972}. The risk-set machinery reappears for event data in
+Chapter~\ref{ch:hawkes}; here a simple reweighting suffices.
+
+Let $C_{i,y} = \ind{F_{i,y+h}~\text{observed}}$ and let
+$\hat G(x_{i,y})$ estimate $\Prob(C_{i,y}=1 \mid x_{i,y})$ from pre-base-year
+covariates $x_{i,y}$ (age, size, sector, filing punctuality), e.g.\ by logistic
+regression within calendar cohorts. The inverse-probability-of-censoring (IPC) weighted
+loss
+\begin{equation}
+\label{eq:success-ipcw}
+\hat{L}(f) \;=\; \frac{1}{n}\sum_{(i,y)} \frac{C_{i,y}}{\hat G(x_{i,y})}\,
+\ell\big(Y_{i,y},\, f(Z_{i,\tau_{i,y}})\big)
+\end{equation}
+is unbiased for the full-population risk when censoring is independent of $Y$ given
+$x_{i,y}$ --- an assumption to state, not to assume silently: exit by insolvency is
+plainly outcome-dependent. Practically we (i) use (\ref{eq:success-ipcw}) for
+administrative censoring, which is mechanically independent of $Y$ given the cohort;
+(ii) treat insolvency exits not as censored but as \emph{observed failures}, assigning
+$Y = -2$ (the lower bound of arc growth) with a sensitivity band; and (iii) treat
+acquisition exits, which are plausibly successes, as a competing outcome reported
+separately rather than folded into $Y$. Truncating weights at $\hat G \ge 0.1$ keeps
+the variance of (\ref{eq:success-ipcw}) controlled.
+
+\section{Stylized facts to verify on any real panel}
+\label{sec:success-stylized}
+
+Before fitting anything, three distributional facts should be confirmed on the panel at
+hand; each has a design consequence, and their absence usually indicates a data problem
+rather than an interesting economy.
+
+\begin{enumerate}
+\item \textbf{Heavy-tailed growth.} Firm growth rates are far from Gaussian: the
+cross-sectional distribution of (\ref{eq:success-arc}) is sharply peaked with
+tails well approximated by a Laplace or heavier law (excess kurtosis of 6--15 in our
+synthetic panel). Consequence: squared error concentrates on the tails; prefer
+pseudo-Huber or quantile losses and report rank metrics alongside RMSE
+(Chapter~\ref{ch:xgb}).
+\item \textbf{Mean reversion.} Successive growth rates correlate negatively
+(lag-1 autocorrelation around $-0.2$ for EBITDA arc growth): extreme years partially
+reverse. Consequence: last year's growth is a strong but \emph{sign-flipping} feature,
+and naive momentum readings of feature importances mislead; evaluation must be
+out-of-time, not just out-of-sample.
+\item \textbf{Size dependence.} Growth dispersion falls with size, roughly
+$\mathrm{sd}(g) \propto R_y^{-\beta}$ with $\beta \approx 0.15$ (a standard deviation
+from Gibrat's law). Consequence: any loss that ignores this heteroskedasticity
+overweights small firms; stratify evaluation by size decile and consider
+variance-stabilizing weights.
+\end{enumerate}
+
+Table~\ref{tab:success-stylized} records the corresponding moments in the synthetic EU
+panel; the verification script in \texttt{code/} reproduces it, and we recommend running
+the same four columns on any real panel before the first model is fit.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+Metric ($h=2$) & Skewness & Excess kurtosis & Lag-1 autocorr. & Undefined share \\
+\midrule
+EBITDA arc growth      & $-0.3$ & $9.8$  & $-0.21$ & $0.0\%$ \\
+EBITDA log-growth      & ---    & ---    & ---     & $34\%$ \\
+Revenue CAGR           & $+2.1$ & $14.6$ & $-0.12$ & $6\%$ \\
+Margin expansion       & $-0.8$ & $27.3$ & $-0.35$ & $6\%$ \\
+Employment arc growth  & $+0.4$ & $6.2$  & $-0.09$ & $0.0\%$ \\
+\bottomrule
+\end{tabular}
+\caption{Stylized-fact moments on the synthetic EU panel (winsorization off, all
+firm-years with both endpoints observed). ``Undefined share'' is the fraction of
+firm-years on which the metric does not exist; the log-growth row is blank because its
+moments are conditional on a selected subsample and hence not comparable.}
+\label{tab:success-stylized}
+\end{table}
+
+These facts jointly motivate the loss and cross-validation architecture of
+Chapter~\ref{ch:xgb}: heavy tails pick the loss, mean reversion picks out-of-time
+splits, size dependence picks the stratification.
+
+\section{Worked example: labelling a cohort}
+\label{sec:success-worked}
+
+The definitions above compress into a short routine that is easy to state and easy to
+get wrong; we run it once, by hand, for a single firm whose EBITDA path crosses zero.
+Table~\ref{tab:success-timeline} gives the firm's as-reported figures and registry
+publication dates; fiscal years end on December 31.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+Fiscal year $y$ & FY end & EBITDA $E_y$ (EUR m) & Published $\tau_{i,y}$ \\
+\midrule
+2016 & 2016-12-31 & $-0.8$ & 2017-10-14 \\
+2017 & 2017-12-31 & $-0.3$ & 2018-09-30 \\
+2018 & 2018-12-31 & $+0.5$ & 2019-11-22 \\
+2019 & 2019-12-31 & $+1.1$ & 2020-10-05 \\
+2020 & 2020-12-31 & $+1.4$ & 2021-09-18 \\
+\bottomrule
+\end{tabular}
+\caption{Timeline of the worked firm. Publication lags fiscal year end by 9--11
+months; the late 2018 filing (almost 11 months) is itself informative
+(Section~\ref{sec:success-panel}).}
+\label{tab:success-timeline}
+\end{table}
+
+\paragraph{The label.} Take base year $y = 2017$ and the primary horizon $h = 2$. By
+Definition~\ref{def:success-label} with arc growth (\ref{eq:success-arc}),
+\begin{equation}
+\label{eq:success-worked-label}
+Y_{i,2017} \;=\; \frac{E_{2019} - E_{2017}}{\tfrac{1}{2}\big(|E_{2019}| +
+|E_{2017}|\big)}
+\;=\; \frac{1.1 - (-0.3)}{\tfrac{1}{2}(1.1 + 0.3)} \;=\; 2.0,
+\end{equation}
+the saturated value: the firm crossed into profitability over $(2017, 2019]$, a
+categorical success in the reading of Example~\ref{ex:success-arc}.
+
+\paragraph{Information-date alignment.} The pair is indexed at $\tau_{i,2017}$, i.e.\
+2018-09-30, the instant the year-2017 figures become public. Admissible features
+there: the as-reported 2016 and 2017 filings, deal rows with \texttt{deal\_date}
+before that date, and macro values published before it. The label needs $E_{2019}$,
+public only on 2020-10-05: any training set assembled earlier carries this pair as
+administratively censored (Section~\ref{sec:success-censoring}), and the realized
+calendar span --- information date to label availability --- is 24.2 months, recorded
+alongside the nominal $h = 2$.
+
+\begin{warning}[The not-yet-published filing]
+\label{warn:success-unpublished}
+Consider the neighbouring pair, base year 2018. Dating its features at fiscal year
+end 2018-12-31 --- the natural join key in a panel indexed by fiscal year --- makes
+$E_{2018} = +0.5$m a feature eleven months before its publication on 2019-11-22. The
+leaked content is precisely the label's content: the sign crossing. A backtest learns
+that ``latest EBITDA just turned positive'' predicts a saturated label; in production
+at the end of 2018 the newest public figure is $E_{2017} = -0.3$m and the signal does
+not exist. The fix is mechanical, not statistical: filings join as-of on
+$\tau_{i,y} \le t$, never on fiscal year --- the exact analogue of joining macro
+series on \texttt{publish\_date} in Chapter~\ref{ch:data} --- and the staleness of
+the newest published filing enters as a feature, so the model sees lateness instead
+of the future.
+\end{warning}
+
+The cohort routine is the by-hand computation industrialized: for every firm and
+every base year whose filing is published, emit the pair at $\tau_{i,y}$; attach the
+label when the year-$(y{+}h)$ filing publishes; score insolvency exits at $Y = -2$
+and route acquisition exits to the competing-outcome tally
+(Section~\ref{sec:success-censoring}); winsorize realized labels within training
+folds only. Every row of the resulting table carries $(i, y, \tau_{i,y}, Y, C)$, and
+the validation splits of Chapter~\ref{ch:xgb} operate on $\tau$, never on $y$.
+
+\subsection{Robustness of the label choice}
+\label{sec:success-robust}
+
+The worked firm makes plain that the label is a construction, so the natural question
+before committing is how much rides on it. Table~\ref{tab:success-robust} compares
+the primary label with three alternatives on the synthetic panel along three
+stability criteria: Spearman rank correlation of firm rankings with the primary
+label; sensitivity of top-decile membership to moving the winsorization quantiles
+from $1\%/99\%$ to $0.5\%/99.5\%$; and tail behaviour of the realized target.
+
+\begin{table}[htbp]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccc}
+\toprule
+Label ($h=2$) & Rank corr. & Winsor.\ sensitivity & Tail behaviour \\
+\midrule
+EBITDA arc growth (primary) & $1.00$ & low      & bounded, mass at $\pm 2$ \\
+asinh-difference of EBITDA  & $0.86$ & moderate & unbounded, moderate tails \\
+Revenue CAGR                & $0.55$ & high     & heavy right tail \\
+Employment arc growth       & $0.48$ & low      & bounded, thin tails \\
+\bottomrule
+\end{tabular}
+\caption{Stability of the label choice on the synthetic panel. ``Rank corr.'' is the
+Spearman correlation of firm rankings with the primary label; ``winsor.\
+sensitivity'' is the extent to which top-decile membership changes when the
+winsorization quantiles move from $1\%/99\%$ to $0.5\%/99.5\%$.}
+\label{tab:success-robust}
+\end{table}
+
+The pattern to expect on any real panel is the same: the asinh alternative reorders
+little (it is a monotone reshaping of the same fundamental), while revenue- and
+employment-based labels agree with the primary only moderately --- they measure
+different economics, not noisy copies of one number. Rank correlations near $0.5$
+mean that model comparisons, feature importances, and top-decile readings can
+genuinely flip across definitions. Standard practice in this manual is therefore to
+re-run the headline models of Chapters~\ref{ch:xgb} and~\ref{ch:causal} under one
+pre-declared alternative --- employment arc growth, chosen as the most
+accounting-immune and the most distant --- and to report both. A conclusion that
+survives both labels is about firms; one that does not is about the metric. Declaring
+the single alternative before results are seen keeps this a robustness check rather
+than metric shopping, in the same spirit as controlling a family of tests instead of
+reporting the best one \cite{romano2019}.
+
+\section{Decision: the primary metric}
+\label{sec:success-decision}
+
+\begin{center}
+\fbox{\parbox{0.93\textwidth}{
+\textbf{Decision.} The primary success metric of Part~I is \emph{EBITDA arc growth at
+horizon $h=2$}, winsorized at the within-fold 1\%/99\% quantiles, with insolvency exits
+scored at $-2$ and acquisition exits reported as a competing outcome. Revenue CAGR and
+employment arc growth are secondary diagnostics; no composite index is used.}}
+\end{center}
+
+Why this and not a composite. First, $h=2$ balances signal against censoring: at $h=1$
+the label is dominated by accounting noise and mean reversion
+(Section~\ref{sec:success-stylized}); at $h=3$ the administratively censored share of
+recent cohorts exceeds 40\% and the IPC weights of (\ref{eq:success-ipcw}) get large.
+Second, EBITDA rather than revenue keeps the metric sensitive to the margin dimension
+investors are ultimately paid on, while the arc transform neutralizes the
+sign-definedness problem that rules out log-growth. Third --- and decisively for
+Chapter~\ref{ch:causal} --- a composite index $Y^{\mathrm{comp}} = \sum_j w_j Y_j$
+degrades identifiability of the causal estimand: each component has its own confounding
+structure, so a backdoor set valid for the composite need not exist even when one exists
+per component, treatment effects of opposite sign on components cancel
+uninterpretably, and the weights $w_j$ become untestable modelling choices sitting
+inside the estimand itself. One outcome, one horizon, one information date: everything
+downstream inherits its identifiability from this choice.

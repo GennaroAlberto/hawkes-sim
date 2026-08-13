@@ -1,0 +1,1271 @@
+\chapter{Detailed Proofs}
+\label{app:proofs}
+
+This appendix gives complete proofs of every numbered mathematical claim in
+Chapters~\ref{ch:success}--\ref{ch:censored}, together with precise statements and proofs of results
+the main text uses in display form only: the selection identities of Chapter~\ref{ch:us}, the
+instability of log-link count feedback behind Warning~\ref{warn:poi-metastable}, and the explicit
+$\kappa$--$\theta$ ridge computation behind Proposition~\ref{prop:cen-ridge}. Each claim is restated
+compactly --- keeping its original number, which the restatement references --- and then proved in
+full: every interchange of limit, integral, and expectation is justified, and every appeal to the
+literature is explicit. Where the fully general theorem is genuinely beyond the scope of this manual
+(the general marked-space Watanabe theory, stability of nonlinear Hawkes processes, the do-calculus
+in full), we prove the special case the manual actually uses and cite the source for the general
+statement. Helper results proved here carry appendix numbers and labels prefixed \texttt{app}.
+
+\section{Standing conventions and two lemmas}
+\label{app:proofs-standing}
+
+Throughout, $(\Omega, \mathcal{F}, \Prob)$ carries a filtration $(\Hist_t)_{t \ge 0}$ satisfying the
+usual conditions, and $N$ is a \emph{simple} point process adapted to it: a right-continuous
+counting path with unit jumps at strictly increasing event times $t_1 < t_2 < \cdots$ having no
+finite accumulation point. We assume $N$ admits a nonnegative predictable intensity $\lambda$ in the
+sense of Definition~\ref{def:poi-intensity}, with
+\begin{equation}
+\label{eq:app-integrable}
+\E[\Lambda(T)] \;=\; \E\Big[\int_0^T \lambda(u)\,\dd u\Big] \;<\; \infty
+\qquad \text{for every finite } T,
+\end{equation}
+and write $M = N - \Lambda$ for the compensated process.
+
+\begin{lemma}[Compensator calculus]
+\label{lem:app-mart}
+Under \eqref{eq:app-integrable}: (i) $M$ is a martingale on every $[0,T]$; (ii) for every bounded
+predictable real- or complex-valued process $H$, the integral $t \mapsto \int_0^{t} H(s)\,\dd M(s)$
+is a martingale on $[0,T]$; in particular it has mean zero.
+\end{lemma}
+
+Lemma~\ref{lem:app-mart} is the defining property of the compensator together with the elementary
+theory of Stieltjes integration against point-process martingales; we use it without proof and refer
+to \cite{bremaud1996} (the integration theory recalled there) and \cite[Ch.~7]{daley2003}. Complex
+integrands are covered by applying the real statement to real and imaginary parts. The special case
+we use most often we prove in full.
+
+\begin{lemma}[Unbiasedness against deterministic integrands]
+\label{lem:app-fubini}
+Let $f : [0,T] \to [0,\infty]$ be Borel measurable. Then $\E \int_0^T f(s)\, \dd N(s) = \E \int_0^T
+f(s)\, \lambda(s)\, \dd s$, both sides possibly infinite. For bounded signed measurable $f$ the same
+identity holds with both sides finite.
+\end{lemma}
+
+\begin{proof}
+Define two measures on the Borel subsets of $[0,T]$ by $\mu_1(B) = \E \int_0^T \ind{s \in B}\, \dd
+N(s)$ and $\mu_2(B) = \E \int_0^T \ind{s \in B}\, \lambda(s)\, \dd s$; both are finite by
+\eqref{eq:app-integrable}. For $B = (a,b]$, Lemma~\ref{lem:app-mart}(i) gives $\E[N(b) - N(a)] =
+\E[\Lambda(b) - \Lambda(a)]$, so $\mu_1 = \mu_2$ on the $\pi$-system of half-open intervals, and
+both vanish on $\{0\}$. Two finite measures agreeing on a generating $\pi$-system agree on the
+generated $\sigma$-algebra (Dynkin), so $\mu_1 = \mu_2$. The identity extends to simple nonnegative
+$f$ by linearity; to measurable $f \ge 0$ by monotone convergence along simple $f_n \uparrow f$,
+each side being an integral against $\mu_i$ by Tonelli; and to bounded signed $f$ by splitting $f =
+f_+ - f_-$.
+\end{proof}
+
+\section{Proofs for Chapter~\ref{ch:success}}
+\label{app:proofs-ch3}
+
+\paragraph{Claim (Proposition~\ref{prop:success-arc}).}
+\emph{The arc growth rate \eqref{eq:success-arc} is defined for all sign patterns, bounded in
+$[-2,2]$, antisymmetric under swapping $F_y \leftrightarrow F_{y+h}$, and for $F_y, F_{y+h} > 0$
+satisfies $g = \log(F_{y+h}/F_y) + O(\log^3(F_{y+h}/F_y))$ near zero growth.}
+
+\begin{proof}
+Write $a = F_y$, $b = F_{y+h}$, $g = (b-a)\big/\tfrac12(|a| + |b|)$.
+
+\emph{Definedness.} The denominator vanishes iff $|a| + |b| = 0$ iff $a = b = 0$, the case covered
+by the convention $g = 0$.
+
+\emph{Bounds, with equality characterization.} By the triangle inequality $|b - a| \le |a| + |b|$,
+so $|g| \le 2$. Squaring, $|b-a|^2 \le (|a|+|b|)^2$ is equivalent to $-2ab \le 2|a|\,|b|$, with
+equality iff $ab = -|a|\,|b|$, i.e.\ iff $ab \le 0$. Thus $|g| = 2$ exactly for sign-crossing (or
+from-zero) transitions, the reading of Example~\ref{ex:success-arc}.
+
+\emph{Antisymmetry.} Swapping $a$ and $b$ negates the numerator and fixes the denominator.
+
+\emph{Expansion.} For $a, b > 0$ set $u = \log(b/a)$, so $b = a e^{u}$ and
+\[
+g \;=\; \frac{a(e^{u} - 1)}{\tfrac12\, a\,(e^{u} + 1)} \;=\; 2\,\frac{e^{u} - 1}{e^{u} + 1}
+\;=\; 2\tanh(u/2).
+\]
+Since $\tanh$ is analytic with bounded derivatives of every order on $\mathbb{R}$, Taylor's theorem
+with Lagrange remainder gives $\tanh x = x - x^3/3 + O(x^5)$ uniformly on compacts, hence $g = u -
+u^3/12 + O(u^5)$ and in particular $g - u = O(u^3)$: arc growth agrees with log growth to second
+order at zero growth.
+\end{proof}
+
+\section{Proofs for Chapter~\ref{ch:xgb}}
+\label{app:proofs-ch4}
+
+\paragraph{Claim (Proposition~\ref{prop:xgb-pinball}).}
+\emph{Let $Y$ have distribution function $F$ with $\E|Y| < \infty$ and let $\varphi(a) =
+\E[\rho_\tau(Y - a)]$ with $\rho_\tau$ the pinball loss \eqref{eq:xgb-pinball}. Then $a^*$ minimizes
+$\varphi$ if and only if $F(a^{*-}) \le \tau \le F(a^*)$; if $F$ is continuous and strictly
+increasing, the minimizer is unique and equals $F^{-1}(\tau)$.}
+
+\begin{proof}
+Since $0 \le \rho_\tau(u) \le \max(\tau, 1-\tau)\,|u|$, $\varphi$ is finite everywhere. Fix $y \in
+\mathbb{R}$ and let $\psi_y(a) = \rho_\tau(y - a)$: on $\{a < y\}$ it equals $\tau(y-a)$, on $\{a >
+y\}$ it equals $(1-\tau)(a-y)$, so $\psi_y$ is Lipschitz with constant $\max(\tau, 1-\tau)$ and
+derivative $\ind{y < s} - \tau$ at every $s \ne y$. By the fundamental theorem of calculus for
+Lipschitz functions, for $a < b$, $\psi_y(b) - \psi_y(a) = \int_a^b (\ind{y < s} - \tau)\, \dd s$.
+Taking expectations and applying Fubini --- the integrand is bounded by $1$ on the product of a
+probability space with $[a,b]$ ---
+\begin{equation}
+\label{eq:app-pinball-key}
+\varphi(b) - \varphi(a) \;=\; \int_a^b \big( \Prob(Y < s) - \tau \big)\, \dd s
+\;=\; \int_a^b \big( F(s) - \tau \big)\, \dd s ,
+\end{equation}
+using $\Prob(Y < s) = F(s^-) = F(s)$ off the (countable, Lebesgue-null) set of discontinuities.
+
+Let $a^*$ satisfy $F(a^{*-}) \le \tau \le F(a^*)$. For $b > a^*$, monotonicity gives $F(s) \ge
+F(a^*) \ge \tau$ on $(a^*, b)$, so \eqref{eq:app-pinball-key} yields $\varphi(b) \ge \varphi(a^*)$;
+for $b < a^*$, $F(s) \le F(a^{*-}) \le \tau$ on $(b, a^*)$, so $\varphi(a^*) - \varphi(b) \le 0$.
+Hence $a^*$ is a global minimizer. Conversely, if $F(a) < \tau$, right-continuity gives $\delta > 0$
+with $F < \tau$ on $[a, a+\delta)$, so $\varphi(a + \delta) < \varphi(a)$ and $a$ is not a
+minimizer; if $F(a^-) > \tau$, there is $\delta > 0$ with $F > \tau$ on $(a - \delta, a)$, so
+$\varphi(a - \delta) < \varphi(a)$. When $F$ is continuous and strictly increasing, the condition
+$F(a^-) \le \tau \le F(a)$ reads $F(a) = \tau$, which has the unique solution $a = F^{-1}(\tau)$.
+\end{proof}
+
+\begin{lemma}[Quantile of exchangeable scores]
+\label{lem:app-rank}
+Let $V_1, \dots, V_{n+1}$ be exchangeable real random variables, $\alpha \in (0,1)$, and $k = \lceil
+(1-\alpha)(n+1) \rceil \le n$. Let $Q$ be the $k$-th smallest of $V_1, \dots, V_n$. Then
+$\Prob(V_{n+1} \le Q) \ge 1 - \alpha$, and if the $V_j$ are almost surely distinct, also
+$\Prob(V_{n+1} \le Q) \le 1 - \alpha + 1/(n+1)$.
+\end{lemma}
+
+\begin{proof}
+For $j \le n+1$ let $R_j = \#\{i \ne j : V_i < V_j\}$, computed in the pooled sample of size $n+1$.
+First, $\{V_{n+1} > Q\} \subseteq \{R_{n+1} \ge k\}$: if $V_{n+1}$ exceeds the $k$-th smallest of
+the first $n$ values, then at least $k$ of those values are $\le Q < V_{n+1}$. Second,
+deterministically $\#\{j : R_j \ge k\} \le n+1-k$: if $R_j \ge k$ then $V_j$ strictly exceeds at
+least $k$ pooled values, hence exceeds the $k$-th smallest pooled value $W$; and at least $k$
+indices have $V_i \le W$, so at most $n+1-k$ indices can satisfy $V_j > W$. Third, by
+exchangeability the events $\{R_j \ge k\}$ have a common probability (swapping coordinates $j$ and
+$n+1$ maps one to the other and preserves the joint law), so
+\[
+\Prob(R_{n+1} \ge k) \;=\; \frac{1}{n+1} \sum_{j=1}^{n+1} \Prob(R_j \ge k)
+\;=\; \frac{\E\,\#\{j : R_j \ge k\}}{n+1} \;\le\; \frac{n+1-k}{n+1} \;\le\; \alpha ,
+\]
+the last step because $k \ge (1-\alpha)(n+1)$. This proves the lower bound. For the upper bound with
+almost surely distinct values: $\{V_{n+1} \le Q\}$ then equals, up to a null set, $\{V_{n+1} < Q\}
+\subseteq \{R_{n+1} \le k-1\}$ (at most $k-1$ of the first $n$ values lie below $V_{n+1}$, since all
+values below $V_{n+1}$ lie below $Q$ and exactly $k-1$ of the first $n$ do); with distinct values
+$\#\{j : R_j \ge k\} = n+1-k$ exactly, so $\Prob(R_{n+1} \le k-1) = 1 - (n+1-k)/(n+1) = k/(n+1) \le
+1-\alpha+1/(n+1)$.
+\end{proof}
+
+\paragraph{Claim (Theorem~\ref{thm:xgb-cqr}).}
+\emph{In split CQR with calibration set $I_2$ of size $n_2$, if the calibration pairs $\{(X_j,
+Y_j)\}_{j \in I_2}$ and the test pair $(X, Y)$ are exchangeable, then $\Prob\{Y \in C(X)\} \ge 1 -
+\alpha$; if the conformity scores are almost surely distinct, also $\Prob\{Y \in C(X)\} \le 1 -
+\alpha + 1/(n_2+1)$ \cite{romano2019}.}
+
+\begin{proof}
+Condition on the proper training set $I_1$; the fitted quantile functions $\hat q_{\alpha/2}, \hat
+q_{1-\alpha/2}$ are then fixed measurable functions. Define the score map $s(x,y) = \max\{\hat
+q_{\alpha/2}(x) - y,\; y - \hat q_{1-\alpha/2}(x)\}$ and set $E_j = s(X_j, Y_j)$ for $j \in I_2$ and
+$E_{n_2+1} = s(X, Y)$. A fixed measurable function applied coordinatewise to an exchangeable vector
+preserves exchangeability, so $(E_j)_{j \in I_2}$ together with $E_{n_2+1}$ are exchangeable given
+$I_1$. The algorithm's threshold $Q_{1-\alpha}$ is the $k$-th smallest calibration score with $k =
+\lceil (n_2+1)(1-\alpha) \rceil$ (if $k > n_2$, set $Q_{1-\alpha} = +\infty$ and the coverage bound
+is trivial). The coverage event is exactly a score comparison:
+\[
+Y \in C(X)
+\;\Longleftrightarrow\;
+\hat q_{\alpha/2}(X) - Y \le Q_{1-\alpha} \ \text{and}\ Y - \hat q_{1-\alpha/2}(X) \le Q_{1-\alpha}
+\;\Longleftrightarrow\;
+E_{n_2+1} \le Q_{1-\alpha}.
+\]
+Lemma~\ref{lem:app-rank}, applied conditionally on $I_1$, gives $\Prob\{Y \in C(X) \mid I_1\} \ge
+1-\alpha$ and, under almost-sure distinctness, the matching upper bound. Integrating over $I_1$
+preserves both inequalities. The finite-sample guarantee is \emph{marginal} and rests entirely on
+exchangeability, which temporal drift breaks --- Warning~\ref{warn:xgb-exch} is the operational
+consequence, not a footnote.
+\end{proof}
+
+\section{Proofs for Chapter~\ref{ch:causal}}
+\label{app:proofs-ch5}
+
+We work with discrete variables and a strictly positive joint law; the continuous case is identical
+with densities. Let $G$ be a DAG over $V = (V_1, \dots, V_p)$ and let $P$ factorize as $P(v) =
+\prod_j P(v_j \mid \mathrm{pa}_j)$. Following \cite{pearl1995}, the interventional law is
+\emph{defined} by the truncated factorization
+\begin{equation}
+\label{eq:app-trunc}
+P_a(v) \;=\; \prod_{j : V_j \ne A} P(v_j \mid \mathrm{pa}_j) \Big|_{A = a}
+\qquad \text{on } \{v : v_A = a\},
+\end{equation}
+and $\E[Y \mid \Do(A=a)]$ is the mean of $Y$ under $P_a$.
+
+\begin{lemma}[Interventions do not move non-descendants]
+\label{lem:app-truncmarg}
+Let $W$ be the set of non-descendants of $A$ (excluding $A$). Then $P_a(w) = P(w)$. In particular
+$P_a(z) = P(z)$ for any $Z \subseteq W$.
+\end{lemma}
+
+\begin{proof}
+No parent of a $W$-variable can be $A$ or a strict descendant $D$-variable of $A$: a child of $A$ is
+a descendant, and a variable with a parent in $D$ is itself a descendant. Likewise every parent of
+$A$ is in $W$ (a parent that is a descendant would close a directed cycle). Hence the order ($W$ in
+topological order, then $A$, then the strict descendants $D$ in topological order) is a topological
+order of $G$, and
+\[
+P(w, a, d) = \Big[\textstyle\prod_{j \in W} P(w_j \mid \mathrm{pa}_j)\Big]\, P(a \mid \mathrm{pa}_A)
+\Big[\textstyle\prod_{j \in D} P(d_j \mid \mathrm{pa}_j)\Big],
+\qquad
+P_a(w, d) = \Big[\textstyle\prod_{j \in W}\Big]\Big[\textstyle\prod_{j \in D}\Big]\Big|_{A=a}.
+\]
+Summing $P_a(w,d)$ over the $D$-coordinates in reverse topological order telescopes (each
+conditional sums to one), leaving $P_a(w) = \prod_{j \in W} P(w_j \mid \mathrm{pa}_j)$. The same
+telescoping in the observational law (sum over $D$, then over $a$) gives $P(w) = \prod_{j \in W}
+P(w_j \mid \mathrm{pa}_j)$. Summing out $W \setminus Z$ gives the claim for $Z$, which contains no
+descendant of $A$ by backdoor condition (i).
+\end{proof}
+
+\begin{lemma}[Backdoor blocking survives edge deletion]
+\label{lem:app-block}
+If $Z$ satisfies the backdoor criterion (Definition~\ref{def:causal-backdoor}) for $(A, Y)$ in $G$,
+then $Z$ d-separates $A$ from $Y$ in the graph $G_{\underline{A}}$ obtained from $G$ by deleting all
+edges out of $A$.
+\end{lemma}
+
+\begin{proof}
+Let $\pi$ be any $A$--$Y$ path in $G_{\underline{A}}$. Its first edge points into $A$ (all out-edges
+are deleted), so $\pi$ is also a path of $G$ and is a backdoor path there; by criterion (ii) it is
+blocked by $Z$ in $G$: some node $W$ on $\pi$ is either (a) a non-collider on $\pi$ with $W \in Z$,
+or (b) a collider on $\pi$ with neither $W$ nor any $G$-descendant of $W$ in $Z$. Collider status
+depends only on the orientations of the two $\pi$-edges at $W$, which are the same in both graphs.
+In case (a), $\pi$ is blocked at $W$ in $G_{\underline{A}}$ as well. In case (b), the
+$G_{\underline{A}}$-descendants of $W$ form a subset of its $G$-descendants, so again neither $W$
+nor any $G_{\underline{A}}$-descendant of $W$ lies in $Z$, and $\pi$ is blocked. Hence every
+$A$--$Y$ path of $G_{\underline{A}}$ is blocked by $Z$.
+\end{proof}
+
+\paragraph{Claim (Theorem~\ref{thm:causal-adjustment}).}
+\emph{If $Z$ satisfies the backdoor criterion relative to $(A, Y)$, then $\E[Y \mid \Do(A=a)] =
+\E_Z[\, \E[Y \mid A=a, Z] \,]$, and consequently $\tau_{\mathrm{ATE}} = \E_Z[\E[Y \mid A{=}1, Z] -
+\E[Y \mid A{=}0, Z]]$.}
+
+\begin{proof}
+Decompose $P_a(y) = \sum_z P_a(y \mid z)\, P_a(z)$. Lemma~\ref{lem:app-truncmarg} gives $P_a(z) =
+P(z)$. For the conditional we invoke the invariance half of Rule~2 of the do-calculus: \emph{if $Z$
+d-separates $A$ from $Y$ in $G_{\underline{A}}$, then $P_a(y \mid z) = P(y \mid a, z)$}. This is
+proved in \cite{pearl1995} from the truncated factorization \eqref{eq:app-trunc} via the soundness
+of d-separation for DAG-factorized laws; we delegate exactly this step, and
+Lemma~\ref{lem:app-block} verifies its graphical hypothesis from the backdoor definition. Combining,
+$P_a(y) = \sum_z P(y \mid a, z) P(z)$, i.e.\ $\E[Y \mid \Do(A=a)] = \sum_z P(z)\, \E[Y \mid A=a,
+Z=z]$; subtracting the $a = 0$ and $a = 1$ versions yields the ATE formula.
+
+Two special cases are worth recording because they are fully self-contained. (1) If $Z =
+\mathrm{pa}_A$, no graphical lemma is needed: on $\{A = a\}$, $P(v) = P_a(v)\, P(a \mid z)$ directly
+from \eqref{eq:app-trunc}, so $P_a(y, z) = P(y, z, a)/P(a \mid z) = P(y \mid a, z) P(z)$, which is
+the formula. (2) Under Assumption~\ref{ass:causal-ignorability} with potential-outcome semantics
+($\E[Y \mid \Do(A=a)] := \E[Y(a)]$), the formula is three lines: $\E[Y(a)] = \E_Z\E[Y(a) \mid Z] =
+\E_Z\E[Y(a) \mid A=a, Z] = \E_Z\E[Y \mid A=a, Z]$, using ignorability and then consistency
+(Assumption~\ref{ass:causal-consistency}). Case (2) is the form under which Chapter~\ref{ch:causal}
+actually operates.
+\end{proof}
+
+\paragraph{Claim (Proposition~\ref{prop:causal-dr}).}
+\emph{Let $\psi$ be the AIPW score \eqref{eq:causal-aipw} built from working nuisances $(\mu_1,
+\mu_0, e)$ with $\delta \le e(Z) \le 1 - \delta$ for some $\delta > 0$ and $\E|Y| + \E|\mu_a(Z)| <
+\infty$. Under Assumptions~\ref{ass:causal-consistency}--\ref{ass:causal-ignorability}, $\E[\psi] =
+\tau_{\mathrm{ATE}}$ if either $(\mu_1, \mu_0) = (\mu_1^*, \mu_0^*)$ is the true outcome pair or $e
+= e^*$ is the true propensity.}
+
+\begin{proof}
+Write $\psi = \psi_1 - \psi_0$ with $\psi_1 = \mu_1(Z) + A\,(Y - \mu_1(Z))/e(Z)$ and $\psi_0 =
+\mu_0(Z) + (1-A)(Y - \mu_0(Z))/(1 - e(Z))$; all terms are integrable because the denominators are
+bounded away from zero. We show $\E[\psi_1] = \E[Y(1)]$ under either hypothesis; the $\psi_0$ half
+is symmetric, and subtracting gives the claim.
+
+\emph{True outcome model.} Recall $\mu_1^*(Z) = \E[Y \mid A=1, Z] = \E[Y(1) \mid A=1, Z] = \E[Y(1)
+\mid Z]$, by consistency and then ignorability. Conditioning on $Z$ and using that $e(Z)$ is
+$Z$-measurable,
+\[
+\E\Big[\frac{A\,(Y - \mu_1^*(Z))}{e(Z)} \,\Big|\, Z\Big]
+= \frac{\Prob(A{=}1 \mid Z)}{e(Z)}\;\E[Y - \mu_1^*(Z) \mid A=1, Z]
+= \frac{e^*(Z)}{e(Z)} \cdot 0 = 0 ,
+\]
+regardless of the working $e$. Hence $\E[\psi_1] = \E[\mu_1^*(Z)] = \E[\E[Y(1) \mid Z]] = \E[Y(1)]$.
+
+\emph{True propensity.} With $e = e^*$ and arbitrary $\mu_1$,
+\[
+\E[\psi_1 \mid Z]
+= \mu_1(Z) + \frac{e^*(Z)\,\E[Y \mid A=1, Z] - e^*(Z)\,\mu_1(Z)}{e^*(Z)}
+= \E[Y \mid A=1, Z] = \E[Y(1) \mid Z],
+\]
+the working $\mu_1$ cancelling exactly; take expectations over $Z$.
+\end{proof}
+
+\begin{proposition}[Influence-function variance of AIPW]
+\label{prop:app-aipwvar}
+Let both nuisances be correct, $\E[Y^2] < \infty$, and let $O_1, \dots, O_n$ be i.i.d. Write
+$\tau(Z) = \mu_1^*(Z) - \mu_0^*(Z)$ and $\sigma_a^2(Z) = \Var(Y \mid A=a, Z)$. Then
+$\hat\tau_{\mathrm{AIPW}} = n^{-1}\sum_i \psi(O_i)$ satisfies $\sqrt{n}\,(\hat\tau_{\mathrm{AIPW}} -
+\tau_{\mathrm{ATE}}) \to \mathcal{N}(0, V)$ with
+\[
+V \;=\; \Var(\psi) \;=\; \Var\big(\tau(Z)\big)
+\;+\; \E\Big[\frac{\sigma_1^2(Z)}{e^*(Z)}\Big]
+\;+\; \E\Big[\frac{\sigma_0^2(Z)}{1 - e^*(Z)}\Big].
+\]
+\end{proposition}
+
+\begin{proof}
+Asymptotic normality is the Lindeberg--Levy central limit theorem for the i.i.d.\ mean of the
+square-integrable $\psi$, whose mean is $\tau_{\mathrm{ATE}}$ by Proposition~\ref{prop:causal-dr}.
+For the variance, write $\psi = \tau(Z) + U_1 - U_0$ with $U_1 = A(Y - \mu_1^*(Z))/e^*(Z)$ and $U_0
+= (1-A)(Y - \mu_0^*(Z))/(1 - e^*(Z))$. Both $U_a$ have conditional mean zero given $Z$ (shown in the
+previous proof), so they are uncorrelated with the $Z$-measurable $\tau(Z)$, and $U_1 U_0 = 0$
+pointwise because $A(1-A) = 0$. By conditioning on $(A, Z)$ and using $\mu_1^*(Z) = \E[Y \mid A=1,
+Z]$,
+\[
+\E[U_1^2 \mid Z] = \frac{\E[A (Y - \mu_1^*(Z))^2 \mid Z]}{e^*(Z)^2}
+= \frac{e^*(Z)\, \sigma_1^2(Z)}{e^*(Z)^2} = \frac{\sigma_1^2(Z)}{e^*(Z)},
+\]
+and symmetrically for $U_0$. Adding the three orthogonal contributions gives $V$. This $V$ is the
+semiparametric efficiency bound for the ATE, and the cross-fitted estimator of
+Section~\ref{sec:causal-estimators} attains it under the product-rate condition of
+Remark~\ref{rem:causal-rates}; see \cite{chernozhukov2018}. The firm-clustered variance
+\eqref{eq:causal-clustervar} is the sample analogue of $\Var(\sum_y \psi_{i,y})$ with firms as
+independent blocks, and the cluster bootstrap of Section~\ref{sec:causal-inference} estimates the
+same quantity by resampling \cite{efron1994}.
+\end{proof}
+
+\section{Proofs for Chapter~\ref{ch:us}}
+\label{app:proofs-ch6}
+
+Chapter~\ref{ch:us} uses three display-level identities --- the selection-bias covariance formula
+\eqref{eq:us-selbias}, the worst-case bounds \eqref{eq:us-bounds}, and the unbiasedness of the
+inverse-probability-of-observation weights below \eqref{eq:us-pi}. We record them with proofs.
+
+\begin{proposition}[Selection identities]
+\label{prop:app-selection}
+Let $g$ be integrable, $D \in \{0,1\}$ with $p = \Prob(D{=}1) \in (0,1)$. Then: (i) $\E[g \mid
+D{=}1] - \E[g] = \Cov(g, \ind{D{=}1})/p$; (ii) if $g \in [g_{\mathrm{lo}}, g_{\mathrm{hi}}]$ almost
+surely, then $\E[g]$ lies in the interval \eqref{eq:us-bounds}; (iii) under
+Assumption~\ref{ass:us-soh}, with $\pi = \Prob(D{=}1 \mid \Hist_{T_{i,k}}) > 0$ almost surely, $\E[D
+g/\pi] = \E[g]$.
+\end{proposition}
+
+\begin{proof}
+(i) $\Cov(g, \ind{D{=}1}) = \E[g \ind{D{=}1}] - p\,\E[g] = p\,\E[g \mid D{=}1] - p\,\E[g]$; divide
+by $p$. (ii) By the law of total expectation, $\E[g] = p\,\E[g \mid D{=}1] + (1-p)\,\E[g \mid
+D{=}0]$, and $\E[g \mid D{=}0] \in [g_{\mathrm{lo}}, g_{\mathrm{hi}}]$ by the almost-sure bounds.
+(iii) By the tower property and the conditional independence $g \indep D \mid \Hist_{T_{i,k}}$,
+\[
+\E\Big[\frac{D g}{\pi}\Big]
+= \E\Big[\frac{1}{\pi}\, \E[D g \mid \Hist_{T_{i,k}}]\Big]
+= \E\Big[\frac{1}{\pi}\, \E[D \mid \Hist_{T_{i,k}}]\; \E[g \mid \Hist_{T_{i,k}}]\Big]
+= \E\big[\E[g \mid \Hist_{T_{i,k}}]\big] = \E[g],
+\]
+all steps valid because $\pi$ is $\Hist_{T_{i,k}}$-measurable and positive.
+\end{proof}
+
+\begin{remark}
+\label{rem:app-pi}
+The closed form \eqref{eq:us-pi} for $\pi$ is the survival function of the first event after
+$T_{i,k}$: with an internal (self-exciting) history, the intensity along the no-new-event
+continuation is an $\Hist_{T_{i,k}}$-measurable function of elapsed time, and the hazard
+representation of the inter-event distribution \cite[Ch.~7.2]{daley2003} gives $\Prob(T_{i,k+1} >
+\tau_{\mathrm{end}} \mid \Hist_{T_{i,k}}) = \exp(-\int \lambda_i)$. If external covariates evolve
+stochastically over the gap, \eqref{eq:us-pi} holds with the exponential replaced by its conditional
+expectation.
+\end{remark}
+
+\section{Proofs for Chapter~\ref{ch:poisson}}
+\label{app:proofs-ch7}
+
+\paragraph{Claim (Theorem~\ref{thm:poi-watanabe}).}
+\emph{Let $N$ be a simple point process adapted to $\Hist_t$ with continuous compensator $\Lambda$.
+Then $N$ is an inhomogeneous Poisson process --- independent increments, $N(b) - N(a) \sim
+\mathrm{Poisson}(\Lambda(b) - \Lambda(a))$ --- if and only if $\Lambda$ is deterministic.}
+
+\begin{proof}
+\emph{Deterministic implies Poisson (the direction the manual uses).} Assume $\Lambda$ is a
+continuous deterministic nondecreasing function, finite on compacts, with $N - \Lambda$ a martingale
+(Lemma~\ref{lem:app-mart}(i); here \eqref{eq:app-integrable} holds automatically since $\Lambda$ is
+finite). Fix $u \in \mathbb{R}$ and $a \ge 0$, and define for $t \ge a$
+\begin{equation}
+\label{eq:app-expmart}
+Z_t \;=\; \exp\Big\{ i u \big(N(t) - N(a)\big) - \big(e^{iu} - 1\big)\big(\Lambda(t) -
+\Lambda(a)\big) \Big\} \;=\; e^{iu(N(t)-N(a))}\, g(t),
+\end{equation}
+with $g$ continuous, deterministic, of bounded variation, and bounded away from $0$ and $\infty$ on
+compacts. Both factors are of bounded variation, so Stieltjes integration by parts (with $g$
+continuous) gives $\dd Z_t = e^{iu(N(t^-)-N(a))}\, \dd g(t) + g(t)\, \dd\big(e^{iu(N-N(a))}\big)_t$.
+The first differential is $-\,(e^{iu}-1)\, Z_{t^-}\, \dd\Lambda(t)$ by the chain rule for continuous
+BV functions (and $Z_{t^-}$ may replace $Z_t$ in a $\dd\Lambda$-integral because $\Lambda$, being
+continuous, charges no countable set, in particular not the jump times). The second is a pure-jump
+differential: at an event, $e^{iuN}$ is multiplied by $e^{iu}$, so $\dd\big(e^{iu(N - N(a))}\big)_t
+= (e^{iu}-1)\, e^{iu(N(t^-)-N(a))}\, \dd N(t)$. Adding,
+\[
+Z_t \;=\; Z_a + \int_{(a,t]} Z_{s^-}\,(e^{iu}-1)\; \dd\big(N - \Lambda\big)(s).
+\]
+The integrand $H_s = Z_{s^-}(e^{iu}-1)$ is predictable (left limit of an adapted cadlag process) and
+bounded on $[a,b]$ by $|e^{iu}-1|\, e^{|e^{iu}-1|\Lambda(b)}$, a deterministic constant. By
+Lemma~\ref{lem:app-mart}(ii) the integral is a martingale, so $\E[Z_t \mid \Hist_a] = Z_a = 1$, i.e.
+\[
+\E\big[ e^{iu(N(t) - N(a))} \,\big|\, \Hist_a \big]
+\;=\; \exp\big\{ (e^{iu} - 1)(\Lambda(t) - \Lambda(a)) \big\},
+\]
+the characteristic function of $\mathrm{Poisson}(\Lambda(t)-\Lambda(a))$, and it is
+\emph{deterministic}: by uniqueness of characteristic functions the increment is Poisson
+distributed, and since the conditional characteristic function is constant, the increment is
+independent of $\Hist_a$. For disjoint intervals $(a_1,b_1], \dots, (a_m,b_m]$ (ordered), iterating
+the tower property from the last interval inward factorizes the joint characteristic function of the
+increments into the product of Poisson characteristic functions, proving joint independence. Hence
+$N$ is inhomogeneous Poisson with mean function $\Lambda$.
+
+\emph{Poisson implies deterministic.} If $N$ has independent Poisson increments with continuous mean
+function $m$, then $N(t) - m(t)$ is a martingale ($\E[N(t) - N(s) \mid \Hist_s] = m(t)-m(s)$ by
+independence), and $m$ is a continuous deterministic --- hence predictable --- increasing process.
+The compensator is the unique predictable increasing process making $N$ minus it a martingale
+(Doob--Meyer uniqueness, which we take from \cite{bremaud1996}), so $\Lambda = m$ almost surely:
+deterministic. For the general marked-space version of both directions see \cite[Ch.~7]{daley2003}.
+\end{proof}
+
+\paragraph{Claim (Theorem~\ref{thm:poi-rescaling}).}
+\emph{Let $N$ have event times $t_1 < t_2 < \cdots$ and conditional intensity $\lambda(t) > 0$ with
+$\Lambda(t) \to \infty$ almost surely. Then $\tau_k = \Lambda(t_k)$ are the event times of a
+unit-rate Poisson process; equivalently $\delta_k = \tau_k - \tau_{k-1}$ are i.i.d.\
+$\mathrm{Exp}(1)$.}
+
+\begin{proof}
+\emph{Step 1: the time change.} $\Lambda$ is continuous (an integral) and strictly increasing: for
+$a<b$, $\Lambda(b)-\Lambda(a) = \int_a^b \lambda > 0$ because $\lambda$ is strictly positive. Since
+$\Lambda(\infty) = \infty$ a.s., for each $s \ge 0$ there is a unique finite $\tau(s)$ with
+$\Lambda(\tau(s)) = s$, and $s \mapsto \tau(s)$ is continuous and increasing. Each $\tau(s)$ is a
+stopping time: $\{\tau(s) \le t\} = \{\Lambda(t) \ge s\} \in \Hist_t$. Define $\mathcal{G}_s =
+\Hist_{\tau(s)}$ (a filtration, since $\tau$ is monotone) and $\tilde N(s) = N(\tau(s))$. Because
+$N$ is right-continuous and adapted, it is progressively measurable, so $\tilde N(s)$ is
+$\mathcal{G}_s$-measurable (the standard measurability of a progressive process at a stopping time).
+$\tilde N$ is a simple counting path whose jump times are exactly $\{\Lambda(t_k)\} = \{\tau_k\}$,
+since the strictly increasing $\Lambda$ maps distinct event times to distinct values.
+
+\emph{Step 2: integrability.} Fix $s$ and let $T = \tau(s)$. For each $n$, $T \wedge n$ is a bounded
+stopping time, and Doob's optional sampling applied to the martingale $M = N - \Lambda$ on $[0,n]$
+gives $\E[N(T \wedge n)] = \E[\Lambda(T \wedge n)] \le s$. Monotone convergence ($T < \infty$ a.s.,
+$N$ and $\Lambda$ nondecreasing) yields $\E[\tilde N(s)] = \E[\Lambda(T)] = s < \infty$.
+
+\emph{Step 3: $\tilde N(s) - s$ is a $\mathcal{G}$-martingale.} Fix $s' < s$, put $T' = \tau(s')$,
+$T = \tau(s)$, and take $A \in \mathcal{G}_{s'} = \Hist_{T'}$. For each $n$, $T' \wedge n \le T
+\wedge n$ are bounded stopping times, so optional sampling gives $\E[M(T \wedge n) \mid \Hist_{T'
+\wedge n}] = M(T' \wedge n)$. The event $A_n = A \cap \{T' \le n\}$ belongs to $\Hist_{T' \wedge n}$
+(for $t < n$, $A_n \cap \{T' \wedge n \le t\} = A \cap \{T' \le t\} \in \Hist_t$; for $t \ge n$ it
+lies in $\Hist_n \subseteq \Hist_t$), whence $\E[\ind{A_n} M(T \wedge n)] = \E[\ind{A_n} M(T' \wedge
+n)]$. As $n \to \infty$: $\ind{A_n} \uparrow \ind{A}$ since $T' < \infty$ a.s.; $M(T \wedge n) \to
+M(T)$ and $M(T' \wedge n) \to M(T')$ a.s.; and $|M(T \wedge n)| \le N(T) + s$ with $N(T) \in L^1$ by
+Step 2 (similarly for $T'$), so dominated convergence applies on both sides: $\E[\ind{A} M(T)] =
+\E[\ind{A} M(T')]$ for all $A \in \mathcal{G}_{s'}$. Since $M(T') = \tilde N(s') - s'$ is
+$\mathcal{G}_{s'}$-measurable, this says $\E[\tilde N(s) - s \mid \mathcal{G}_{s'}] = \tilde N(s') -
+s'$.
+
+\emph{Step 4: conclude.} $\tilde N$ is a simple counting process adapted to $(\mathcal{G}_s)$ whose
+compensator is the continuous deterministic function $s$. By the direction of
+Theorem~\ref{thm:poi-watanabe} proved above (whose proof used only the martingale property of $N -
+\Lambda$ with $\Lambda$ continuous deterministic), $\tilde N$ is a unit-rate Poisson process. Its
+jump times are the $\tau_k$, and the equivalence of a unit-rate Poisson process with i.i.d.\
+standard-exponential interarrivals is the classical description of the Poisson process
+\cite[Ch.~2]{daley2003}; the residual-analysis use is due to \cite{ogata1988}.
+\end{proof}
+
+\paragraph{Claim (Corollary~\ref{cor:poi-testable}).}
+\emph{Under correct specification, every fitted model class in Part~III yields rescaled
+inter-arrivals $\hat\delta_k$ that are i.i.d.\ $\mathrm{Exp}(1)$, and $u_k = 1 - e^{-\hat\delta_k}$
+that are i.i.d.\ $\mathrm{Uniform}(0,1)$.}
+
+\begin{proof}
+Every model class specifies $\lambda(t; \theta)$ explicitly with $\lambda > 0$; under correct
+specification the data are generated by $\lambda(\cdot\,; \theta_0)$, and
+Theorem~\ref{thm:poi-rescaling} applied at $\theta_0$ makes the rescaled inter-arrivals i.i.d.\
+$\mathrm{Exp}(1)$. The probability integral transform finishes: $\Prob(1 - e^{-\delta} \le u) =
+\Prob(\delta \le -\log(1-u)) = u$ for $u \in (0,1)$, and measurable transformations of independent
+variables are independent. (In practice $\hat\theta$ replaces $\theta_0$; the tests are then
+conservative screens, exact only asymptotically.)
+\end{proof}
+
+\paragraph{Claim (Proposition~\ref{prop:poi-concave}).}
+\emph{With $x_w = (1, X_w^\top)^\top$, the weekly log-likelihood \eqref{eq:poi-loglik} is concave in
+$\gamma = (a, \beta)$, strictly concave iff $\{x_w\}$ spans $\mathbb{R}^{p+1}$; the MLE, when it
+exists, is then unique.}
+
+\begin{proof}
+Write $\eta_w = x_w^\top \gamma$, so $\ell(\gamma) = \sum_w [\, n_w \eta_w - \Delta_w e^{\eta_w}
+\,]$. Then $\nabla \ell = \sum_w (n_w - \Delta_w e^{\eta_w})\, x_w$ and $\nabla^2 \ell = -\sum_w
+\Delta_w e^{\eta_w} x_w x_w^\top$. For any $v$, $v^\top \nabla^2 \ell\, v = -\sum_w \Delta_w
+e^{\eta_w} (x_w^\top v)^2 \le 0$, so $\ell$ is concave; the form is zero iff $x_w^\top v = 0$ for
+all $w$. If the $x_w$ span, no such $v \ne 0$ exists and $\nabla^2 \ell \prec 0$ everywhere: $\ell$
+is strictly concave, and two distinct maximizers would contradict strict concavity at their
+midpoint, so the maximizer is unique. Conversely, if some $v \ne 0$ is orthogonal to every $x_w$,
+then $\ell(\gamma + t v) = \ell(\gamma)$ for all $t$: $\ell$ is constant along a line, hence not
+strictly concave and its maximizer (if any) not unique.
+\end{proof}
+
+\paragraph{Claim (Proposition~\ref{prop:poi-ident}).}
+\emph{The Fisher information of \eqref{eq:poi-loglik} is $I(a, \beta) = \sum_w \Delta_w \lambda_w
+x_w x_w^\top$ with $\lambda_w = e^{a + \beta^\top X_w}$, and after profiling out $a$ the information
+for $\beta$ is the intensity-weighted temporal covariance \eqref{eq:poi-fisher}. A covariate
+constant over the window is not identified separately from $a$; a near-linear trend leaves as
+effective information the weighted variance of its detrended residual.}
+
+\begin{proof}
+The Hessian computed in the previous proof does not involve the counts $n_w$, so observed and
+expected information coincide: $I(\gamma) = -\nabla^2\ell = \sum_w \omega_w x_w x_w^\top$ with
+$\omega_w = \Delta_w \lambda_w$. Partition by the intercept: $I_{aa} = \sum_w \omega_w$, $I_{a\beta}
+= \sum_w \omega_w X_w^\top$, $I_{\beta\beta} = \sum_w \omega_w X_w X_w^\top$. The information for
+$\beta$ with $a$ unknown is the Schur complement $I_\beta = I_{\beta\beta} - I_{\beta a} I_{aa}^{-1}
+I_{a\beta}$ (the inverse of $[I^{-1}]_{\beta\beta}$, by the block-inverse formula). With $\bar
+X_\omega = \sum_w \omega_w X_w / \sum_w \omega_w$,
+\[
+\sum_w \omega_w (X_w - \bar X_\omega)(X_w - \bar X_\omega)^\top
+= \sum_w \omega_w X_w X_w^\top - \Big(\sum_w \omega_w\Big) \bar X_\omega \bar X_\omega^\top
+= I_{\beta\beta} - I_{\beta a} I_{aa}^{-1} I_{a\beta},
+\]
+which is \eqref{eq:poi-fisher}. (i) If coordinate $j$ of $X_w$ is constant, then $X_w^{(j)} - \bar
+X_\omega^{(j)} = 0$ for all $w$, so $I_\beta$ has a zero row and column: singular. The
+non-identification is exact, not asymptotic: replacing $(a, \beta_j) \to (a - tc, \beta_j + t)$
+leaves every linear predictor $\eta_w$, hence the entire likelihood, unchanged. (ii) More generally,
+let $U$ collect nuisance columns (intercept and an explicit trend $t_w$) and endow $\mathbb{R}^W$
+with the inner product $\langle f, g \rangle_\omega = \sum_w \omega_w f_w g_w$. The Schur complement
+of the $U$-block in the full Gram matrix is the Gram matrix of the residuals of the $X$-columns
+after $\langle\cdot,\cdot\rangle_\omega$-orthogonal projection onto $\mathrm{span}(U)$ --- because
+$I_{\beta U} I_{UU}^{-1} I_{U \beta}$ is precisely the Gram matrix of those projections. Hence the
+profile information for $\beta$ is $\sum_w \omega_w r_w r_w^\top$ with $r_w$ the $\omega$-weighted
+regression residual of $X_w$ on $(1, t_w)$: a covariate that is nearly a linear trend has small
+residuals and correspondingly little information, as claimed.
+\end{proof}
+
+\begin{proposition}[Instability of log-link raw-count feedback (Mechanism B)]
+\label{prop:app-loglink}
+Let $a \in \mathbb{R}$, $b > 0$, and let $Y_t \mid \Hist_t \sim \mathrm{Poisson}(\lambda_t)$ with
+$\lambda_{t+1} = \exp(a + b Y_t)$ and any initial $\lambda_1 > 0$. Define $G(\lambda) = e^{a}
+\exp\{\lambda (e^{b} - 1)\}$. Then: (i) $\E[\lambda_{t+1} \mid \Hist_t] = G(\lambda_t)$ exactly,
+with $G$ increasing, strictly convex, and $G'(\lambda^*) = \lambda^* (e^b - 1)$ at any fixed point
+$\lambda^*$; (ii) $G$ has a fixed point iff $e^{a}(e^{b}-1) \le e^{-1}$, in which case there are at
+most two, $\lambda^*_- \le \lambda^*_+$, with $\lambda^*_-(e^b - 1) \le 1$ (the local stability
+condition of the mean recursion) and $\lambda^*_+(e^b - 1) \ge 1$ (repelling); (iii) in all cases
+$\E[\lambda_t] \to \infty$ as $t \to \infty$: no fixed point is globally attracting for the mean
+dynamics; (iv) by contrast, under linear feedback $\lambda_{t+1} = c + \rho Y_t$ with $c > 0$ and $0
+\le \rho < 1$, $\E[\lambda_t] \to c/(1-\rho)$ geometrically from every initial condition.
+\end{proposition}
+
+\begin{proof}
+(i) The Poisson moment generating function: for $Y \sim \mathrm{Poisson}(\lambda)$ and any real $s$,
+$\E[e^{sY}] = \sum_{k \ge 0} e^{sk} e^{-\lambda}\lambda^k / k! = e^{\lambda(e^s - 1)}$ (the series
+is the exponential series at $\lambda e^s$). Hence $\E[\lambda_{t+1} \mid \Hist_t] = e^a\,
+\E[e^{bY_t} \mid \Hist_t] = G(\lambda_t)$. Direct differentiation gives $G' = (e^b - 1) G > 0$ and
+$G'' = (e^b-1)^2 G > 0$; at a fixed point $G(\lambda^*) = \lambda^*$, so $G'(\lambda^*) =
+\lambda^*(e^b - 1)$.
+
+(ii) Write $c_0 = e^a$, $d = e^b - 1 > 0$. Fixed points solve $c_0 e^{d\lambda} = \lambda$. The
+strictly convex function $g(\lambda) = G(\lambda) - \lambda$ has $g(0) = c_0 > 0$ and $g(\lambda)
+\to \infty$; it attains its minimum where $G' = 1$, i.e.\ at $\tilde\lambda$ with $c_0 d\,
+e^{d\tilde\lambda} = 1$, giving $\tilde\lambda = d^{-1}\log(1/(c_0 d))$ when positive and
+$g(\tilde\lambda) = 1/d - \tilde\lambda$. Thus $g$ has a zero iff $\tilde\lambda \ge 1/d$, i.e.\ iff
+$c_0 d \le e^{-1}$, which is the stated condition. A strictly convex function has at most two zeros;
+at the smaller, $g$ crosses from positive to non-positive, so $g'(\lambda^*_-) \le 0$, i.e.\
+$G'(\lambda^*_-) \le 1$; at the larger the crossing is upward, $G'(\lambda^*_+) \ge 1$.
+
+(iii) Note $\lambda_t \ge e^a$ for every $t \ge 2$. Choose an integer $k$ with $\lambda' := e^{a +
+bk}$ strictly above every fixed point (possible: fixed points are finite, or absent). Then
+$G(\lambda) > \lambda$ for all $\lambda \ge \lambda'$, and the deterministic iterates $G^{\circ
+n}(\lambda')$ increase; were they bounded, their limit would be a fixed point $\ge \lambda'$, a
+contradiction --- so $G^{\circ n}(\lambda') \uparrow \infty$. Poisson tails are stochastically
+increasing in the mean (superpose an independent $\mathrm{Poisson}(\mu' - \mu)$), so $p_0 :=
+\Prob(\mathrm{Poisson}(e^a) \ge k) > 0$ lower-bounds $\Prob(Y_2 \ge k \mid \Hist_2)$. By conditional
+Jensen with the convex increasing $G$ and induction on $n$, $\E[\lambda_{3+n} \mid \Hist_3] \ge
+G^{\circ n}(\lambda_3)$ (allowing $+\infty$ throughout). On the event $B = \{Y_2 \ge k\}$ we have
+$\lambda_3 = e^{a + bY_2} \ge \lambda'$, hence
+\[
+\E[\lambda_{3+n}] \;\ge\; \E\big[\ind{B}\, \E[\lambda_{3+n} \mid \Hist_3]\big]
+\;\ge\; \Prob(B)\, G^{\circ n}(\lambda') \;\ge\; p_0\, G^{\circ n}(\lambda')
+\;\longrightarrow\; \infty .
+\]
+(iv) Linearity passes through expectations exactly: $\E[\lambda_{t+1} \mid \Hist_t] = c + \rho
+\lambda_t$, so $\E[\lambda_t] - c/(1-\rho) = \rho^{\,t-1}(\E[\lambda_1] - c/(1-\rho)) \to 0$. The
+contrast with (iii) is precisely the Jensen gap: $G$ is convex, so rare large counts dominate the
+mean, while the linear map has no gap. Note also $e^b - 1 > b$, so the true mean-map derivative
+$\lambda^*(e^b - 1)$ strictly exceeds the naive effective radius $\rho_{\mathrm{eff}} = b\lambda^*$
+of \eqref{eq:poi-rhoeff}: a configuration comfortably subcritical by $\rho_{\mathrm{eff}}$ can be
+metastable, which is the measured episode of Warning~\ref{warn:poi-metastable} and
+Table~\ref{tab:sel-stability}. Genuine ergodicity theory for log-linear count autoregressions (with
+$\log(1+Y)$ feedback) is in \cite{fokianos2009}; for nonlinear Hawkes stability see
+\cite{bremaud1996}.
+\end{proof}
+
+\section{Proofs for Chapter~\ref{ch:hawkes}}
+\label{app:proofs-ch8}
+
+\begin{lemma}[Branching moments and local finiteness]
+\label{lem:app-branching}
+Consider a cluster rooted at a point at time $v$: generation $0$ is the root; each point of
+generation $n$ independently produces $\mathrm{Poisson}(\kappa)$ generation-$(n{+}1)$ points at lags
+drawn i.i.d.\ from the density $\phi/\kappa$ on $(0,\infty)$. Let $Z_n$ be the size of generation
+$n$ and $S_n$ a sum of $n$ i.i.d.\ lags. Then (i) $\E Z_n = \kappa^n$, and for $\kappa < 1$ the mean
+total cluster size is $\sum_n \kappa^n = 1/(1-\kappa)$; (ii) the expected number of generation-$n$
+points within $[v, v+T]$ is $\kappa^n \Prob(S_n \le T)$; (iii) for every $T$ and every $\kappa$,
+$\sum_n \kappa^n \Prob(S_n \le T) < \infty$, so clusters are almost surely finite on compact
+windows.
+\end{lemma}
+
+\begin{proof}
+(i) Wald's identity for a Poisson number of nonnegative i.i.d.\ terms: if $K$ is independent of the
+i.i.d.\ sequence $(X_i)$, conditioning on $K$ and applying Tonelli gives $\E \sum_{i \le K} X_i = \E
+K \cdot \E X_1$. Applying it generation by generation, $\E Z_{n+1} = \E[\E[Z_{n+1} \mid \text{gen }
+n]] = \kappa\, \E Z_n$, so $\E Z_n = \kappa^n$, and the total follows by Tonelli over $n$. (ii) Let
+$m_n$ be the mean measure of generation-$n$ displacements from the root. Then $m_0 = \delta_0$ and,
+by the same conditioning plus Tonelli, $m_{n+1}(B) = \int\!\!\int \ind{u \in B}\, \phi(u - p)\, \dd
+u\, m_n(\dd p)$: the density of $m_n$ is $\kappa^n$ times the $n$-fold convolution of $\phi/\kappa$,
+i.e.\ the law of $S_n$ scaled by $\kappa^n$; evaluate on $[0, T]$. (iii) Lags are a.s.\ strictly
+positive, so by dominated convergence $\E e^{-\eta S_1} \downarrow 0$ as $\eta \uparrow \infty$;
+choose $\eta$ with $r := \kappa\, \E e^{-\eta S_1} < 1$. Markov's inequality gives $\Prob(S_n \le T)
+\le e^{\eta T} (\E e^{-\eta S_1})^n$, hence $\sum_n \kappa^n \Prob(S_n \le T) \le e^{\eta T}/(1 - r)
+< \infty$. Finite expectation implies almost-sure finiteness.
+\end{proof}
+
+\paragraph{Claim (Theorem~\ref{thm:hw-cluster}).}
+\emph{For $\phi \ge 0$ with $\kappa = \int \phi < 1$, the Hawkes process \eqref{eq:hw-intensity} is
+equal in law to the Poisson cluster process (immigrants at rate $s(\cdot)$, i.i.d.\
+Poisson($\kappa$) offspring at lag density $\phi/\kappa$, superposed over generations). Under
+constant $s$ it admits a stationary version iff $\kappa < 1$, with mean intensity $s/(1-\kappa)$ and
+mean cluster size $1/(1-\kappa)$; the multivariate statement holds with $\rho(K) < 1$, mean vector
+$(I-K)^{-1}s$.}
+
+\begin{proof}
+\emph{Construction.} On a suitable product space let immigrants form a Poisson process with locally
+integrable intensity $s(\cdot)$ on $[0,\infty)$, and attach to each immigrant an independent cluster
+as in Lemma~\ref{lem:app-branching}. Let $N_c$ be the superposition of all points. By
+Lemma~\ref{lem:app-branching}(ii)--(iii) and Campbell's formula over immigrants, $\E N_c[0,T] \le
+\big(\int_0^T s\big) \sum_n \kappa^n \Prob(S_n \le T) < \infty$, so $N_c$ is almost surely locally
+finite; it is simple because all lags and immigrant positions have nonatomic laws, so any two
+prescribed points coincide with probability zero and there are countably many pairs.
+
+\emph{Intensity with respect to the genealogical filtration.} Let $\mathcal{F}_t$ be generated by
+all points born up to $t$ together with their genealogy. Decompose $N_c$ into the immigrant stream
+and the direct-offspring streams $N^p$ of each born point $p$. By construction, given $p$, $N^p$ is
+a Poisson process on $(p, \infty)$ with intensity $\phi(\cdot - p)$, independent of all other
+building blocks; by independence of Poisson increments, $N^p(t) - \int_p^{t \vee p} \phi(u - p)\,
+\dd u$ is an $\mathcal{F}$-martingale, as is the compensated immigrant stream. Partial sums over the
+countably many streams are martingales, and they converge in $L^1$ for each $t$ (monotonically in
+the counting and compensating parts separately, with finite limit expectation $\E N_c(t) < \infty$),
+so the limit $N_c(t) - \int_0^t \lambda_c(u)\, \dd u$, with $\lambda_c(u) = s(u) + \sum_{p < u}
+\phi(u - p)$, is an $\mathcal{F}$-martingale ($L^1$-limits pass through conditional expectations).
+
+\emph{Reduction to the internal history.} $\lambda_c$ is exactly the Hawkes formula
+\eqref{eq:hw-intensity} evaluated on the points of $N_c$: it depends on point positions only, not on
+the genealogy, so it is predictable for the internal filtration $\Hist_t = \sigma(N_c(s), s \le t)$,
+and $\Hist_t \subseteq \mathcal{F}_t$. The tower property then transfers the martingale property:
+for $s < t$, $\E[\,N_c(t) - \smallint_0^t \lambda_c \mid \Hist_s] = \E[\,\E[\cdots \mid
+\mathcal{F}_s] \mid \Hist_s] = \E[\,N_c(s) - \smallint_0^s \lambda_c \mid \Hist_s] = N_c(s) -
+\smallint_0^s \lambda_c$, the last equality because the variable is $\Hist_s$-measurable. Hence
+$N_c$ has internal-history intensity \eqref{eq:hw-intensity}.
+
+\emph{Law identification.} A simple point process whose internal-history intensity coincides almost
+surely with a fixed predictable functional of the past configuration has its law on every $[0,T]$
+uniquely determined --- the intensity determines the successive conditional hazard functions of
+inter-event times, hence all finite-dimensional joint densities. We take this uniqueness from
+\cite[Ch.~7.2--7.3]{daley2003}. Therefore $N_c$ equals in law the Hawkes process of
+Definition~\ref{def:hw-hawkes}; this is the cluster representation, originally implicit in
+\cite{hawkes1971}.
+
+\emph{Stationarity.} Let $s$ be constant. For $\kappa < 1$, run the same construction with
+immigrants homogeneous Poisson on all of $\mathbb{R}$. The construction mechanism is invariant under
+time shifts, so the law of $N_c$ is stationary, and by Wald plus Campbell the mean rate is $s \cdot
+\E[\text{cluster size}] = s/(1-\kappa) < \infty$ (Lemma~\ref{lem:app-branching}(i)). Conversely,
+suppose a stationary version with finite mean intensity $\bar\xi = \E N(0,1]$ exists for some
+$\kappa$. Then $\E \lambda(t)$ is finite and constant in $t$ (stationarity; and $\E \int_0^1 \lambda
+= \E N(0,1]$ by Lemma~\ref{lem:app-fubini} with $f \equiv 1$), so $\E\lambda(t) = \bar\xi$ for a.e.\
+$t$. Taking expectations in \eqref{eq:hw-intensity} and using Campbell's formula for the stationary
+process ($\E \sum_{t_k < t} \phi(t - t_k) = \bar\xi \int_0^\infty \phi$, \cite{daley2003}) gives
+$\bar\xi = s + \kappa \bar\xi$, i.e.\ $(1-\kappa)\bar\xi = s$. For $s > 0$ this has no finite
+nonnegative solution when $\kappa \ge 1$; when $\kappa < 1$ it returns $\bar\xi = s/(1-\kappa)$,
+consistent with the construction. The multivariate case repeats every step with matrix kernels:
+generation means are $K^n$, $\sum_n K^n = (I - K)^{-1}$ converges iff $\rho(K) < 1$ (Gelfand's
+formula), the mean vector is $(I-K)^{-1}s$, and the first-moment identity reads $(I - K)\bar\xi =
+s$. For stability theory beyond the linear case see \cite{bremaud1996}.
+\end{proof}
+
+\paragraph{Claim (Proposition~\ref{prop:hw-nonneg}).}
+\emph{Let $\lambda(t) = s(t) + \sum_{t_k < t} \phi(t - t_k)$ with $s$ bounded. If $\phi < 0$ on a
+set of positive Lebesgue measure, there exist finite histories on which the formula is strictly
+negative; hence \eqref{eq:hw-intensity} defines a valid intensity for all histories only if $\phi
+\ge 0$ almost everywhere.}
+
+\begin{proof}
+Suppose $\phi$ is not nonnegative a.e. Then there are $\epsilon > 0$ and a Borel set $A \subseteq
+(0, \infty)$ of positive Lebesgue measure with $\phi < -\epsilon$ on $A$. Let $s_{\max} = \sup_t
+s(t) < \infty$ and fix an integer $n > s_{\max}/\epsilon$. A set of positive measure is infinite, so
+we may choose $n$ distinct lags $a_1, \dots, a_n \in A$; fix any $t$ larger than all of them and
+place events at $x_i = t - a_i$, a simple finite configuration. Evaluating the formula at $t$:
+$\lambda(t) \le s_{\max} + \sum_{i=1}^n \phi(a_i) < s_{\max} - n\epsilon < 0$. A conditional
+intensity is by definition nonnegative, so no point process can have \eqref{eq:hw-intensity} as its
+intensity functional on \emph{all} finite histories unless $\phi \ge 0$ a.e.
+\end{proof}
+
+\begin{remark}[Why the all-histories qualifier is essential]
+\label{rem:app-signed}
+Requiring only \emph{almost-sure} nonnegativity along realized histories does not force $\phi \ge
+0$: with constant baseline $s$ and $\phi = -s\,\ind{0 < u \le 1}$, the induced dynamics are a
+renewal process with a unit dead time --- after each event the formula sits at exactly zero for one
+time unit, so no two events are ever closer than $1$ and the offending configurations of the proof
+are never visited. Such exactly tuned signed kernels are fragile (any perturbation of $s$ or $\phi$
+breaks the cancellation), evade none of the substantive losses --- the cluster representation of
+Theorem~\ref{thm:hw-cluster} requires $\phi \ge 0$ to define offspring densities, and truncating at
+zero, $\lambda = (s + \sum\phi)_+$, destroys the linearity on which the Volterra first-moment
+equation of Chapter~\ref{ch:censored} rests --- and none of the estimation theory of this manual
+applies to them. The factorization route (b) of Section~\ref{sec:hw-inhib} avoids the problem
+wholesale.
+\end{remark}
+
+\paragraph{Claim (Theorem~\ref{thm:hw-factor}).}
+\emph{Let $N_s$ be the ground process of sector-$s$ deals with intensity $\lambda^g_s(t)$ and let
+each event carry a firm mark. Then $\lambda_i(t) = \lambda^g_{s(i)}(t)\, p(i \mid s(i), t, \Hist_t)$
+exactly, the log-likelihood of the marked stream splits into a ground term plus a mark term, and the
+two factors can be estimated separately without loss.}
+
+\begin{proof}
+We prove the finite-mark-space case, which is the case used: the marks are the finitely many firms
+of a sector. Represent the marked stream as the multivariate point process $(N_i)_{i \in
+\mathcal{M}}$, $|\mathcal{M}| < \infty$, on the common internal history $(\Hist_t)$, each $N_i$
+simple with predictable intensity $\lambda_i$ satisfying \eqref{eq:app-integrable}, and no two
+components jumping together (simplicity of the marked stream).
+
+\emph{Ground intensity.} $N_g = \sum_i N_i$ is a simple counting process and $N_g - \int_0^\cdot
+\sum_i \lambda_i$ is a finite sum of martingales, hence a martingale; the integrand $\lambda_g :=
+\sum_i \lambda_i$ is predictable and nonnegative, so $\lambda_g$ is the intensity of $N_g$.
+
+\emph{The mark kernel.} Define $p(i \mid t) = \lambda_i(t)/\lambda_g(t)$ on $\{\lambda_g(t) > 0\}$
+and let $p(\cdot \mid t)$ be an arbitrary fixed probability vector on $\{\lambda_g(t) = 0\}$. Then
+$p(\cdot \mid t)$ is a probability vector for every $t$ and $\lambda_i = \lambda_g \, p(i \mid
+\cdot)$ \emph{everywhere}: on $\{\lambda_g = 0\}$ both sides vanish because $0 \le \lambda_i \le
+\lambda_g$. This is \eqref{eq:hw-factor}, an identity, with the firm-level intensity $\lambda_i$ and
+$\lambda^g_s = \sum_{j : s(j) = s} \lambda_j$. Its interpretation as the conditional mark law is the
+Campbell-type identity: for every bounded predictable $H(t, i)$, Lemma~\ref{lem:app-mart}(ii)
+applied componentwise gives
+\[
+\E \sum_k H(t_k, m_k) \;=\; \sum_{i} \E \int_0^T H(t, i)\, \lambda_i(t)\, \dd t
+\;=\; \E \int_0^T \lambda_g(t) \sum_i H(t, i)\, p(i \mid t)\, \dd t :
+\]
+conditionally on an event at $t$ and on $\Hist_{t^-}$, the mark is distributed as $p(\cdot \mid t)$
+\cite[Ch.~6.4]{daley2003}.
+
+\emph{Likelihood factorization.} For a realization $(t_1, m_1), \dots, (t_n, m_n)$ on $[0,T]$, the
+likelihood of a multivariate point process with internal history is
+\[
+L_T \;=\; \Big[\prod_{k=1}^n \lambda_{m_k}(t_k)\Big]\,
+\exp\Big(-\int_0^T \lambda_g(u)\, \dd u\Big),
+\]
+the product of successive conditional densities of (next time, next mark) given the past; we take
+this representation from \cite[Ch.~7.2--7.3]{daley2003}, where it follows from the hazard
+representation of the internal-history intensity. Substituting $\lambda_{m_k} = \lambda_g\, p(m_k
+\mid \cdot)$,
+\[
+\log L_T \;=\; \underbrace{\sum_k \log \lambda_g(t_k) - \int_0^T \lambda_g\,\dd u}_{\text{ground
+term}} \;+\; \underbrace{\sum_k \log p(m_k \mid t_k)}_{\text{mark term}} .
+\]
+If $\lambda_g$ carries parameters $\theta_1$ and $p$ carries parameters $\theta_2$ with $(\theta_1,
+\theta_2)$ variation independent, the two terms share no parameters and joint maximization separates
+into the two stage-wise maximizations: the split is lossless at population level, exactly as
+Remark~\ref{rem:hw-lossless} asserts. For general (non-finite) mark spaces the same theorem holds
+with $p$ a probability kernel; see \cite[Ch.~6--7]{daley2003}.
+\end{proof}
+
+\paragraph{Claim (Proposition~\ref{prop:hw-sampled}).}
+\emph{Fix $m$ and replace, for each event, the risk set in \eqref{eq:hw-logit} by the winner plus a
+uniform random subsample of $m$ non-winners drawn independently of utilities. The score of the
+resulting conditional likelihood has mean zero at the true $w^*$, and its maximizer is consistent.}
+
+\begin{proof}
+Assume events are i.i.d.\ draws of (risk set $\RS$ with $|\RS| = r$, features $\{z_j\}_{j \in \RS}$,
+winner $c$), with $\Prob(c = i \mid \RS, z) = e^{u_i}/\sum_{j \in \RS} e^{u_j}$, $u_j = w^{*\top}
+z_j$; integrability $\E[\max_{j \in \RS} \|z_j\|] < \infty$; and the identification condition that
+for every $v \ne 0$, the within-sample-set utilities $v^\top z_j$, $j \in D$, are non-constant with
+positive probability. (In the sequential setting of Chapter~\ref{ch:hawkes} the same argument runs
+conditionally on the event filtration, the score becomes a martingale difference array, and
+consistency holds under ergodicity; we give the i.i.d.\ proof.)
+
+\emph{Step 1: exact conditional likelihood (uniform conditioning).} Let $D = \{c\} \cup S$ where $S$
+is a uniform $m$-subset of $\RS \setminus \{c\}$ drawn independently of everything else given $(\RS,
+c)$. For a fixed $(m{+}1)$-subset $d \subseteq \RS$ and $i \in d$,
+\[
+\Prob(c = i,\ D = d \mid \RS, z)
+= \frac{e^{u_i}}{\sum_{j \in \RS} e^{u_j}} \cdot \binom{r-1}{m}^{-1},
+\]
+and the second factor is the same for every $i \in d$ --- McFadden's uniform-conditioning property
+\cite{mcfadden1974}. Dividing by the sum over $i' \in d$, $\Prob(c = i \mid D = d, \RS, z) = e^{u_i}
+/ \sum_{j \in d} e^{u_j}$: the sampled softmax is an \emph{exact} conditional likelihood, not an
+approximation.
+
+\emph{Step 2: zero-mean score.} Let $\ell(w; c, D) = w^\top z_c - \log \sum_{j \in D} e^{w^\top
+z_j}$, with gradient $z_c - \sum_j p_w(j \mid D) z_j$, bounded by $2\max_{j}\|z_j\|$, hence
+integrable. For each fixed $d$, $\sum_{i \in d} p_{w^*}(i \mid d)\, \nabla_w \log p_w(i \mid
+d)\,|_{w = w^*} = \nabla_w \sum_i p_w(i \mid d)\,|_{w^*} = 0$ (a finite sum, differentiated
+termwise), so the score has conditional mean zero given $(D, \RS, z)$ at $w^*$, and therefore
+unconditional mean zero.
+
+\emph{Step 3: concavity and identification.} $\ell(\cdot\,; c, d)$ is concave: its Hessian is
+$-\mathrm{Cov}_{p_w(\cdot \mid d)}(z) \preceq 0$ (log-sum-exp of affine functions is convex). Let
+$L(w) = \E[\ell(w)]$. By Step 1 the model is correctly specified conditionally on $D$, so $L(w^*) -
+L(w) = \E[\,\mathrm{KL}(p_{w^*}(\cdot \mid D)\, \|\, p_w(\cdot \mid D))\,] \ge 0$ (Gibbs' inequality
+conditionally, then take expectations), with equality iff $p_w(\cdot \mid D) = p_{w^*}(\cdot \mid
+D)$ a.s., i.e.\ iff $(w - w^*)^\top (z_i - z_j) = 0$ for all $i, j \in D$ a.s.\ --- excluded for $w
+\ne w^*$ by the identification condition. So $w^*$ is the unique maximizer of $L$.
+
+\emph{Step 4: consistency.} Let $\ell_n$ be the sample average criterion. For each fixed $w$,
+$\ell_n(w) \to L(w)$ a.s.\ (strong law, integrability from Step 2). Pointwise almost-sure
+convergence of concave functions on a countable dense subset of $\mathbb{R}^d$ implies uniform
+convergence on compact sets (a standard fact of convex analysis). Fix $\epsilon > 0$ and let $\delta
+= L(w^*) - \max_{\|w - w^*\| = \epsilon} L(w) > 0$ (positive by uniqueness and continuity).
+Eventually, uniformly on the sphere, $\ell_n(w) \le L(w) + \delta/3 \le L(w^*) - 2\delta/3 \le
+\ell_n(w^*) - \delta/3$; a concave function that is larger at the center than everywhere on a sphere
+attains its maximum inside the ball, so every maximizer $\hat w_n$ satisfies $\|\hat w_n - w^*\| \le
+\epsilon$ eventually, almost surely.
+\end{proof}
+
+\begin{lemma}[Gaussian moment generating function]
+\label{lem:app-mgf}
+If $z \sim \mathcal{N}(\mu, \Sigma)$ in $\mathbb{R}^q$ and $w \in \mathbb{R}^q$, then
+$\E[\exp(w^\top z)] = \exp(w^\top \mu + \tfrac12 w^\top \Sigma w)$.
+\end{lemma}
+
+\begin{proof}
+Factor $\Sigma = L L^\top$ (possible for any positive semidefinite matrix) and write $z
+\stackrel{d}{=} \mu + L\varepsilon$ with $\varepsilon \sim \mathcal{N}(0, I_q)$. Then $w^\top z =
+w^\top \mu + a^\top \varepsilon$ with $a = L^\top w$, and by independence of the coordinates $\E
+e^{a^\top \varepsilon} = \prod_i \E e^{a_i \varepsilon_i}$. The univariate computation completes the
+square: $\E e^{a_i \varepsilon_i} = (2\pi)^{-1/2} \int e^{a_i x - x^2/2}\, \dd x = e^{a_i^2/2}
+(2\pi)^{-1/2} \int e^{-(x - a_i)^2/2}\, \dd x = e^{a_i^2/2}$. Multiply and use $\|a\|^2 = w^\top
+\Sigma w$.
+\end{proof}
+
+\paragraph{Claim (Proposition~\ref{prop:hw-entrant}).}
+\emph{With $N_{\mathrm{pool}}$ latent entrants whose features are i.i.d.\ $\mathcal{N}(\mu, \Sigma)$
+independent of $\Hist_t$, replacing the entrant block of the softmax denominator by its expectation
+yields the single pseudo-candidate score \eqref{eq:hw-entrant}.}
+
+\begin{proof}
+By linearity and Lemma~\ref{lem:app-mgf}, $\E \sum_{j=1}^{N_{\mathrm{pool}}} e^{w^\top z_j} =
+N_{\mathrm{pool}}\, e^{w^\top \mu + w^\top \Sigma w/2}$, and matching $e^{q_{\mathrm{new}}}$ to this
+expectation gives $q_{\mathrm{new}} = \log N_{\mathrm{pool}} + w^\top \mu + \tfrac12 w^\top \Sigma
+w$, which is \eqref{eq:hw-entrant}. The accuracy of the mean-field replacement is quantified as
+follows. Condition on $\Hist_t$ and let $A > 0$ be the (now fixed) funded-pool denominator $\sum_{j
+\in \RS_{s,t}} e^{q_{j,t}}$ and $T = \sum_j e^{w^\top z_j}$ the entrant sum, independent of
+$\Hist_t$ by assumption. Any funded candidate's choice probability is $e^{q_i}\, \E[(A + T)^{-1}]$.
+The map $f(x) = (A + x)^{-1}$ on $[0, \infty)$ has $0 < f''(x) = 2 (A+x)^{-3} \le 2 A^{-3}$; a
+second-order Taylor expansion of $f$ about $\E T$ with Lagrange remainder, followed by taking
+expectations (the linear term has mean zero), gives
+\[
+\big|\, \E[f(T)] - f(\E T) \,\big| \;\le\; \frac{\Var(T)}{A^3},
+\qquad
+\Var(T) = N_{\mathrm{pool}}\; e^{2 w^\top\mu + w^\top\Sigma w}\big(e^{w^\top \Sigma w} - 1\big),
+\]
+the variance being the standard lognormal computation $\Var(e^X) = e^{2m + v}(e^v - 1)$ for $X \sim
+\mathcal{N}(m, v)$, from Lemma~\ref{lem:app-mgf} applied at $w$ and $2w$. When $A$ and $\E T$ both
+grow like the pool size, $f \asymp N^{-1}$ while the error is $O(N^{-2})$: the relative error of the
+mean-field step is $O(1/N_{\mathrm{pool}})$, negligible at the pool sizes of
+Chapter~\ref{ch:hawkes}.
+\end{proof}
+
+\begin{proposition}[Pool-size non-identifiability, made precise]
+\label{prop:app-poolident}
+In any parametrization in which the entrant block enters the choice probabilities only through the
+scalar score $q_{\mathrm{new}} = b_0 + \log N_{\mathrm{pool}} + w^\top\mu + \tfrac12 w^\top \Sigma
+w$ with a constant pool, the likelihood of every dataset is invariant under $(b_0, \log
+N_{\mathrm{pool}}) \mapsto (b_0 + c, \log N_{\mathrm{pool}} - c)$ for every real $c$: the constant
+$b_0$ and the pool size (equivalently, the pool size and the entrant mean utility) are not
+separately identified. If instead $N_{\mathrm{pool}, t}$ varies over events and enters as a known
+offset, $q_{\mathrm{new}, t} = b_0 + \log N_{\mathrm{pool}, t} + \cdots$, then $b_0$ is identified.
+\end{proposition}
+
+\begin{proof}
+Every choice probability --- of a funded candidate or of the newcomer alternative --- depends on the
+entrant parameters only through $e^{q_{\mathrm{new}}}$ in the softmax; the stated transformation
+leaves $q_{\mathrm{new}}$, hence every probability, hence the likelihood of any dataset, unchanged.
+This is exact non-identification, not a flat-likelihood approximation. With known offsets, two
+parameter values produce identical probabilities only if $b_0 + \log N_{\mathrm{pool},t} = b_0' +
+\log N_{\mathrm{pool},t}$ for all $t$, forcing $b_0 = b_0'$. This is why the production checklist of
+Chapter~\ref{ch:selection} requires recalibrating the newcomer constant whenever the pool definition
+changes: the fitted constant is a statement about $b_0 + \log N_{\mathrm{pool}}$, never about
+entrant quality alone.
+\end{proof}
+
+\section{Proofs for Chapter~\ref{ch:censored}}
+\label{app:proofs-ch9}
+
+\paragraph{Claim (Proposition~\ref{prop:cen-volterra}).}
+\emph{For the linear Hawkes process \eqref{eq:hw-intensity} with locally bounded baseline $s \ge 0$
+and integrable kernel $\phi \ge 0$, the mean intensity $\xi(t) = \E[\lambda(t)]$ is locally
+integrable and solves the Volterra equation \eqref{eq:cen-volterra}; it is its unique locally
+integrable solution. The multivariate statement holds componentwise.}
+
+\begin{proof}
+Realize the process by the cluster construction in the proof of Theorem~\ref{thm:hw-cluster}
+(subcritical case) or note that \eqref{eq:app-integrable} holds by
+Lemma~\ref{lem:app-branching}(iii) for every $\kappa$; either way $\E N(T) < \infty$ for all $T$, so
+Lemma~\ref{lem:app-fubini} applies. Writing the history term as an integral against $\dd N$ and
+applying Lemma~\ref{lem:app-fubini} with the nonnegative measurable $f(u) = \phi(t-u)\ind{u < t}$,
+\[
+\xi(t) = s(t) + \E \int_{(0,t)} \phi(t-u)\, \dd N(u)
+= s(t) + \E \int_0^t \phi(t-u)\, \lambda(u)\, \dd u
+= s(t) + \int_0^t \phi(t-u)\, \xi(u)\, \dd u ,
+\]
+the last step by Tonelli (everything nonnegative). Local integrability: $\int_0^T \xi = \E
+\Lambda(T) = \E N(T) < \infty$, again by Lemma~\ref{lem:app-fubini} with $f \equiv 1$; in particular
+$\xi$ is finite a.e.\ and the equation holds with finite right-hand side a.e. Uniqueness: if $\xi_1,
+\xi_2$ are locally integrable solutions, $d = |\xi_1 - \xi_2|$ satisfies $d \le \phi * d$ a.e.,
+hence by iteration $d \le \phi^{*n} * d$ for all $n$; integrating over $[0,T]$ and using $\int_0^T
+(\phi^{*n} * d) \le (\int_0^T \phi^{*n})(\int_0^T d)$ with $\int_0^T \phi^{*n} = \kappa^n \Prob(S_n
+\le T) \to 0$ (Lemma~\ref{lem:app-branching}(iii)) forces $\int_0^T d = 0$ for every $T$. The
+linearity of \eqref{eq:hw-intensity} is what lets the expectation pass through --- for the log-link
+models of Chapter~\ref{ch:hawkes} the first step fails, exactly as stated there. For the
+multivariate form see also \cite{bacry2015}.
+\end{proof}
+
+\paragraph{Claim (Proposition~\ref{prop:cen-rational}).}
+\emph{The MBPP map $s \mapsto \xi$ of \eqref{eq:cen-volterra} is realizable as a finite-dimensional
+time-invariant linear ODE with output $\xi$ iff the kernel's Laplace transform $\hat\phi(z)$ is a
+strictly proper rational function, equivalently iff $\phi$ is a finite sum of
+polynomial-times-exponential terms (complex-conjugate pairs allowed).}
+
+\begin{proof}
+Call the map \emph{realizable} if there exist finite $n$ and $(A, b, c)$, $A \in \mathbb{R}^{n
+\times n}$, $b, c \in \mathbb{R}^n$, such that for every locally bounded input $s$, the solution of
+$x' = A x + b\, \xi$, $x(0) = 0$, with $\xi = s + c^\top x$, reproduces the Volterra solution.
+Substituting the output equation, this is the ordinary ODE $x' = (A + b c^\top) x + b s$ with output
+$\xi = c^\top x + s$: a finite linear system driven by $s$.
+
+\emph{Realizability is a property of the kernel.} By variation of constants, the feedback loop
+computes $c^\top x(t) = \int_0^t g(t-u)\, \xi(u)\, \dd u$ with $g(t) = c^\top e^{At} b$
+(differentiate to verify; $e^{At}$ is the matrix exponential). The system solves
+\eqref{eq:cen-volterra} for all inputs iff $\int_0^t (g - \phi)(t - u)\, \xi(u)\, \dd u = 0$ for all
+$t$ and all solutions $\xi$; since any continuous $\xi$ arises from the input $s = \xi - \phi *
+\xi$, the du Bois-Reymond argument (test against approximate identities) forces $\phi = g$ a.e. So
+realizability means precisely $\phi(t) = c^\top e^{At} b$ a.e.\ for some finite triple.
+
+\emph{Realizable kernels have strictly proper rational transforms.} For $\mathrm{Re}\, z > \|A\|$
+the integral $\int_0^\infty e^{-zt} e^{At}\, \dd t$ converges absolutely and equals $(zI - A)^{-1}$
+(multiply by $zI - A$ and integrate by parts, or integrate the exponential series termwise). Hence
+$\hat\phi(z) = c^\top (zI - A)^{-1} b = c^\top \mathrm{adj}(zI - A)\, b / \det(zI - A)$: a ratio of
+a polynomial of degree at most $n - 1$ to one of degree $n$ --- rational and strictly proper.
+
+\emph{Conversely.} Let $\hat\phi = q/p$ be strictly proper rational. Partial fractions over
+$\mathbb{C}$: $\hat\phi(z) = \sum_j \sum_{r=1}^{r_j} \alpha_{jr} (z - z_j)^{-r}$. Termwise, $(z -
+z_j)^{-r}$ is the Laplace transform of $t^{r-1} e^{z_j t}/(r-1)!$ (direct integration for
+$\mathrm{Re}\, z > \mathrm{Re}\, z_j$), so the polynomial-times-exponential function $g(t) =
+\sum_{j,r} \alpha_{jr}\, t^{r-1} e^{z_j t}/(r-1)!$ has $\hat g = \hat\phi$; by injectivity of the
+Laplace transform on locally integrable functions of exponential order (a classical uniqueness
+theorem), $\phi = g$ a.e. Realization: for a single term, the $r \times r$ Jordan block $J$ at $z_j$
+satisfies $e^{Jt} = e^{z_j t}\,(t^{k-l}/(k-l)!)_{l \le k}$ (upper triangular), so $e_1^\top e^{Jt}
+e_r = t^{r-1} e^{z_j t}/(r-1)!$; a direct sum of such blocks (conjugate pairs combined into real $2r
+\times 2r$ blocks) with the matching weights in $c$ gives $\phi(t) = c^\top e^{At} b$. Finally, the
+exponential kernel recovers the scalar ODE \eqref{eq:cen-ode}: $\phi = \kappa\theta e^{-\theta t}$
+is realized by $A = -\theta$, $b = 1$, $c = \kappa\theta$, and the closed loop $x' = (-\theta +
+\kappa\theta) x + s\kappa\theta/( \kappa\theta)$ --- written on $h = c x$ --- is $h' =
+\kappa\theta\, s - \theta(1-\kappa)\, h$, exactly \eqref{eq:cen-ode}. Power-law kernels have
+branch-cut (non-rational) transforms and admit no finite realization, which is why they require
+quadrature or exponential-sum approximation, as stated in Section~\ref{sec:cen-solve}.
+\end{proof}
+
+We now make the $\kappa$--$\theta$ ridge quantitative. Recall the closed-form bucket objects of
+Section~\ref{sec:cen-worked}: with equal buckets of width $\Delta$, piecewise-constant baseline $s_w
+\in [s_{\min}, s_{\max}]$, $0 < s_{\min}$, relaxation rate $\gamma = \theta(1 - \kappa)$ and $\rho =
+e^{-\gamma\Delta}$, the state $h_w = h(o_{w-1})$ obeys \eqref{eq:cen-state} with target levels
+$h_w^\ast = \kappa s_w/(1-\kappa)$, and the bucket compensator is \eqref{eq:cen-xiw}. (Both displays
+follow from \eqref{eq:cen-ode} by solving the linear ODE on a bucket where $s$ is constant and
+integrating $\xi = s + h$; \eqref{eq:cen-ode} itself follows from \eqref{eq:cen-volterra} by writing
+$h(t) = \kappa\theta e^{-\theta t}\int_0^t e^{\theta u} \xi(u)\, \dd u$ and differentiating.)
+
+\begin{proposition}[The limiting singularity of the censored information matrix]
+\label{prop:app-ridge}
+Fix $\kappa \in (0,1)$ and the baseline range $0 < s_{\min} \le s_w \le s_{\max}$, take the
+stationary initialization $h_1 = h_1^\ast$, and let $C_0 = \kappa(s_{\max} - s_{\min})/(1-\kappa)$.
+Then for all $w$: (i) $|h_w - h_w^\ast| \le C_0$ and $\Xi_w = \Delta s_w/(1-\kappa) + R_w$ with
+$|R_w| \le C_0/\gamma$; (ii) $\big|\partial \Xi_w / \partial\theta\big| \le C_0 (1-\kappa)\, \big(
+2\Delta\rho/\gamma + \gamma^{-2} \big)$; (iii) $\partial \Xi_w / \partial\kappa = \Delta s_w
+(1-\kappa)^{-2} + r_w$ with $|r_w| \le C_1 (\Delta \rho + 1/\gamma)$, where $C_1$ depends only on
+$(\kappa, s_{\min}, s_{\max})$. Consequently, whenever $\gamma \ge \gamma_0 > 0$ and $\gamma\Delta
+\to \infty$,
+\[
+\frac{\sup_w |\partial \Xi_w/\partial\theta|}{\inf_w \partial \Xi_w/\partial\kappa}
+\;\longrightarrow\; 0,
+\]
+and the per-bucket Fisher information of the Poisson likelihood \eqref{eq:cen-lik} in $(\kappa,
+\theta)$, $I = \sum_w \Xi_w^{-1} (\nabla \Xi_w)(\nabla \Xi_w)^\top$, becomes singular:
+$I_{\theta\theta}$ and $I_{\kappa\theta}$ vanish relative to $I_{\kappa\kappa}$, and the profile
+information for $\theta$, $I_{\theta\theta} - I_{\theta\kappa}^2/I_{\kappa\kappa}$, tends to zero
+per bucket. In the regime $\theta \to \infty$ with $\Delta$ fixed, $\partial \Xi_w/\partial\theta
+\to 0$ absolutely while $\partial \Xi_w/\partial\kappa \to \Delta s_w (1-\kappa)^{-2}$, bounded away
+from zero: $\theta$ leaves the first-moment likelihood entirely.
+\end{proposition}
+
+\begin{proof}
+\emph{Fisher information formula.} For independent $C_w \sim \mathrm{Poisson}(\Xi_w(\eta))$ the
+score in a parameter $\eta$ is $\sum_w (C_w/\Xi_w - 1)\, \partial_\eta \Xi_w$; the summands are
+independent with mean zero and variance $(\partial_\eta \Xi_w)^2/\Xi_w$ (since $\Var C_w = \Xi_w$),
+giving the stated $I$.
+
+(i) The levels $h_w^\ast$ lie in $[\kappa s_{\min}/(1-\kappa),\, \kappa s_{\max}/(1-\kappa)]$, an
+interval of length $C_0$. By \eqref{eq:cen-state}, $h_{w+1}$ is a convex combination of $h_w$ and
+$h_w^\ast$; with $h_1 = h_1^\ast$ in the interval, induction keeps every $h_w$ in it, so $|h_w -
+h_w^\ast| \le C_0$. Then $R_w = (h_w - h_w^\ast)(1-\rho)/\gamma$ obeys $|R_w| \le C_0/\gamma$.
+
+(ii) Only $\gamma$ and $\rho$ carry $\theta$; $h_w^\ast$ does not. Differentiating
+\eqref{eq:cen-state} in $\theta$, the derivative state $D_w = \partial h_w/\partial\theta$ satisfies
+$D_1 = 0$ and $D_{w+1} = \rho D_w + (h_w - h_w^\ast)\, \partial\rho/\partial\theta$ with
+$\partial\rho/\partial\theta = -(1-\kappa)\Delta\rho$, so $|D_{w+1}| \le \rho |D_w| +
+(1-\kappa)\Delta\rho\, C_0$ and by the geometric recursion $|D_w| \le (1-\kappa)\Delta\rho\,
+C_0/(1-\rho)$ for all $w$. Also $\partial_\theta [(1-\rho)/\gamma] =
+(1-\kappa)\big[\Delta\rho/\gamma - (1-\rho)/\gamma^2\big]$, bounded in modulus by
+$(1-\kappa)(\Delta\rho/\gamma + \gamma^{-2})$. Hence
+\[
+\Big|\frac{\partial \Xi_w}{\partial\theta}\Big|
+\le |D_w|\, \frac{1-\rho}{\gamma} + C_0 (1-\kappa)\Big(\frac{\Delta\rho}{\gamma} +
+\frac{1}{\gamma^2}\Big)
+\le C_0 (1-\kappa) \Big( \frac{2\Delta\rho}{\gamma} + \frac{1}{\gamma^2} \Big).
+\]
+(iii) The leading term of $\Xi_w$ differentiates to $\Delta s_w (1-\kappa)^{-2}$. For the remainder,
+$\partial_\kappa h_w^\ast = s_w/(1-\kappa)^2 \le s_{\max}(1-\kappa)^{-2}$, and the derivative state
+$F_w = \partial h_w/\partial\kappa$ obeys $F_{w+1} = (1-\rho)\, \partial_\kappa h_w^\ast + \rho F_w
++ (h_w - h_w^\ast)\, \partial\rho/\partial\kappa$ with $\partial\rho/\partial\kappa =
+\theta\Delta\rho$, whence, using $\theta = \gamma/(1-\kappa)$ and the geometric recursion again,
+$|F_w| \le s_{\max}(1-\kappa)^{-2} + C_0\,\Delta\rho\,\gamma\,[(1-\kappa)(1-\rho)]^{-1}$. Combining
+with $\partial_\kappa[(1-\rho)/\gamma] = \theta\big[\Delta\rho/\gamma - (1-\rho)/\gamma^2\big]$,
+every term of $\partial_\kappa R_w$ is bounded by a constant multiple (depending only on $\kappa,
+s_{\min}, s_{\max}$) of $\Delta\rho$ or $1/\gamma$, which is (iii).
+
+The displayed ratio limit follows by dividing (ii) by (iii): under $\gamma \ge \gamma_0$ and
+$\gamma\Delta \to \infty$, the numerator terms $\Delta\rho/\gamma$ and $\gamma^{-2}$ are both
+$o(\Delta)$ ($\Delta\rho \to 0$ superexponentially, and $\gamma^{-2} \le (\gamma_0
+\gamma\Delta)^{-1}\gamma\Delta\cdot\gamma^{-1}\ldots$ more simply $\gamma^{-2}/\Delta =
+(\gamma\Delta)^{-1}\gamma^{-1} \le (\gamma\Delta)^{-1}\gamma_0^{-1} \to 0$), while the denominator
+is bounded below by $\Delta s_{\min}(1-\kappa)^{-2}$ minus a vanishing correction. Since $\Xi_w$
+stays in a fixed positive interval around $\Delta s_w/(1-\kappa)$ by (i), the information entries
+inherit the same ratios: $I_{\theta\theta}/I_{\kappa\kappa} \to 0$,
+$|I_{\kappa\theta}|/I_{\kappa\kappa} \to 0$, and the profile information for $\theta$ is at most
+$I_{\theta\theta} \to 0$ per bucket. By the Cramer--Rao bound, the variance of any unbiased
+estimator of $\theta$ from bucket means diverges in this limit. The $\theta \to \infty$, $\Delta$
+fixed statement reads off (ii) and (iii) directly.
+\end{proof}
+
+\paragraph{Claim (Proposition~\ref{prop:cen-ridge}).}
+\emph{In the stationary regime with slowly varying baseline and bucket width $\Delta$: (i) $\partial
+\Xi_w/\partial\kappa$ is an order-one level effect of size $\Xi_w/(1-\kappa)$; (ii) $\theta$ enters
+$\Xi_w$ only through transient terms of relative size governed by $e^{-\theta(1-\kappa)\Delta}$, so
+the Fisher information of \eqref{eq:cen-lik} is nearly singular along a ridge in the $(\kappa,
+\theta)$ plane, worsening monotonically with $\Delta$; as $\theta(1-\kappa)\Delta \to \infty$,
+$\theta$ leaves the first-moment likelihood entirely.}
+
+\begin{proof}
+This is Proposition~\ref{prop:app-ridge} restated qualitatively. For (i): $\Delta s_w
+(1-\kappa)^{-2} = [\Delta s_w/(1-\kappa)] \cdot (1-\kappa)^{-1} = \Xi_w/(1-\kappa)$ up to the
+$O(1/\gamma)$ correction of part (i) of that proposition. For (ii): the bounds in part (ii) are
+proportional to $\Delta\rho/\gamma$ and $\gamma^{-2}$ with $\rho = e^{-\theta(1-\kappa)\Delta}$,
+both vanishing relative to the $\kappa$-score as $\gamma\Delta \to \infty$; the sign oscillation
+across buckets follows from the derivative state recursion for $D_w$, which alternates in sign as
+the lagged response $h_w - h_w^\ast$ changes sign with the baseline steps. The near-singularity of
+the information matrix and the escape of $\theta$ from the likelihood are the two displayed
+conclusions of Proposition~\ref{prop:app-ridge}. What censored data retain of $\theta$ beyond the
+first moment lives in autocovariances, which the MBPP likelihood discards by construction ---
+Remark~\ref{rem:cen-banana} and the reporting rules of Table~\ref{tab:cen-worked} are the
+operational consequences.
+\end{proof}
+
+\chapter{Schema reference}
+\label{app:schema}
+
+This appendix is the lookup companion to Chapter~\ref{ch:data}: field-level types and typical missingness
+for the three PitchBook relations, a macro-feed sample showing the publish-lag structure, and coverage by
+deal class. Missingness figures are representative magnitudes for a US-heavy export, matching the
+calibration of the synthetic observation layer; re-profile any given export before modelling.
+
+\section{The deals table}\label{app:schema-deals}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabular}{llp{5.0cm}}
+\toprule
+Field & Type & Typical missingness / notes \\
+\midrule
+\multicolumn{3}{l}{\emph{Identifiers}} \\
+\texttt{company\_id}, \texttt{deal\_id} & string key & none; join keys \\
+\texttt{company\_name} & string & none; display only, never a key \\
+\texttt{deal\_date} & date & none, but jitter up to 6 days \\
+\midrule
+\multicolumn{3}{l}{\emph{Industry and universe}} \\
+\texttt{primary\_industry\_sector} & categorical & $\sim$1\%; $\sim$3\% mislabelled \\
+\texttt{primary\_industry\_group}, \texttt{primary\_industry\_code} & categorical & $\sim$2\% \\
+\texttt{company\_universe} & categorical & none; snapshot semantics \\
+\texttt{current\_financing\_status} & categorical & snapshot --- forbidden as feature \\
+\midrule
+\multicolumn{3}{l}{\emph{Deal terms}} \\
+\texttt{deal\_type}, \texttt{deal\_class}, \texttt{deal\_status} & categorical & none \\
+\texttt{deal\_type2}, \texttt{deal\_type3} & categorical & 40\%, 70\% \\
+\texttt{deal\_size} & float (MUSD) & 28\% undisclosed; 15\% of rest estimated (18\% rel.\ error) \\
+\texttt{deal\_size\_status} & categorical & none; flags estimated sizes \\
+\texttt{pre\_money\_valuation}, \texttt{post\_valuation} & float (MUSD) & 55\% \\
+\texttt{post\_valuation\_status} & categorical & follows valuations \\
+\texttt{pct\_acquired} & float & 60\%; mostly M\&A rows \\
+\texttt{vc\_round}, \texttt{vc\_round\_up\_down\_flat} & categorical & VC only; 65\% for up/down/flat \\
+\texttt{type\_of\_stock}, \texttt{sellers} & string & 70\%+ \\
+\midrule
+\multicolumn{3}{l}{\emph{Capital structure}} \\
+\texttt{total\_invested\_capital}, \texttt{total\_invested\_equity} & float & 45\% \\
+\texttt{debt}, \texttt{total\_new\_debt}, \texttt{total\_debt} & float & 80\% on VC; better on debt \\
+\texttt{raised\_to\_date}, \texttt{total\_raised\_to\_date} & float & 30\%; recompute from history \\
+\texttt{total\_investor\_ownership} & float & 75\% \\
+\midrule
+\multicolumn{3}{l}{\emph{Financials at deal}} \\
+\texttt{revenue}, \texttt{ebitda} & float & 70\%, 80\% (US); far lower in EU \\
+\texttt{gross\_profit}, \texttt{net\_income} & float & 85\% \\
+\texttt{valuation\_ebitda}, \texttt{valuation\_revenue}, \texttt{valuation\_cash\_flow} & float & 85\%+ \\
+\texttt{deal\_size\_ebitda}, \texttt{deal\_size\_revenue}, \texttt{deal\_size\_cash\_flow} & float & 85\%+ \\
+\texttt{revenue\_growth\_since\_last\_deal} & float & 80\% \\
+\texttt{number\_of\_employees} & int & 40\% \\
+\midrule
+\multicolumn{3}{l}{\emph{Firmography carried on deal rows}} \\
+\texttt{year\_founded} & int & 5\% \\
+\texttt{hq\_location}, \texttt{hq\_country}, \texttt{hq\_region}, \texttt{hq\_sub\_region} & string & 2\% \\
+\bottomrule
+\end{tabular}
+\caption{Deals table: fields, types, and representative missingness.}
+\label{tab:app-deals}
+\end{table}
+
+\section{The companies and investors tables}\label{app:schema-companies}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabular}{llp{5.4cm}}
+\toprule
+Field & Type & Notes \\
+\midrule
+\texttt{company\_id} & string key & join key; 12\% of real firms untracked \\
+\texttt{description} & string & free text; 8\% missing \\
+\texttt{year\_founded} & int & 5\% missing \\
+\texttt{employees} & int & \emph{current} snapshot; forbidden as historical feature \\
+\texttt{financing\_status}, \texttt{business\_status}, \texttt{ownership\_status} & categorical & snapshots \\
+\texttt{total\_money\_raised} & float & snapshot; recompute from deals \\
+\texttt{last\_financing\_date}, \texttt{last\_financing\_size}, \texttt{last\_financing\_valuation} & mixed & snapshots of latest deal \\
+\midrule
+\texttt{investor\_id} & string key & investors relation \\
+\texttt{investorname} & string & display only \\
+\texttt{investorstatus} & categorical & current snapshot \\
+\texttt{investorsince} & date & dated; usable point-in-time \\
+\bottomrule
+\end{tabular}
+\caption{Companies table (top block) and investors relation (bottom block). Snapshot fields may validate
+history but must never enter features (Chapter~\ref{ch:data}).}
+\label{tab:app-companies}
+\end{table}
+
+\section{Macro feed sample}\label{app:schema-macro}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+\texttt{series\_code} & \texttt{ref\_date} & \texttt{publish\_date} & \texttt{value} \\
+\midrule
+\texttt{US\_GDP\_QOQ\_SAAR} & 2023-12-31 & 2024-01-25 & 3.3 \\
+\texttt{US\_CPI\_YOY} & 2024-01-31 & 2024-02-13 & 3.1 \\
+\texttt{US\_UNRATE} & 2024-01-31 & 2024-02-02 & 3.7 \\
+\texttt{US\_10Y\_YIELD} & 2024-02-15 & 2024-02-15 & 4.24 \\
+\texttt{EA\_GDP\_QOQ} & 2023-12-31 & 2024-01-30 & 0.0 \\
+\texttt{US\_PE\_DRYPOWDER} & 2023-12-31 & 2024-03-15 & 955.0 \\
+\bottomrule
+\end{tabular}
+\caption{Macro feed sample rows. The \texttt{ref\_date}-to-\texttt{publish\_date} gap --- zero for market
+series, weeks to months for releases --- is the point-in-time problem of Chapter~\ref{ch:us}: all joins
+key on \texttt{publish\_date}.}
+\label{tab:app-macro}
+\end{table}
+
+\section{Field coverage by deal class}\label{app:schema-coverage}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+Field group & VC & M\&A & Debt \\
+\midrule
+\texttt{deal\_size} disclosed & 65\% & 45\% & 75\% \\
+Valuations (\texttt{pre\_money}, \texttt{post}) & 55\% & 20\% & 5\% \\
+\texttt{pct\_acquired} & 15\% & 70\% & 10\% \\
+\texttt{vc\_round} fields & 95\% & --- & --- \\
+Debt / capital-structure fields & 15\% & 35\% & 90\% \\
+Financials at deal & 20\% & 45\% & 40\% \\
+\bottomrule
+\end{tabular}
+\caption{Approximate non-missing coverage by deal class. No field is well populated across all classes;
+class-conditional models or class indicators are mandatory (Chapter~\ref{ch:data}).}
+\label{tab:app-coverage}
+\end{table}
+
+\chapter{Code map and quickstart}
+\label{app:code}
+
+\section{Directory layout}\label{app:code-map}
+
+The accompanying code lives under \texttt{handbook/code}. The core package implements the estimators; the
+\texttt{synthetic} package implements the two testbed worlds of Chapter~\ref{ch:selection} and their
+observation-noise layer.
+
+\begin{verbatim}
+handbook/code/
+  hawkes_calibration/        core package
+    eventtime/               event-time Hawkes: kernels, MLE, thinning simulation
+    mbpp/                    Volterra solver, interval-censored likelihood
+    models/                  sector_ranker.py, sector_hazard.py,
+                             sector_survival.py, sector_backtest.py
+    operators/               pino.py (operator surrogate), training loops
+  synthetic/
+    macro.py                 latent macro factors and published series
+    firms.py                 firm universe, entry and exit
+    marks.py                 deal marks: size, valuation, stage
+    regime_a.py              weekly two-stage DGP (well specified)
+    regime_b.py              daily firm-level block-Hawkes DGP (misspecified)
+    observe.py               noise layer: missingness, jitter, duplicates
+    loaders.py               load_dataset, build_choice_sets
+    fast_fit.py              fit_sector_glm_fast, fit_choice_fast
+    generate.py              command-line entry point
+  EXPERIMENTS.md             experiment briefings, seeds, expected outputs
+  REVIEW.md                  review notes and open issues
+\end{verbatim}
+
+\section{Quickstart}\label{app:code-quickstart}
+
+Generate both synthetic worlds (seed 0 reproduces every number in Chapter~\ref{ch:selection}):
+
+\begin{verbatim}
+cd handbook/code
+PYTHONPATH=. python -m synthetic.generate --regime A --seed 0
+PYTHONPATH=. python -m synthetic.generate --regime B --seed 0
+\end{verbatim}
+
+Load, build choice sets, and fit both stages:
+
+\begin{verbatim}
+from synthetic.loaders import load_dataset, build_choice_sets
+from synthetic.fast_fit import fit_sector_glm_fast, fit_choice_fast
+
+ds  = load_dataset("A", seed=0)
+glm = fit_sector_glm_fast(ds)          # Stage 1: sector count GLM
+cs  = build_choice_sets(ds, n_candidates=64, cooldown_weeks=26)
+cl  = fit_choice_fast(cs)              # Stage 2: conditional logit
+\end{verbatim}
+
+\section{Regenerating the numbers}\label{app:code-regen}
+
+Every table in Chapter~\ref{ch:selection} regenerates from these entry points:
+Tables~\ref{tab:sel-stage1} and~\ref{tab:sel-choice} from the two fits above on both regimes;
+Table~\ref{tab:sel-riskset} by passing naive versus oracle membership masks to
+\texttt{build\_choice\_sets}; Table~\ref{tab:sel-stability} from the simulation guard in
+\texttt{hawkes\_calibration/models}. \texttt{EXPERIMENTS.md} lists each experiment with its command, seed,
+runtime, and the assertion it must satisfy --- including the causal-validation hypotheses ---
+and \texttt{REVIEW.md} records known deviations; if a regenerated number drifts, trust the code.

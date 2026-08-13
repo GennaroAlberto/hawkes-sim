@@ -1,0 +1,326 @@
+\chapter{The Opaque Regime: Deal Marks and Macro Factors}
+\label{ch:us}
+
+Part~I assumed that fundamentals arrive on a statutory clock: every firm, every fiscal year,
+a filed income statement. In the United States that clock does not exist. What the vendor
+delivers instead is the firm's \emph{transaction record}: a sequence of deal events, each
+carrying marks --- a valuation, a round classification, an employee count, occasionally a
+revenue or EBITDA figure. Between events we learn nothing. This chapter re-derives the
+Part~I pipeline under that observation model. Three things change: the \emph{target} (EBITDA
+growth must be replaced by proxies constructed from marks), the \emph{unit of analysis} (the
+firm-year panel row is replaced by the consecutive-deal pair), and --- most consequentially
+--- the \emph{bias structure}: outcomes are observed only when the firm transacts again, so
+every naive estimate is filtered through survival-to-next-round. The repair for that
+selection is a model of the deal-arrival process itself, which is why Part~III is not an
+appendix to this chapter but its completion.
+
+\section{The observation model}
+\label{sec:us-obs}
+
+Let $S_{i,t} \in \mathbb{R}^d$ denote the latent state of firm $i$: fundamentals (revenue,
+margin trajectory, unit economics) plus soft state (team quality, runway). In the EU regime
+we observed a noisy annual census of $S$. Here we observe marks only at the firm's own deal
+times $T_{i,1} < T_{i,2} < \cdots$:
+\begin{equation}
+m_{i,k} \;=\; \big(V_{i,k},\ \texttt{round\_type}_{i,k},\ E_{i,k},\ R_{i,k},\ B_{i,k}\big),
+\label{eq:us-marks}
+\end{equation}
+where $V$ is post-money valuation (populated only for priced rounds), $E$ the reported
+employee count, and $R$, $B$ the revenue and EBITDA fields --- populated for roughly $45\%$
+and $25\%$ of deal rows respectively in our synthetic mirror, calibrated to vendor coverage
+(Chapter~\ref{ch:data}). The marks are noisy, truncated views of $S_{i,T_{i,k}}$: valuation
+confounds fundamentals with the market multiple, employees confound productivity with cash
+deployment, and the revenue field is populated selectively.
+
+\begin{definition}[LOCF panel]
+\label{def:us-locf}
+Let $K_i(t) = \max\{k : T_{i,k} \le t\}$, with $K_i(t) = 0$ before the first deal. The
+\emph{last-observation-carried-forward panel} is $\tilde{S}_{i,t} = m_{i,K_i(t)}$ together
+with the staleness clock $A_{i,t} = t - T_{i,K_i(t)}$. Every firm-side feature in this
+chapter is a function of $(\tilde{S}_{i,t}, A_{i,t})$ and the full past mark history, never
+of marks dated after $t$.
+\end{definition}
+
+The staleness clock is not decoration: a valuation carried forward $4$ years is a different
+object from one carried forward $4$ months, and models must be allowed to discount stale
+marks. But the deeper problem is \emph{when} the panel refreshes.
+
+\begin{warning}[Sampling times are informative]
+\label{warn:us-mnar}
+The observation times $T_{i,k}$ are not an exogenous measurement schedule; they are outcomes
+of the firm's own trajectory. A firm raises when it is doing well (an up round at a rich
+multiple) or when it must (runway exhaustion, a down round); firms that are neither raise
+nothing and go dark. Formally, the event indicator $\dd N_i(t)$ is not independent of
+$S_{i,t}$ given the past: the missingness mechanism of the LOCF panel is
+\emph{missing-not-at-random}. Any panel method that treats $\tilde{S}_{i,t}$ as if generated
+by random inspection times --- imputation, mixed models, naive regressions on the LOCF
+columns --- inherits a bias whose sign and size depend on the unmodelled sampling mechanism.
+The only honest formulations either (i) condition explicitly on the event frame
+(Section~\ref{sec:us-event}) and correct for selection (Section~\ref{sec:us-selection}), or
+(ii) model the sampling process jointly with the state, which is Part~III.
+\end{warning}
+
+\section{What replaces EBITDA growth}
+\label{sec:us-proxies}
+
+The EU-track success labels of Chapter~\ref{ch:success} are defined on filed fundamentals.
+We now construct their US surrogates, all defined on a pair of consecutive deals
+$(T_{i,k}, T_{i,k+1})$ with gap $\Delta_{i,k} = T_{i,k+1} - T_{i,k}$.
+
+\paragraph{(a) Implied valuation growth.}
+When both endpoints are priced rounds,
+\begin{equation}
+g^{\mathrm{val}}_{i,k} \;=\; \frac{\log V_{i,k+1} - \log V_{i,k}}{\Delta_{i,k}},
+\label{eq:us-gval}
+\end{equation}
+an annualized log growth rate. Writing valuation as fundamentals times a sector multiple,
+$\log V_{i,k} = \log F_{i,T_{i,k}} + \log m_{s(i),T_{i,k}} + \varepsilon_{i,k}$, gives the
+decomposition
+\begin{equation}
+g^{\mathrm{val}}_{i,k}
+\;=\; \underbrace{g^{F}_{i,k}}_{\text{fundamentals growth}}
+\;+\; \underbrace{g^{m}_{i,k}}_{\text{multiple expansion}}
+\;+\; \underbrace{\nu_{i,k}}_{\text{pricing noise}} .
+\label{eq:us-decomp}
+\end{equation}
+Only $g^{F}$ is a success signal; $g^{m}$ is a market-wide repricing that the firm did not
+earn. We identify the multiple component by the public-market-comparables logic: regress
+$g^{\mathrm{val}}$ on sector $\times$ time-bucket fixed effects plus macro controls (rate
+changes, public-index sector returns over the gap); the fitted cell means estimate
+$g^{m}$, and the residual is the firm-level proxy $\hat{g}^{F}_{i,k}$. The fixed effects
+must be estimated on all pairs in the cell, not per firm, or they absorb the signal.
+
+\paragraph{(b) Round direction as an ordinal outcome.}
+The field \texttt{vc\_round\_up\_down\_flat} classifies each round against the previous one
+as $\{\text{down}, \text{flat}, \text{up}\}$. It is coarse but far better populated than
+paired valuations (it is defined even when one endpoint is unpriced) and robust to
+level noise in $V$. We treat it as an ordinal target (proportional-odds or ordinal
+gradient boosting); its drawback is the vendor's flat band, which is a definitional
+artifact rather than an economic category.
+
+\paragraph{(c) Employee growth.}
+$g^{\mathrm{emp}}_{i,k} = (\log E_{i,k+1} - \log E_{i,k})/\Delta_{i,k}$ is a real-activity
+proxy available for most pairs. Its bias is mechanical: headcount growth immediately after
+a raise reflects cash deployment, not demonstrated productivity, so it leads fundamentals
+optimistically by construction.
+
+\paragraph{(d) Reported revenue growth.}
+\texttt{revenue\_growth\_since\_last\_deal} is the most direct surrogate when populated,
+but with $\sim\!45\%$ endpoint coverage the pair-level coverage is roughly $20\%$, and
+reporters skew to larger, later-stage firms --- the missingness is again not at random.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{3.1cm}p{2.1cm}p{2.5cm}p{4.2cm}}
+\toprule
+Proxy & Pair coverage & Noise & Dominant bias \\
+\midrule
+$g^{\mathrm{val}}$ \eqref{eq:us-gval} & moderate (both rounds priced) & high (negotiation,
+multiple) & upward; confounds multiple expansion unless decomposed via
+\eqref{eq:us-decomp} \\
+\texttt{vc\_round\_}\newline\texttt{up\_down\_flat} & high & low but coarse & flat band
+definitional; censors magnitude \\
+$g^{\mathrm{emp}}$ & high & moderate & upward after raises (cash-fueled hiring) \\
+\texttt{revenue\_growth\_}\newline\texttt{since\_last\_deal} & low ($\sim\!20\%$) & low
+given reported & reporters skew large/late-stage; MNAR \\
+\bottomrule
+\end{tabular}
+\caption{Growth proxies on the consecutive-deal pair frame. All four are additionally
+subject to the survival-to-next-round selection of Section~\ref{sec:us-selection}, which
+no choice among them avoids.}
+\label{tab:us-proxies}
+\end{table}
+
+In practice we fit all four and read them jointly: agreement across proxies with different
+bias directions is the closest available substitute for a filed income statement.
+
+\section{Supervised learning on the event frame}
+\label{sec:us-event}
+
+The prediction unit is the ordered pair $(i,k) \to (i,k+1)$: one row per consecutive-deal
+pair, outcome one of the proxies of Section~\ref{sec:us-proxies}. Features come in two
+blocks with different epistemic status.
+
+\emph{Firm-history block}, measurable at $T_{i,k}$: the full mark history through the
+$k$-th deal (valuation path, round sequence, employee path, deal sizes, investor counts),
+the staleness pattern, firm age, sector, and gap lengths between \emph{past} deals.
+Nothing dated inside $(T_{i,k}, T_{i,k+1}]$ from the firm's own record enters --- there is
+nothing there to use except the second deal itself, which is the outcome's timestamp.
+
+\emph{Gap macro block}, aggregates of exogenous series over the gap: mean policy rate,
+change in CPI year-on-year, change in unemployment, and sector deal heat (sector deal
+counts per week, normalized by trailing average), all built from point-in-time vintages as
+in Chapter~\ref{ch:data}. Because these are external to the single firm, conditioning on
+them does not leak the firm's outcome; but it does change the estimand. With the gap block
+included, the regression is an \emph{attribution} model --- growth conditional on the
+realized macro path and the realized gap length. For deployment as a forecast at $T_{i,k}$,
+the gap block must be replaced by scenario paths or integrated over a gap-length model;
+the gap length $\Delta_{i,k}$ is itself informative (short gaps select hot firms), and we
+return to precisely this point below.
+
+The learner is the Chapter~\ref{ch:xgb} stack unchanged: gradient boosting with blocked
+cross-validation (folds split by firm \emph{and} time), early stopping on the temporal
+holdout, and conformalized quantile intervals for uncertainty; we do not repeat that
+machinery here. Two adaptations matter. First, conformal calibration sets must be blocked
+by firm, since pairs from one firm share latent quality and violate exchangeability across
+naive random splits. Second, once the selection weights of the next section are
+introduced, calibration must be weight-aware (weighted conformal quantiles), otherwise
+coverage holds for the selected population only.
+
+\section{The selection problem}
+\label{sec:us-selection}
+
+This section is the core of the chapter. A pair $(i,k)$ exists in the training frame only
+if the firm raised again within the observation window: define
+\begin{equation}
+D_{i,k} \;=\; \ind{T_{i,k+1} \le \tau_{\mathrm{end}}},
+\label{eq:us-selind}
+\end{equation}
+where $\tau_{\mathrm{end}}$ is the data cutoff. Every proxy of
+Section~\ref{sec:us-proxies} is observed conditional on $D_{i,k} = 1$: we see the growth
+of firms \emph{that came back}. The observed distribution is $P(g \mid D{=}1)$, not
+$P(g)$, and the gap between them has an exact expression:
+\begin{equation}
+\E[g \mid D{=}1] - \E[g]
+\;=\; \frac{\Cov\!\big(g,\ \ind{D{=}1}\big)}{\Prob(D{=}1)} .
+\label{eq:us-selbias}
+\end{equation}
+Both selection channels have positive covariance with \emph{appearing} in the frame but
+opposite implications for the observed growth mix: winners raise again (pulling observed
+$g$ up), and cash-constrained firms raise again at down rounds (pulling it down), while
+the quiet failures --- firms that never transact again --- contribute nothing at all. The
+left tail of $P(g)$ is therefore systematically amputated: shutdown is the one outcome
+that generates no second deal. Estimates of mean growth, of feature effects, and of
+ranking quality are all computed on the surviving subpopulation.
+
+\paragraph{Bounds.}
+If $g$ is bounded to $[g_{\mathrm{lo}}, g_{\mathrm{hi}}]$ (after winsorization, or by
+construction for the ordinal outcome), then with $p = \Prob(D{=}1)$,
+\begin{equation}
+\E[g] \;\in\; \big[\, p\,\E[g \mid D{=}1] + (1-p)\,g_{\mathrm{lo}},\;\;
+p\,\E[g \mid D{=}1] + (1-p)\,g_{\mathrm{hi}} \,\big],
+\label{eq:us-bounds}
+\end{equation}
+the worst-case (no-assumption) bounds. With $p$ well below one --- and
+Figure~\ref{fig:us-deals-per-firm} shows how few firms generate long deal sequences ---
+these are wide. They are still worth reporting: they are the honest statement of what the
+data alone say, and any point estimate inside them is purchased with an assumption.
+
+\begin{assumption}[Selection on observed history]
+\label{ass:us-soh}
+$g_{i,k} \indep D_{i,k} \mid \Hist_{T_{i,k}}$, where $\Hist_{T_{i,k}}$ collects the firm's
+mark history through deal $k$ and the macro state: given everything observed up to the
+first deal of the pair, whether the firm raises again carries no further information about
+its growth.
+\end{assumption}
+
+\paragraph{The practical fix: inverse-probability-of-observation weights.}
+Under Assumption~\ref{ass:us-soh}, define the observation probability
+\begin{equation}
+\pi_{i,k} \;=\; \Prob\big(D_{i,k}{=}1 \mid \Hist_{T_{i,k}}\big)
+\;=\; 1 - \exp\!\Big(-\!\int_{T_{i,k}}^{\tau_{\mathrm{end}}} \lambda_i(u)\dd u\Big),
+\label{eq:us-pi}
+\end{equation}
+where $\lambda_i$ is the firm's next-deal intensity given its history. Weighting each
+observed pair by $1/\hat{\pi}_{i,k}$ (stabilized and trimmed in the usual way) makes the
+weighted frame representative of all at-risk firms: $\E[D g / \pi] = \E[g]$. This is
+inverse-probability weighting for informative censoring in the sense of
+\cite{hernan2020}, with the hazard-model lineage of \cite{cox1972}; validity requires
+$\pi_{i,k} > 0$ and a well-specified intensity, and residual selection on latent quality
+beyond $\Hist$ is not repaired --- which is why we report \eqref{eq:us-bounds} alongside.
+
+\begin{remark}[The bridge to Part~III]
+\label{rem:us-bridge}
+Equation~\eqref{eq:us-pi} is the structural link of this manual. The quantity
+$\lambda_i(u)$ --- the conditional intensity of the firm's deal-arrival process --- is
+exactly what Part~III calibrates: inhomogeneous Poisson with macro covariates
+(Chapter~\ref{ch:poisson}), self-exciting and inhibiting extensions
+(Chapter~\ref{ch:hawkes}), and censored variants (Chapter~\ref{ch:censored}). The count
+model is therefore not a separate deliverable that happens to share the data: it
+\emph{repairs the growth regression}. A team that skips the point-process layer does not
+merely lose the deal-timing forecast; it loses the only principled weights for its growth
+model. Chapter~\ref{ch:selection} validates the combined pipeline --- intensity fit,
+weights, weighted growth regression --- on synthetic ground truth where $P(g)$ is known.
+\end{remark}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.85\textwidth]{fig_deals_per_firm}
+\caption{Rank-size plot of deals per firm in both synthetic regimes. The event record is
+heavily concentrated: a small minority of serially raising firms contributes most
+consecutive-deal pairs, while the modal firm contributes one deal and zero pairs. The
+pair frame therefore oversamples exactly the firms with the highest historical deal
+hazard; unweighted estimates describe serial raisers, not the tracked universe. Firm-level
+cluster bootstrap is mandatory for all standard errors on this frame.}
+\label{fig:us-deals-per-firm}
+\end{figure}
+
+\section{Macro factors as drivers}
+\label{sec:us-macro}
+
+With firm-level outcomes this sparse and selected, much of the macro question --- do rate
+changes move private-market activity and pricing? --- is better asked at the sector level.
+The workhorse is a sector-exposure (shift-share style) design. Let $y_{s,w}$ be a
+sector-week outcome (log deal count, or the cell-mean valuation growth from
+\eqref{eq:us-decomp}), $\Delta r_w$ the rate change, and $e_s$ a \emph{predetermined}
+exposure measure (share of pre-revenue firms in the sector, a duration proxy for how far
+cash flows sit in the future). We fit
+\begin{equation}
+y_{s,w} \;=\; \alpha_s + \gamma_w + \delta\,(e_s \cdot \Delta r_w) + u_{s,w},
+\label{eq:us-shiftshare}
+\end{equation}
+with sector and time fixed effects and two-way clustered standard errors. The time effect
+$\gamma_w$ absorbs every common shock --- including the \emph{average} effect of the rate
+change itself --- so $\delta$ is identified purely from differential sensitivity: do
+high-exposure sectors move more when rates move?
+
+The interpretation limits are sharp and worth stating. First, the common component of the
+macro effect is not identified by design; \eqref{eq:us-shiftshare} estimates relative
+sensitivities only. Second, latent risk appetite co-moves with rates; if its sector
+loadings correlate with $e_s$, the differential estimate is contaminated too. Third,
+exposure must be predetermined and not itself an outcome of recent sector performance. A
+design-based reading in the spirit of \cite{imbens2015} is available only under an
+explicit exogeneity assumption on the exposure shares, which we state and stress-test on
+the testbed rather than assume silently. Where valuation marks are the outcome, all of
+Section~\ref{sec:us-selection}'s caveats apply on top.
+
+This is the forward pointer of the chapter: deal \emph{counts} are complete (a deal either
+appears in the feed or does not), while marks are sparse and selection-laden. The cleanest
+macro inference therefore lives at the count layer --- intensities modulated by macro
+covariates --- which is where Chapter~\ref{ch:poisson} begins.
+
+\section{Decision table: EU track versus US track}
+\label{sec:us-decision}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{2.5cm}p{4.6cm}p{5.6cm}}
+\toprule
+Aspect & EU track (Part~I) & US adaptation (this chapter) \\
+\midrule
+Target & EBITDA/revenue growth from filings & proxy set: $\hat{g}^{F}$ from
+\eqref{eq:us-decomp}, ordinal round direction, employee growth, reported revenue growth \\
+Unit & firm $\times$ fiscal year & consecutive-deal pair $(i,k)$ \\
+Feature clock & fiscal-year as-of with publication lags & event-time as-of with staleness
+clock $A_{i,t}$ \\
+Dominant bias & leakage via publication timing & survival-to-next-round selection; MNAR
+sampling times \\
+Primary fix & point-in-time joins, blocked CV & IP-of-observation weights from the
+next-deal intensity \eqref{eq:us-pi}; worst-case bounds \eqref{eq:us-bounds} \\
+Uncertainty & conformal intervals, firm-blocked & weight-aware conformal, firm-cluster
+bootstrap \\
+Macro layer & covariates in the growth model & shift-share differentials
+\eqref{eq:us-shiftshare}; count-layer inference in Part~III \\
+\bottomrule
+\end{tabular}
+\caption{Method mapping between observation regimes. Every row of the US column degrades
+gracefully to the EU column when fundamentals become observable; the converse direction is
+the content of this chapter.}
+\label{tab:us-decision}
+\end{table}
+
+The table is the chapter in miniature. Nothing in the US column is exotic; each entry is
+the Part~I method re-derived under a harsher observation model, with one genuinely new
+ingredient --- the deal-arrival intensity --- that the next three chapters construct.

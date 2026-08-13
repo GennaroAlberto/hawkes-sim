@@ -1,0 +1,387 @@
+\chapter{The Code Plan: What We Test, How, and What We Have Tested}
+\label{ch:codeplan}
+
+Chapter~\ref{ch:selection} chose the methods; this chapter is the engineering contract that keeps them
+honest. It answers three questions in order. What kinds of tests does the code base run, and what does each
+kind actually certify (Section~\ref{sec:cp-harness})? What has already been tested on the synthetic worlds,
+and what did we learn --- including from the tests the data generator itself failed
+(Section~\ref{sec:cp-log})? What remains to be run before the calibration campaign is complete, stated as
+pass/fail specifications rather than intentions (Section~\ref{sec:cp-forward})? Section~\ref{sec:cp-ci}
+closes with the continuous-integration gates and the definition of done. Where a number already appears in a
+table of Chapter~\ref{ch:selection} we cite it rather than repeat it; this chapter adds the numbers that
+belong to the engineering log rather than to the decision framework.
+
+\section{Testing philosophy and harness}
+\label{sec:cp-harness}
+
+A calibration code base fails in two distinct ways: the code computes the wrong number, or the code computes
+the right number for a procedure that cannot recover the truth. Conventional software tests catch only the
+first. We therefore run four layers of tests, each certifying something the previous layer cannot.
+
+\paragraph{Layer 1: unit tests on hand-computable micro-examples.} Every nontrivial data transformation has
+a companion example small enough to verify by hand. Three anchor cases: (i) a three-firm choice set with
+known funding histories, where the pools, the excluded most-recently-funded firm, the newcomer row, and the
+winner labels produced by \texttt{build\_choice\_sets} are asserted against a worked-out table; (ii) a
+two-bucket compensator for an exponential-kernel intensity, checked against the closed-form integral to
+machine precision; (iii) deduplication on a constructed deal table containing exact duplicates, 2-day
+near-duplicates, and legitimate consecutive-week repeats, asserting which rows survive. These tests certify
+arithmetic and indexing, nothing more --- but when a recovery test fails, they are what lets us exonerate the
+plumbing in minutes.
+
+\paragraph{Layer 2: equivalence tests between fast and reference fitters.} The package ships slow,
+transparent loop fitters and vectorized fast fitters (\texttt{fit\_sector\_glm\_fast},
+\texttt{fit\_choice\_fast}). The fast versions exploit structure: the sector GLM is separable per receiving
+sector, so twelve small concave problems replace one large one; the ranker is a padded-tensor batch over
+events and candidates. Speed is worthless if the optimum moves, so on subsamples both implementations must
+agree at the optimum --- same loss to $10^{-6}$, parameters to matching tolerance --- before a fast fitter may
+be used in any experiment. The check is rerun whenever either implementation changes.
+
+\paragraph{Layer 3: statistical recovery tests.} These are the scientific tests. We fit on synthetic data
+whose ground truth we wrote down, and a run passes when the truth lies within 2 standard errors of the
+estimate across 5 seeds. A recovery failure with passing layers 1--2 is a finding about the \emph{method}
+--- identifiability, confounding, misspecification --- and several such findings became sections of this
+manual. Recovery tests are the only layer that can certify the phrase ``the pipeline works.''
+
+\paragraph{Layer 4: invariant and leakage audits.} Two standing assertions run over the whole feature
+stack. The point-in-time assertion recomputes every feature using only data truncated at time $t$ and
+requires the result to be bit-identical to the production value: any divergence means some path read the
+future. The oracle-isolation assertion requires that no fitting path opens \texttt{ground\_truth.npz} or
+\texttt{private\_deal\_map.csv}; oracle files are for evaluation only, and a fit that touches them is void
+regardless of its metrics. Both audits are structural: they do not check that a number is right, they check
+that it was legal to compute.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lp{5.6cm}l}
+\toprule
+Layer & What it certifies & Cadence \\
+\midrule
+Unit (micro-examples) & arithmetic and indexing of each transformation & every commit \\
+Equivalence (fast vs.\ loop) & the vectorized optimum is the reference optimum & every commit \\
+Recovery (synthetic truth) & the procedure can find truth within 2 SE, 5 seeds & nightly, small configs \\
+Invariant / leakage & features are point-in-time; oracle files untouched & blocking, every commit \\
+\bottomrule
+\end{tabular}
+\caption{The four test layers and what a green result actually means.}
+\label{tab:cp-layers}
+\end{table}
+
+Three reproducibility rules bind everything above. First, every number reported in this manual is
+regenerable from one seeded entry point --- for the worlds themselves,
+\begin{verbatim}
+PYTHONPATH=. python -m synthetic.generate --regime A --seed 0
+\end{verbatim}
+and analogously one script per experiment table with a \texttt{--seed} argument. Second, temporal splits
+only, everywhere: train weeks $[0,416)$ against test weeks $[416,520)$ on the weekly track, an 80\% day
+quantile on the choice track, and no random split anywhere in the stack, including model selection. Third,
+runtimes are logged alongside results, because a fitter that silently becomes ten times slower is a
+regression even when its numbers do not move.
+
+\section{What we have tested so far}
+\label{sec:cp-log}
+
+Everything in this section is measured, seed 0, on the two synthetic worlds of Chapter~\ref{ch:problem}:
+regime A, the well-specified weekly two-stage world (50{,}036 deals), and regime B, the deliberately
+misspecified daily block Hawkes world (49{,}788 deals), both spanning 520 weeks, 12 sectors, and 8{,}000
+firms, and both passed through the full observation-noise stack. The headline recovery tables live in
+Chapter~\ref{ch:selection}; here we record the log entries around them --- what broke, what was measured on
+the way, and what each episode taught the production design.
+
+\subsection{Tests the world itself failed}
+\label{sec:cp-generator}
+
+The generator was not born stable. We present its construction-time failures as what they were: recovery
+tests run against the simulator, which the simulator failed until fixed. Each failure is a preview of a
+production incident, because every mechanism involved --- log-link feedback, cumulative covariates,
+deduplication --- exists in the real pipeline too.
+
+First, metastability. With log-link raw-count feedback at an effective spectral radius of 0.35 ---
+comfortably subcritical by linear-Hawkes intuition --- the world was metastable: a single ordinary burst
+tipped the roughly 50k-event trajectory into a supercritical excursion that finished at 169{,}436 events.
+The shipped generator runs at radius 0.15 with a self-consistent intercept calibration, and the episode is
+analyzed as a stability result in Chapter~\ref{ch:selection}. Second, rich-get-richer collapse. With
+unbounded cumulative features (raised-to-date, employees) feeding positive selection weights and no exit
+mechanism, deal flow concentrated absurdly: one firm collected 422 deals. The fix was structural, not a
+tuning knob --- size-damped employee growth capped at 2{,}000 and stage-graduation exits that retire
+persistent winners --- after which the maximum per-firm count fell to 32 and the 99th percentile to 17.
+Third, deduplication overreach. A naive 7-day same-company window, meant to absorb the 1.2\% injected
+duplicates under 6-day date jitter, destroyed roughly 38k legitimate consecutive-week deals --- most of the
+repeat-funding signal the model exists to capture. The shipped window is 3 days, validated on the layer-1
+constructed table.
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabular}{p{3.2cm}p{4.1cm}p{4.0cm}p{2.9cm}}
+\toprule
+Failure & Symptom & Fix & Post-fix check \\
+\midrule
+Log-link metastability & radius 0.35 world tipped from $\sim$50k to 169{,}436 events &
+radius 0.15; self-consistent intercept calibration & event counts stable across seeds \\
+Rich-get-richer collapse & one firm with 422 deals & size-damped employee growth (cap 2{,}000);
+stage-graduation exits & max 32; p99 = 17 \\
+Dedup overreach & 7-day window destroyed $\sim$38k legitimate repeat deals & 3-day window &
+constructed-table unit test \\
+\bottomrule
+\end{tabular}
+\caption{Generator failures during construction, treated as recovery tests the world initially failed.}
+\label{tab:cp-generator}
+\end{table}
+
+\begin{remark}
+\label{rem:cp-generator}
+These are not embarrassments to hide but the cheapest incidents we will ever have. Each cost hours on
+synthetic data; the identical mechanisms in production would cost quarters of misallocated attention before
+anyone noticed. The production lessons are collected in Table~\ref{tab:cp-lessons}.
+\end{remark}
+
+\subsection{Stage-1 recovery: the weekly sector GLM}
+\label{sec:cp-stage1}
+
+Training on weeks $[0,416)$, the weekly sector GLM recovers regime A --- the world it is specified for ---
+up to observation noise: covariate $\beta$ correlation with truth 0.675, roughly 25\% attenuation from the
+errors-in-variables induced by estimated sizes and jittered dates; intercept bias $-0.09$; excitation-entry
+correlation 0.27. The one systematic failure is causal, not numerical: the fitted effective spectral radius
+is 0.355 against a true 0.172, because the latent serially correlated risk-appetite factor is absorbed as
+spurious excitation. On regime B the same tools face a daily block Hawkes world and degrade as they should:
+$\beta$ correlation 0.37, fitted radius 0.57 (largely a daily-to-weekly aggregation artifact), and a
+held-out Pearson dispersion of 2.72 that correctly flags the misspecification. The full table is in
+Chapter~\ref{ch:selection}; the log entry here is the engineering one: the fast fitter reproduces the loop
+fitter's optimum (layer 2) and completes in 0.2 seconds where the loop fitter takes minutes, which is what
+makes the 5-seed, multi-variant forward plan of Section~\ref{sec:cp-forward} affordable at all.
+
+\subsection{Choice-model recovery: the funded-pool conditional logit}
+\label{sec:cp-choice}
+
+The stage-2 model is the funded-pool conditional logit on truthful risk sets with a 64-candidate sampled
+softmax \cite{mcfadden1974}, split at the 80\% day quantile. On regime A it reaches a held-out NLL per event
+of 3.346 against 4.011 for random choice and a top-5 accuracy of 0.446; on regime B, 3.796 against 4.172
+and top-5 of 0.316. The newcomer option wins roughly 27\% of events in both worlds. The exclusion rule
+dropped 35 immediate-repeat events in A and 2 in B. Construction of the choice tensors takes 6.4 seconds
+and the fit about 12 seconds. The recovered regime-A weights are worth a table, because the pattern of what
+recovers and what transmutes is a finding in itself.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+Feature & Fitted (regime A) & Truth \\
+\midrule
+Raised-to-date & 0.336 & 0.30 \\
+Employees & 0.253 & 0.30 \\
+Age & 0.054 & $-0.15$ \\
+Stage & 0.132 & 0.15 \\
+Log-gap (time since last funding) & $+1.146$ & (26-week cooldown $\approx -2.7$) \\
+Newcomer ASC & 6.856 & (prices the entrant pool) \\
+\bottomrule
+\end{tabular}
+\caption{Choice-model weight recovery, regime A, seed 0. Regime B analogues: log-gap $+0.437$, newcomer
+ASC 4.691.}
+\label{tab:cp-weights}
+\end{table}
+
+Raised, employees, and stage recover to within attenuation. The age sign is missed because the true
+mechanism there is recency, and the fitted positive log-gap weight is the model's translation of the true
+cooldown: a 26-week suppression indicator of about $-2.7$ reappears as ``longer gap, higher score,'' which
+is the same economics in a different parametrization. In regime B the softer log-gap weight of $+0.437$
+matches the smooth 30-day-half-life inhibition of that world. Whether the log form is the \emph{right}
+carrier of this structure --- as opposed to binned dummies or an explicit exponential decay --- is exactly
+experiment E2 of the forward plan.
+
+\subsection{Risk-set contamination}
+\label{sec:cp-riskset}
+
+One experiment was promoted from finding to assumption. With a naive observed-active mask --- a firm counted
+as at risk only when the vendor shows it active --- the ranker does not merely lose likelihood (held-out NLL
+3.886 versus 3.558 for the oracle mask); it \emph{inverts} the economics, fitting a recency weight of
+$+1.94$ where the truth is 0, because firms enter the observed mask by transacting. The oracle mask recovers
+all weights. The full table and the warning it earned are in Chapter~\ref{ch:selection}. The consequence for
+the code plan: truthful risk sets are now a stated design assumption, and the contaminated-mask fit is kept
+as a standing audit --- if a production risk set is ever inferred rather than given, this is the first
+experiment to rerun.
+
+\subsection{Operator smoke test}
+\label{sec:cp-operator}
+
+The physics-informed neural operator machinery for the compensator equations runs end to end: data
+generation, training, and inference are wired and reproducible. A deliberately cheap 600-epoch demonstration
+reaches 8.2\% relative $L^2$ error --- machinery confirmed, accuracy not yet claimed. Under the full training
+protocol the operator reaches sub-2\% for 3--8 sector configurations at roughly 3 ms per solve, which is the
+regime that matters for the many-repeated-solves role it is assigned in experiment E4.
+
+\subsection{From findings to production rules}
+\label{sec:cp-lessons}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabular}{p{5.6cm}p{7.6cm}}
+\toprule
+Finding (measured) & Production lesson \\
+\midrule
+Log-link raw-count feedback metastable at radius 0.35 (50k $\to$ 169{,}436 events) &
+guard simulation well below the linear threshold for log-link feedback; prefer bounded transforms of
+counts \\
+One firm collected 422 deals under unbounded cumulative features with no exits &
+cap or damp cumulative covariates; model exits explicitly in any forward-simulation loop \\
+7-day dedup destroyed $\sim$38k legitimate repeat deals &
+dedup windows are modelling decisions; validate against constructed cases before counting anything \\
+Fitted radius 0.355 vs.\ true 0.172 under a latent risk-appetite factor &
+never read fitted excitation causally without factor proxies and a sensitivity band \\
+Naive risk-set mask inverted the recency weight ($+1.94$ vs.\ true 0) &
+treat risk-set truthfulness as an audited input, not a fittable nuisance \\
+\bottomrule
+\end{tabular}
+\caption{The five log entries of this section, restated as production rules.}
+\label{tab:cp-lessons}
+\end{table}
+
+\section{The forward test plan}
+\label{sec:cp-forward}
+
+What follows is the committed test plan: each entry states its purpose, its procedure in two or three
+lines, and a pass criterion frozen \emph{before} the run, so that results can fail. Unless stated
+otherwise, every experiment runs on both regimes at 5 seeds with error bars, under the splits and audit
+rules of Section~\ref{sec:cp-harness}. All entries are currently \emph{planned};
+Table~\ref{tab:cp-forward} summarizes.
+
+\paragraph{E1 --- When/where layer: weekly GLM versus event-time Hawkes.}
+\emph{Purpose:} quantify what day-resolution timestamps buy over weekly buckets, and how badly latent
+confounding contaminates fitted excitation. \emph{Procedure:} fit the weekly GLM and a multivariate
+event-time sector Hawkes (exponential kernel, log-linear macro baseline) on the same streams; rerun the
+event-time fit with dates bucketed at 1d, 7d, and 28d, reporting bias and SE of the excitation scale
+$\kappa$ and decay $\theta$ at each width; separately, regenerate regime A with
+\texttt{latent\_strength} $\in \{0, 0.15, 0.3\}$ at fixed true radius and plot fitted effective radius
+against latent strength, with and without mitigations (lagged aggregate count covariate, off-diagonal
+penalties). \emph{Pass:} event-time fit beats the weekly GLM on held-out NLL on regime B; $\theta$
+recovered within 2 SE at day resolution on B while the $\kappa$--$\theta$ ridge visibly reopens by 28d; the
+confounding curve is monotone and yields a stated bucket-width recommendation for real data.
+
+\paragraph{E2 --- Which-firm layer: choice-model sub-experiments.}
+\emph{Purpose:} settle the four open design choices inside the conditional logit before it is frozen for
+production. \emph{Procedure and pass criteria, per sub-experiment:}
+\begin{enumerate}
+\item \emph{Gap functional form.} Fit log-gap versus binned gap dummies ($<$1m, 1--3m, 3--6m, 6--12m,
+$>$12m) versus exponential decay $\exp(-\text{days}/\tau)$ with $\tau \in \{30, 90, 180\}$ days; select by
+held-out NLL and plot each implied hazard-versus-gap curve against truth. Pass: the binned fit recovers the
+true 26-week step in regime A and the smooth exponential decay in regime B.
+\item \emph{Newcomer designs N1--N4.} Compare the bare ASC against the context-covariate ASC (sector heat
+and macro features), the representative-entrant construction (plug-in and integrated Gaussian variants),
+the nested two-step, and the immigrant/offspring split that aligns first financings with the Hawkes
+background stream. Pass: the recommended design calibrates quarterly newcomer share within 2 percentage
+points, with incumbent weights materially unchanged.
+\item \emph{Sampled-softmax stability.} Refit at \texttt{max\_candidates} $\in \{32, 64, 128\}$ and with
+the full denominator on a 10\% subsample. Pass: weights stable across candidate counts, consistent with the
+subsampled-denominator consistency result.
+\item \emph{Exclusion-rule sensitivity.} Vary the exclude-most-recent rule (sector-scoped, global, none);
+count dropped repeats and measure weight shifts. Pass: the effect is pinned with a number (expected
+negligible at 2--35 events), and the rule is stated in the production spec either way.
+\end{enumerate}
+
+\paragraph{E3 --- Single-layer block Hawkes versus the two-stage factorization.}
+\emph{Purpose:} the central architecture decision --- given exact dates and truthful risk sets, what does
+the two-stage factorization still buy, and what does it cost in joint-intensity coherence?
+\emph{Procedure:} fit the full firm-level event-time block Hawkes (log-link baseline, self-inhibition,
+size-normalized sector field) on day-resolution timestamps; evaluate it and the two-stage pipeline on
+identical held-out events for joint NLL, next-deal sector prediction, and funded-firm ranking conditional
+on the event. \emph{Pass:} on regime B the single-layer fit recovers the self-inhibition ordering with rank
+correlation at least 0.9; the head-to-head produces a written recommendation with numbers on all three
+metrics, whichever way it falls.
+
+\paragraph{E4 --- Operator benchmark.}
+\emph{Purpose:} establish where the neural-operator surrogate pays for itself now that exact event-time MLE
+removes its calibration role. \emph{Procedure:} train under the full protocol; report accuracy versus
+sector count $M$ and the wall-clock crossover against the exact solvers under repeated forward solves;
+benchmark differentiable-solver inverse calibration against the MLE for bias, variance, and wall-clock on
+identical data. \emph{Pass:} sub-2\% relative $L^2$ reproduced at full protocol; the crossover point (in
+solves and in $M$) is documented; the inverse-calibration table states plainly whether MLE wins at this
+scale.
+
+\paragraph{E5 --- Walk-forward backtest with covariate ablation.}
+\emph{Purpose:} the end-to-end rehearsal of the production loop under strictly forward information.
+\emph{Procedure:} freeze the best when/where and which-firm models; walk forward weekly over the final 20\%
+of days, emitting sector intensities, ranked candidate lists, and newcomer probabilities; score top-1/5/10
+and MRR against oracle and random, PIT count calibration with the quasi-Poisson dispersion correction, and
+lead time (weeks a funded firm spends in the top decile before its deal); rerun with macro covariates
+removed and on the \texttt{covariate\_scale} 1.5 world. \emph{Pass:} the pipeline beats random throughout
+and degrades gracefully toward oracle; the covariate ablation turns ``covariates help'' into a signed
+number in both directions.
+
+\paragraph{B1 --- XGBoost ranking benchmark.}
+\emph{Purpose:} a model-free discriminative ceiling for stage 2, per the standing benchmark of
+Chapter~\ref{ch:selection}. \emph{Procedure:} train boosted rankers on the identical choice sets and splits
+in two variants --- feature parity (exactly the six logit features, isolating functional form) and kitchen
+sink (all point-in-time-legal raw fields, with snapshot columns explicitly forbidden); score with per-event
+renormalization; modest hyperparameter search with a time-ordered validation tail. \emph{Pass:} the
+comparison against top-5 of 0.446 (A) and 0.316 (B) is reported with the frozen decision rule: a material
+win means the logit is missing features or nonlinearity, and the remedy is feature work; a narrow result
+keeps the interpretable logit.
+
+\paragraph{B2 --- Non-homogeneous Poisson null.}
+\emph{Purpose:} show, not assume, that self-excitation earns its complexity at this data scale.
+\emph{Procedure:} fit the nested ladder --- covariates-only inhomogeneous Poisson (simulable by thinning
+\cite{lewis1979}), covariates plus excitation, full event-time timing --- plus a seasonal-naive baseline;
+decompose held-out improvement across the rungs with residual diagnostics per rung \cite{ogata1988}.
+\emph{Pass:} the decomposition table exists with error bars over 5 seeds; if the excitation rung
+contributes approximately nothing, the recommendation to drop it is written into the decision tables of
+Chapter~\ref{ch:selection}.
+
+\paragraph{Causal-pipeline validation.}
+\emph{Purpose:} test the causal stack of Chapter~\ref{ch:causal} against known truth, per the protocol
+sketched in Chapter~\ref{ch:selection}. \emph{Procedure:} generate a treatment with known selection on
+observables and on the latent quality mark; estimate naive, backdoor-adjusted, and AIPW effects; attach
+cluster-bootstrap confidence intervals and E-values. \emph{Pass:} the naive estimate is biased in the
+selection direction, adjustment removes the observable component, AIPW matches backdoor with better
+nuisance robustness, and the residual gap to truth is consistent with the computed E-value --- each asserted
+in code, so a failure is a red test, not a discussion.
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabular}{lp{7.9cm}l}
+\toprule
+Test & Pass criterion (frozen) & Status \\
+\midrule
+E1 bucketing & $\theta$ within 2 SE at day resolution on B; ridge visible by 28d & planned \\
+E1 confounding curve & monotone fitted-radius curve over latent strength; mitigations quantified & planned \\
+E2.1 gap form & binned fit recovers 26-week step (A) and smooth decay (B) & planned \\
+E2.2 newcomer N1--N4 & quarterly newcomer share within 2pp; incumbent weights stable & planned \\
+E2.3 sampled softmax & weights stable across 32/64/128/full-on-subsample & planned \\
+E2.4 exclusion rule & sensitivity pinned with a number & planned \\
+E3 head-to-head & rank-corr $\ge 0.9$ on B; three-metric comparison written up & planned \\
+E4 operator & sub-2\% rel-$L^2$; crossover and inverse-calibration tables & planned \\
+E5 backtest & beats random throughout; ablation deltas reported & planned \\
+B1 XGBoost & decision rule applied to top-5 0.446 (A) / 0.316 (B) & planned \\
+B2 Poisson null & improvement decomposition with error bars & planned \\
+Causal validation & all four coded assertions pass against truth & planned \\
+\bottomrule
+\end{tabular}
+\caption{Forward test plan at a glance. All rows: both regimes where applicable, 5 seeds, temporal splits,
+audits of Section~\ref{sec:cp-harness} in force.}
+\label{tab:cp-forward}
+\end{table}
+
+\section{Continuous integration and definition of done}
+\label{sec:cp-ci}
+
+The four layers of Section~\ref{sec:cp-harness} map onto three CI gates. On every commit, the unit and
+equivalence suites run and must pass; they are fast because the micro-examples are tiny and the equivalence
+checks run on subsamples. Nightly, the recovery suite runs on reduced configurations --- fewer weeks, fewer
+seeds --- as an early-warning system; a nightly recovery regression blocks the next release, not the next
+commit. The leakage audit is a blocking check at both cadences: a commit that makes any feature
+non-point-in-time, or that lets a fitting path touch \texttt{ground\_truth.npz} or
+\texttt{private\_deal\_map.csv}, does not merge, whatever its metrics say.
+
+The artifact policy is equally plain. Results tables are versioned CSVs, written by the experiment entry
+points and diffed like code, so a silently shifted number is a visible change in review. Figures are
+regenerated from those CSVs by scripts and are never hand-edited; a figure that cannot be regenerated is
+deleted rather than trusted.
+
+The campaign is done when three conditions hold. Every row of Table~\ref{tab:cp-forward} has moved from
+\emph{planned} to \emph{pass} or \emph{fail} with a number attached --- not a narrative, a number. The
+benchmarks B1 and B2 are reported in the decision tables of Chapter~\ref{ch:selection}, so that the
+method choices there cite measured evidence rather than expectation. And every failed pass criterion is
+either fixed and rerun, or documented as a limitation alongside those of Chapter~\ref{ch:selection} ---
+because a plan whose failures disappear quietly was never a test plan at all.

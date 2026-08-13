@@ -1,0 +1,150 @@
+\chapter{The Problem and Its Two Observation Regimes}
+\label{ch:problem}
+
+\section{What we are asked to predict}
+
+An investment platform tracking private companies wants, at any date $t$, answers to three
+nested questions:
+(i)~\emph{which private companies are succeeding}, in the sense of growing fundamentals
+(EBITDA, revenue, employment) or achieving valuation-relevant milestones;
+(ii)~\emph{which companies are likely to transact} --- raise a venture round, be acquired,
+take on debt --- over a horizon $(t, t+h]$; and
+(iii)~\emph{how market conditions} (rates, inflation, unemployment, risk appetite)
+\emph{modulate both}. The three questions look like one prediction problem, but they are
+not: what separates them is the \emph{observation process}, i.e.\ which state variables of
+the firm the data vendor lets us see and \emph{when}.
+
+This manual is organised around that separation. We work with two data assets. The first
+is a deals-and-companies database in the PitchBook schema: a \texttt{deals} table in which
+each row is a transaction (with a \texttt{deal\_class} taxonomy --- venture capital rounds,
+M\&A/buyouts, debt financings --- each populating a different subset of fields), a
+\texttt{companies} table describing the tracked universe, and an \texttt{investors}
+relation. The second is a standardized macroeconomic feed in the FactSet Standardized
+Economics convention, from which we use the policy-rate series (\texttt{FFUNDT},
+\texttt{FFUND}), consumer prices (\texttt{CPI\_RAW}, \texttt{CPI\_YOY}) and unemployment
+(\texttt{RUNEMP}), each published with a realistic lag. Chapter~\ref{ch:data} describes
+both schemas in detail, together with the point-in-time discipline that governs every join
+in this manual.
+
+\section{Two regulatory regimes, two modelling worlds}
+
+\paragraph{Europe: fundamentals are observable.}
+In most European jurisdictions, limited-liability companies must file annual accounts ---
+balance sheet, income statement, often cash-flow --- with a public registry, essentially
+irrespective of size. For a European private company we therefore observe a
+\emph{fundamentals panel}: $F_{i,y} = (\text{revenue}, \text{EBITDA}, \text{payroll},
+\text{assets}, \dots)$ at yearly frequency, with publication lags but near-complete
+coverage. ``Success'' can be defined directly on this panel (Chapter~\ref{ch:success}),
+predicted with supervised learning on engineered features (Chapter~\ref{ch:xgb}), and
+interrogated causally --- \emph{does raising a round cause EBITDA growth, or do growing
+firms raise?} --- with the backdoor criterion and bootstrap uncertainty quantification
+(Chapter~\ref{ch:causal}).
+
+\paragraph{United States: fundamentals are latent.}
+US private companies file almost nothing publicly. Revenue or EBITDA appear in the deals
+data only sporadically (in our synthetic mirror, calibrated to vendor coverage,
+roughly 45\% of deal rows carry a revenue figure and fewer an EBITDA). What we observe
+instead is the \emph{transaction record}: when a firm raised, at what valuation, which
+round, how many employees it reported at that moment. The firm's state is measured
+\emph{only at its own deal events}; between events we can only carry the last observation
+forward. Part~II develops what can still be said about growth in this regime: deal marks
+as noisy state proxies, the decomposition of valuation growth into fundamentals and market
+multiple, and macro factors as partially exogenous drivers.
+
+\paragraph{The event-based endgame.}
+Once one accepts that the US data are a \emph{marked event stream} --- timestamps plus
+deal-level marks, refreshed only at events --- the natural formulation is no longer
+regression on a panel but \emph{calibration of a counting process}: an intensity
+$\lambda(t)$ for deal arrivals, modulated by covariates, history (excitation and
+inhibition), and firm identity. Part~III builds this up in deliberately increasing order
+of structure: inhomogeneous Poisson (Chapter~\ref{ch:poisson}), Hawkes processes with
+excitation and the two-stage marked decomposition (Chapter~\ref{ch:hawkes}), and
+interval-censored variants for when even the timestamps are unreliable
+(Chapter~\ref{ch:censored}). Chapter~\ref{ch:selection} closes with decision tables and a
+synthetic-testbed validation of every major claim.
+
+\section{Guiding principles}
+
+Four principles recur in every chapter; we state them once here.
+
+\begin{enumerate}
+\item \textbf{Point-in-time discipline.} Every feature used at time $t$ must be computable
+from data published strictly before $t$. Macro series join on \emph{publish date}, not
+reference date; firm features are last-observation-carried-forward from \emph{past} deals;
+end-of-sample snapshot columns (e.g.\ \texttt{last\_financing\_size} in the companies
+table) are forbidden as features. Violations produce leakage that flatters every offline
+metric and survives until production.
+\item \textbf{Identifiability before estimation.} We ask \emph{which} parameter
+combinations the data can pin down before asking how to estimate them. Recurring examples:
+covariate effects are identified by contrast while baseline levels are weak; branching
+ratios are identified from counts while decay rates need within-interval timing;
+excitation is confounded by latent common factors. Each claim is made precise where it
+arises and verified on synthetic ground truth.
+\item \textbf{Uncertainty quantification is part of the deliverable.} Point predictions
+without calibrated uncertainty are not usable for ranking or allocation. We use, by
+context: sandwich/quasi-likelihood corrections for over-dispersed counts, cluster
+bootstrap for firm-level dependence, quantile/conformal methods for tabular prediction,
+and Laplace/posterior summaries for point-process parameters.
+\item \textbf{Causal claims are labelled as such.} Predictive and causal targets are kept
+notationally distinct ($\E[Y \mid X{=}x]$ vs.\ $\E[Y \mid \Do(X{=}x)]$). Where a causal
+reading is wanted --- the effect of financing on growth, of rates on deal flow, of past
+deals on future deals (``contagion'') --- we state the identification assumptions, test
+what is testable, and demonstrate the full pipeline on synthetic data where the true
+effect is known.
+\end{enumerate}
+
+\section{Notation}
+\label{sec:notation}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+Symbol & Meaning \\
+\midrule
+$i = 1,\dots,N$ & firms; $s(i) \in \{1,\dots,M\}$ the sector of firm $i$ \\
+$t$ & calendar time (days unless stated); $w$ indexes weeks, $y$ years \\
+$F_{i,y}$ & fundamentals vector of firm $i$ in fiscal year $y$ (EU regime) \\
+$Y$, $A$, $X$, $U$ & outcome, treatment/exposure, observed covariates, unobserved factors \\
+$N_i(t)$ & counting process of firm $i$'s deals; $N_s(t)$ sector aggregate \\
+$\Hist_t$ & information (filtration) available just before $t$ \\
+$\lambda_i(t)$ & conditional intensity of $N_i$ given $\Hist_t$ \\
+$\Lambda(a,b] = \int_a^b \lambda(u)\dd u$ & compensator increment \\
+$s(t)$, $\phi(\cdot)$ & baseline intensity; excitation kernel \\
+$\kappa$, $\theta$ & branching ratio and decay rate of an exponential kernel \\
+$G = \sum_\ell b_\ell$, $\rho(G)$ & aggregate excitation matrix and spectral radius \\
+$Z_{i,t}$ & firm-level point-in-time features; $X_t$ market covariates \\
+$\RS_{s,t}$ & risk set (candidate firms) for a sector-$s$ event at $t$ \\
+$q_{i,t}$ & choice-model score of candidate $i$; $\eta$ cooldown/inhibition coefficient \\
+$\E[\cdot], \Var, \Prob$ & expectation, variance, probability; $\ind{\cdot}$ indicator \\
+$\Do(\cdot)$ & Pearl's intervention operator \\
+\bottomrule
+\end{tabular}
+\caption{Global notation. Chapter-local symbols are defined where used.}
+\label{tab:notation}
+\end{table}
+
+\section{The synthetic testbed}
+\label{sec:testbed}
+
+Every method in this manual is exercised on a synthetic world that mirrors the production
+schemas exactly (all PitchBook deal fields, the FactSet long-format feed with publication
+lags) and whose ground truth we control. Two regimes are shipped with the code:
+\textbf{regime~A}, generated by the exact two-stage weekly model of
+Chapter~\ref{ch:hawkes} (a well-specified world for parameter-recovery studies), and
+\textbf{regime~B}, generated by a daily firm-level process with self-inhibition (30-day
+half-life), sector contagion (7-day half-life) and latent firm quality (a misspecified
+world for robustness studies). Both contain roughly $50{,}000$ deals over ten years,
+twelve sectors and $8{,}000$ firms, with realistic observation noise: 28\% undisclosed
+deal sizes, 55\% missing valuations, 3\% mislabelled sectors, duplicated records, jittered
+dates, and a 12\% untracked (out-of-universe) firm share. The accompanying
+\texttt{code/} directory contains the generator, point-in-time loaders, and fast reference
+fitters; Chapter~\ref{ch:selection} tabulates the measured results that are quoted
+throughout the text.
+
+\begin{remark}
+Numbers quoted from the testbed (e.g.\ recovery correlations, held-out likelihoods) are
+single-seed values from the shipped datasets unless stated otherwise; the experiment
+protocol in the code repeats them over five seeds.
+\end{remark}

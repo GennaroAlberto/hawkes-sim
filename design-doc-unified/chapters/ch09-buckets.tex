@@ -1,0 +1,868 @@
+% ch09-buckets --- temporal buckets, discrete-time hazards, and gradient boosting
+
+\section{The horizon target and the bucketed panel}\label{ch09:sec:panel}
+
+Target T3 of \cref{ch:question} asks the question the sourcing workflow
+poses: will firm $i$ have a deal within the next $\horizon$? The object
+is the fixed-horizon event probability $p_i(t,\horizon)$ of
+\cref{eq:ch01:t3}, consumed by binary, capacity-constrained actions ---
+enter diligence now, keep on the watch list, deprioritize. The natural
+approach is supervised learning on a bucketed panel: turn the event
+history into rows ``firm $i$ at time $t$, did it raise within
+$\horizon$,'' and hand the rows to a learner that handles nonlinearity.
+This chapter commits to that approach, with gradient boosting as the
+learner, and treats it as statistics. The bucketed panel is not a
+machine-learning convenience outside the point-process theory of Part
+II; it \emph{is} a discrete-time hazard model, with an exact link to the
+conditional intensity (\cref{thm:ch09:hazardlink}), a censoring theory
+(\cref{ch09:sec:censoring}), a sampling theory
+(\cref{ch09:sec:sampling}), and a dependence structure that rules out
+the usual i.i.d.\ habits (\cref{ch09:sec:dependence}). Every labeling
+shortcut --- what to do with windows that cross the end of the data,
+whether a firm that died quietly is a negative, whether sliding the
+window weekly ``adds data'' --- is a statistical decision with a signed
+bias, and this chapter makes each one explicitly.
+
+\begin{definition}[Bucketed panel]\label{def:ch09:panel}
+Fix a horizon $\horizon > 0$ and an evaluation grid of bucket start times
+\begin{equation}\label{eq:ch09:grid}
+\mathcal{T}_{\horizon} \;=\; \{\, t_b = t_0 + b\,\horizon \;:\; b = 0, 1,
+\dots, B_{\horizon}-1 \,\} \subset [0, \Tend],
+\end{equation}
+aligned to the weekly calendar of \cref{ch:data}. The panel for horizon
+$\horizon$ is the row set
+$\mathcal{P}_{\horizon} = \{ (i, t_b) : i \in \firms,\; \atrisk_i(t_b) = 1 \}$
+--- one row per tracked firm at risk at each bucket start --- with binary
+label
+\begin{equation}\label{eq:ch09:label}
+y_{i,b} \;=\; \ind{\, N_i(t_b + \horizon) - N_i(t_b) \,\ge\, 1 \,},
+\end{equation}
+and feature vector $\zfeat_{i,b}$ assembled at $t_b$ under
+\cref{prot:ch02:pit}:
+\begin{enumerate}[label=(\roman*)]
+\item the LOCF firm covariates $\tilde\xcov_i(t_b)$ of
+\cref{eq:ch02:locf};
+\item the staleness age $\staleage_i(t_b) = t_b - \tau_i(t_b)$ --- ``it
+has been $\staleage$ since the last deal'' --- carried \emph{always},
+as mandated by design decision D8.1 of \cref{ch:stale};
+\item engineered history: deal counts $N_i(t_b) - N_i(t_b - w)$ over
+trailing windows $w \in \{26, 52, 104\}$ weeks, last round type and size
+(with an undisclosed flag), raised-to-date;
+\item sector activity summaries: trailing sector deal counts and their
+changes, computed from the \emph{complete} sector event stream (including
+out-of-universe deals, whose counts are trustworthy even when their firms
+are not);
+\item as-of macro $\xcov^{\mathrm{mac}}_{\mathrm{pub}}(t_b)$, joined on
+publication date.
+\end{enumerate}
+Negative rows are all at-risk firm-buckets with no deal in the window;
+there is no other source of negatives. The committed horizon set is
+$\horizon \in \{26, 52, 104\}$ weeks.
+\end{definition}
+
+One remark on the label \cref{eq:ch09:label}: it depends
+on the event history only through a bucket \emph{count}, never through a
+within-bucket position. This is deliberate. Defect (C4) of \cref{ch:data}
+says interval counts are trusted while positions are not; the panel is
+built on exactly the trusted functional, and \cref{cor:ch09:defect} below
+states what that choice costs.
+
+\paragraph{Defect declaration (per D2.1).} Against the ledger of
+\cref{tab:ch02:defects}: \textbf{(C1)} corrected --- buckets whose window
+crosses $\Tend$ are flagged censored and either dropped or retained with
+the exposure-offset likelihood of \cref{ch09:sec:censoring}; they are
+never labeled negative. \textbf{(C2)} robust by construction --- no row
+exists before $\entry_i$; the deeper selection (the tracked universe is
+conditioned on having raised at least once) restricts the estimand to
+tracked firms and is owned by \cref{ch:universe}. \textbf{(C3)}
+vulnerable with signed bias --- unlabeled deaths sit in the negative
+class; mitigations and the residual downward bias are stated in
+\cref{ch09:sec:censoring}. \textbf{(C4)} robust by design --- labels are
+invariant to within-bucket date jitter (only events within jitter
+distance of a bucket boundary can flip a label), at the price of zero
+information about within-bucket timing, a price this chapter chooses
+deliberately (\cref{cor:ch09:defect}). \textbf{(C5)} vulnerable,
+mitigated --- LOCF covariates enter only alongside their staleness age,
+and the tree learner can represent the interaction ``informativeness of
+$\tilde\xcov$ decays with $\staleage$'' that \cref{ch:stale} shows is the
+first-order correction; residual attenuation remains and is inherited
+from \cref{ch:stale}. \textbf{(C6)} robust for the stated estimand ---
+labels are own-firm events of tracked firms, and out-of-universe deals
+enter only through complete sector counts; the panel makes no claim about
+untracked firms.
+
+\begin{decision}{D9.1 --- the bucketed panel is a hazard dataset}
+The T3 panel is built exactly as \cref{def:ch09:panel}: calendar-aligned
+disjoint buckets per horizon, labels from bucket counts only, features
+under \cref{prot:ch02:pit} with the staleness age mandatory, censored
+buckets flagged rather than zero-labeled, and no rows before first
+observation. Rationale: each clause is the discrete-time image of a
+continuous-time censoring or truncation rule
+(\cref{thm:ch09:hazardlink,prop:ch09:censorbias}); violating any one of
+them injects a bias with a known sign, and more data will not fix it. Reversal trigger:
+none for the labeling rules; the feature list may grow freely under
+\cref{prot:ch02:pit}.
+\end{decision}
+
+\begin{decision}{D9.2 --- horizon set $\{$6M, 1Y, 2Y$\}$}
+We commit to $\horizon \in \{26, 52, 104\}$ weeks and build one model per
+horizon. Rationale: the three consuming actions named in
+\cref{ch:question} (diligence now; pipeline within a year; deprioritize
+if nothing plausible in two years) fix the horizons --- the target is
+chosen by the action, not by the data; and per-horizon models keep the
+cloglog consistency of \cref{thm:ch09:hazardlink} exact.
+Reversal trigger: if the decision layer of \cref{ch:decision} starts
+consuming horizon \emph{curves} $\horizon \mapsto p_i(t,\horizon)$
+rather than three scalars, the per-$\horizon$ design yields to the
+single-model AFT alternative of \cref{ch09:sec:aft}.
+\end{decision}
+
+\section{The bucket model is a hazard model}\label{ch09:sec:hazardlink}
+
+We now prove the claim that organizes the chapter: the panel of
+\cref{def:ch09:panel} is a discrete-time hazard model, and the bucket
+probability is an exact functional of the same conditional intensity that
+Part II estimates in continuous time. Nothing about this is asymptotic;
+the identity holds bucket by bucket.
+
+\begin{lemma}[Waiting-time hazard of the bucket]\label{lem:ch09:waiting}
+Fix a bucket $(i,b)$ with $\atrisk_i(t_b)=1$ and let
+$W_{i,b} = \inf\{u > 0 : N_i(t_b+u) > N_i(t_b)\}$ be the waiting time to
+firm $i$'s next deal. Suppose the conditional law of $W_{i,b}$ given
+$\F_{t_b}$ is absolutely continuous on $(0,\infty)$ with hazard function
+$r_{i,b}(u)$. Then
+\begin{equation}\label{eq:ch09:hazardmass}
+p_{i,b} \;\defeq\; \Prob\big( y_{i,b} = 1 \st \F_{t_b} \big)
+\;=\; 1 - \exp\big( -\Lam_{i,b} \big),
+\qquad
+\Lam_{i,b} \;\defeq\; \int_0^{\horizon} r_{i,b}(u) \dd u ,
+\end{equation}
+and the hazard is the predictable projection of the conditional
+intensity onto the no-event paths:
+$r_{i,b}(u) = \E\big[ \lam_i(t_b+u) \st \F_{t_b},\, W_{i,b} > u \big]$.
+\end{lemma}
+
+\begin{proof}
+The first display is the hazard representation of an absolutely
+continuous survival law, $\Prob(W > \horizon \st \F_{t_b}) =
+\exp(-\int_0^{\horizon} r)$, applied to
+$\{y_{i,b}=0\} = \{W_{i,b} > \horizon\}$. For the second, the innovation
+theorem \citep[II.4.2]{abgk1993} states that the intensity of $N_i$ with
+respect to the coarser filtration generated by $\F_{t_b}$ and the
+post-$t_b$ own-event history is the conditional expectation of
+$\lam_i$ given that filtration; on the event $\{W_{i,b} > u\}$ the
+post-$t_b$ own-event history is trivial, and the hazard of the first
+point of a counting process equals its intensity before the first point.
+\end{proof}
+
+The lemma has a practical reading: the bucket probability
+depends on the future only through an \emph{integrated} intensity, with
+the unobserved evolution of covariates and competing events averaged out
+along the no-event paths. The panel model therefore estimates the
+compensator increment of Part II, coarsened.
+To get the classical grouped-data form we add the proportional-hazards
+structure.
+
+\begin{assumption}[Grouped proportional hazards within
+buckets]\label{asm:ch09:groupedph}
+For every bucket $(i,b)$ there is a baseline $\lam_{0,b}(u) \ge 0$,
+common across firms, and a coefficient vector $\bcoef$ such that
+$r_{i,b}(u) = \lam_{0,b}(u)\, e^{\bcoef\T \zfeat_{i,b}}$ for
+$u \in (0,\horizon]$: covariates are frozen at their bucket-start values,
+and their proportional effect on the no-event intensity holds throughout
+the bucket. Piecewise-constant intensity ($\lam_{0,b}(u)$ constant in
+$u$) is the special case used for exposure offsets below.
+\end{assumption}
+
+\begin{theorem}[Hazard link]\label{thm:ch09:hazardlink}
+Let the panel be built as in \cref{def:ch09:panel} and let
+$h_{i,b} = p_{i,b}$ denote the discrete-time hazard
+\cref{eq:ch09:hazardmass}.
+\begin{enumerate}[label=(\roman*)]
+\item \emph{(Exact cloglog / grouped PH.)} Under
+\cref{asm:ch09:groupedph},
+\begin{equation}\label{eq:ch09:cloglog}
+\Prob\big(y_{i,b}=1 \st \zfeat_{i,b}\big)
+= 1 - \exp\!\big(-\Lam_{0,b}\, e^{\bcoef\T \zfeat_{i,b}}\big),
+\qquad
+\operatorname{cloglog} p_{i,b}
+\;\defeq\; \log\big(\!-\!\log(1-p_{i,b})\big)
+= \alpha_b + \bcoef\T \zfeat_{i,b},
+\end{equation}
+with $\alpha_b = \log \Lam_{0,b}$, $\Lam_{0,b} = \int_0^{\horizon}
+\lam_{0,b}$, and $\bcoef$ \emph{identical} to the continuous-time
+coefficients \citep{prenticegloeckler1978,allison1982}. The Bernoulli
+likelihood of the panel is the exact likelihood of the point process
+observed through the coarsening ``at least one event per bucket'': a
+bucket classifier estimates a deterministic coarsening
+$\lam \mapsto (\Lam_{i,b})_b$ of the same intensity object as Part II.
+\item \emph{(Continuum limit.)} Drop \cref{asm:ch09:groupedph}. If
+$u \mapsto r_{i,b}(u)$ is right-continuous at $0$ then
+$h_{i,b}/\horizon \to r_{i,b}(0^+) = \E[\lam_i(t_b) \st \F_{t_b}]$ as
+$\horizon \downarrow 0$; and for a fixed window $[t, t+v]$ partitioned
+into buckets of mesh $\horizon \to 0$, with hazards refreshed at each
+bucket start and bounded above,
+\[
+\prod_{b} \big(1 - h_{i,b}\big) \;\longrightarrow\;
+\exp\Big( -\!\int_t^{t+v} \lam_i(u) \dd u \Big)
+\quad \text{along no-event paths:}
+\]
+the product-limit of the discrete hazards recovers the continuous-time
+survival factor, so the discrete model converges to the continuous
+intensity model, not merely to an approximation of it.
+\item \emph{(Logit versus cloglog.)} Writing $\Lam = \Lam_{i,b}$ for the
+bucket's hazard mass,
+\begin{equation}\label{eq:ch09:linkgap}
+\operatorname{logit} p \;=\; \log\big(e^{\Lam} - 1\big)
+\;=\; \operatorname{cloglog} p \;+\; d(\Lam),
+\qquad
+d(\Lam) = \log\frac{e^{\Lam}-1}{\Lam}
+= \frac{\Lam}{2} + \frac{\Lam^2}{24} - \frac{\Lam^4}{2880} + \cdots ,
+\end{equation}
+so for small per-bucket probabilities the log-odds equal the
+log-hazard-mass up to $O(\Lam)$: a logistic-link panel model estimates
+the same object as the cloglog model to first order. The divergence is
+material at large $p$: $d = 0.026$ nats at $p=0.05$, $0.114$ at
+$p=0.2$, $0.367$ at $p=0.5$.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+(i) Substituting \cref{asm:ch09:groupedph} into
+\cref{eq:ch09:hazardmass} gives $\Lam_{i,b} = e^{\bcoef\T\zfeat_{i,b}}
+\Lam_{0,b}$ and hence both displays of \cref{eq:ch09:cloglog}, since
+$\operatorname{cloglog}(1 - e^{-\Lam}) = \log \Lam$. For the likelihood
+claim: the coarsened data for bucket $(i,b)$ is the binary $y_{i,b}$,
+whose conditional law given $\F_{t_b}$ is Bernoulli$(p_{i,b})$ by
+\cref{lem:ch09:waiting}; over disjoint buckets the joint likelihood
+factorizes by the tower property into exactly the product of these
+Bernoulli terms, which is the person-period likelihood of
+\citet{allison1982}. No approximation enters at any step.
+(ii) $h = 1 - \exp(-\int_0^{\horizon} r)$ with $\int_0^{\horizon} r =
+\horizon\, r(0^+) + o(\horizon)$ by right-continuity, and
+$1 - e^{-x} = x + O(x^2)$, give $h/\horizon \to r(0^+)$; the
+identification of $r(0^+)$ is \cref{lem:ch09:waiting}. For the product
+limit, $\log \prod_b (1-h_b) = \sum_b \log(1-h_b) = -\sum_b h_b +
+O\big(\sum_b h_b^2\big)$; along a no-event path each refreshed hazard
+mass satisfies $h_b = \int_{t_b}^{t_b+\horizon} \lam_i(u)\dd u +
+o(\horizon)$, so $\sum_b h_b \to \int_t^{t+v} \lam_i$, while
+$\sum_b h_b^2 \le (\max_b h_b) \sum_b h_b \to 0$ because
+$\max_b h_b = O(\horizon)$ under the boundedness assumption.
+(iii) $p = 1 - e^{-\Lam}$ gives $p/(1-p) = e^{\Lam}-1$, hence the first
+equality. For the expansion, $(e^{\Lam}-1)/\Lam = e^{\Lam/2}\,
+\sinh(\Lam/2)/(\Lam/2)$, so $d(\Lam) = \Lam/2 + \log\big(\sinh y / y\big)$
+with $y = \Lam/2$, and $\log(\sinh y/y) = y^2/6 - y^4/180 + O(y^6)$
+yields the stated series. The numerical values follow from
+$\Lam = -\log(1-p)$.
+\end{proof}
+
+Part (iii) has a practical reading. When per-bucket probabilities
+are small --- short horizons, ordinary firms --- the logistic link is the
+cloglog link plus a distortion of order the probability itself, and a
+logistic learner (including XGBoost with its native
+\code{binary:logistic} objective) estimates a hazard-consistent object.
+When per-bucket probabilities are large --- the two-year horizon on
+recently active firms --- the gap $d(\Lam)$ is covariate-dependent, so it
+is \emph{not} absorbed by an intercept: logistic coefficients stop being
+transferable across horizons, while cloglog coefficients remain the same
+$\bcoef$ at every $\horizon$ by \cref{eq:ch09:cloglog}. In this precise
+sense cloglog, not logit, is the aggregation-coherent link. It is also
+why the calibration layer of \cref{ch09:sec:calibration} is mandatory:
+it repairs, on the validation era, exactly the link distortion bounded
+here.
+
+\begin{corollary}[Choosing $\horizon$ is choosing the aggregation
+defect]\label{cor:ch09:defect}
+Any two conditional intensities with equal bucket masses
+$(\Lam_{i,b})_{i,b}$ induce the same panel law; consequently the panel
+Fisher information is identically zero in every parameter direction that
+moves $\lam$ only within buckets. In particular, timescale parameters
+faster than $\horizon$ (a kernel decay $\decay$ with half-life
+$\ll \horizon$) are unidentifiable from the panel.
+\end{corollary}
+
+\begin{proof}
+The panel likelihood in \cref{thm:ch09:hazardlink}(i) depends on the
+underlying process only through $(\Lam_{i,b})$; a parameter direction
+that leaves all bucket masses fixed leaves the likelihood fixed, so the
+score in that direction vanishes identically and so does its variance.
+\end{proof}
+
+This is the $\branch$--$\decay$ ridge of \cref{ch:censoring} returned as
+a design choice. There, weekly binning was an observation defect (C4)
+that destroys decay information while sparing the branching scale; how
+fast recovery degrades as the bin width grows past the kernel half-life
+is a question for the planned synthetic study (\cref{ch:results-synth}).
+Here the same mathematics appears with the roles reversed: T3 does not
+\emph{want} within-horizon timing, so we choose $\horizon$ to integrate
+it out, and \cref{cor:ch09:defect} states exactly what is discarded.
+The defect is not an accident; it is accepted at a known price because
+the consuming action is horizon-bound.
+
+\section{Censoring and eligibility}\label{ch09:sec:censoring}
+
+Three eligibility rules determine which $(i, t_b)$ pairs become rows and
+what their labels may say. Each is the discrete image of a
+continuous-time censoring statement, and each has a signed bias when
+violated.
+
+\paragraph{Right censoring at the window end (C1).} Define the exposure
+fraction of bucket $(i,b)$ as
+$e_{i,b} = \min\{1, (\Tend - t_b)/\horizon\}$ (rows require
+$t_b < \Tend$, so $e_{i,b} \in (0,1]$). A bucket with $e_{i,b} < 1$ ---
+any window crossing June 2024 --- is \emph{censored}: the label
+\cref{eq:ch09:label} is not computable from data, because the window's
+unobserved remainder may contain the event.
+
+\begin{warning}\label{warn:ch09:censorzero}
+Labeling censored buckets $y=0$ is not a conservative convention; it is a
+biased estimator with a known sign. It converts ``unobserved'' into
+``negative'' and deflates every fitted hazard, most strongly in the most
+recent calendar eras --- which are exactly the eras closest to deployment
+and the eras whose macro covariates differ most from the training bulk,
+so the bias looks like an era effect and contaminates the macro
+coefficients. This is the bucketed instance of
+\cref{warn:ch02:openspells}.
+\end{warning}
+
+\begin{proposition}[Censored-bucket bias]\label{prop:ch09:censorbias}
+Suppose bucket $(i,b)$ has hazard mass $\Lam_{i,b} > 0$ distributed with
+constant within-bucket intensity, and exposure $e = e_{i,b} < 1$. The
+naive label $\tilde y_{i,b} = \ind{\text{event observed in }
+[t_b, \Tend)}$ satisfies
+$\E[\tilde y_{i,b} \st \F_{t_b}] = 1 - e^{-e \Lam_{i,b}}
+< 1 - e^{-\Lam_{i,b}} = p_{i,b}$:
+on the cloglog scale the fitted linear predictor is shifted by
+$\log e < 0$, i.e.\ hazards are biased down by exactly the unobserved
+exposure fraction.
+\end{proposition}
+
+\begin{proof}
+With constant within-bucket intensity the observed sub-window carries
+hazard mass $e\Lam_{i,b}$, so the observed-event probability is
+$1 - e^{-e\Lam_{i,b}}$ by \cref{lem:ch09:waiting} applied to the
+sub-window; $\operatorname{cloglog}(1 - e^{-e\Lam}) = \log \Lam + \log e$.
+\end{proof}
+
+Two legal treatments follow. \emph{Drop:} for the pure classification
+pipeline, delete rows with $e_{i,b} < 1$. This restores unbiasedness ---
+administrative censoring at fixed $\Tend$ is independent by construction
+(\cref{ch:data}, defect C1) --- at the cost of discarding the most recent
+eras; the cost grows with the horizon, and at $\horizon = 104$ weeks it
+amounts to the final two years of bucket starts. \emph{Keep with an
+exposure offset:} retain censored rows with the survival-style Bernoulli
+likelihood implied by \cref{prop:ch09:censorbias},
+\begin{equation}\label{eq:ch09:offsetlik}
+\loglik \;=\; \sum_{(i,b)} \Big[\, \tilde y_{i,b} \log\Big(1 -
+\exp\big(-e_{i,b}\, e^{\eta_{i,b}}\big)\Big) \;-\; \big(1 -
+\tilde y_{i,b}\big)\, e_{i,b}\, e^{\eta_{i,b}} \,\Big],
+\end{equation}
+where $\eta_{i,b}$ is the cloglog linear predictor (or boosted margin)
+and $\log e_{i,b}$ enters as a fixed offset. Under within-bucket constant
+intensity this is exact; it is the grouped-data analogue of keeping open
+spells with their survival factor. The classification stack commits to
+the drop rule for simplicity, and \cref{ch09:sec:aft} names the offset
+likelihood and AFT as the routes that recover the discarded eras.
+
+\paragraph{Entry (C2).} No row is emitted for $t_b < \entry_i$: a firm
+contributes person-periods only after its first observation. This is
+delayed entry handled mechanically by the at-risk indicator, exactly as
+in \cref{eq:ch02:jacod}; emitting earlier rows would populate the panel
+with firms observed \emph{because} they later raised, a truncation bias
+with the opposite sign to \cref{warn:ch09:censorzero}.
+
+\paragraph{Unlabeled exits (C3).} The negative class is contaminated:
+a firm that quietly died before $t_b$ has $\atrisk_i(t_b) = 1$ in the
+naive risk set and contributes an endless string of structural
+negatives. The expected consequences follow from \cref{ch:data}:
+hazards deflate by the contamination fraction, and covariates
+correlated with staleness can acquire \emph{inverted} weight, because
+the optimal response to a pool containing dead firms is to bet against
+staleness. The synthetic study of \cref{ch:results-synth} is designed
+to measure both effects. Three mitigations are committed, in order of
+force. First, \emph{exposure windows}: a row $(i,t_b)$ requires
+observed activity (a deal, or a point-in-time exit proxy refresh)
+within the trailing $E$ years. Because the rule is a predictable
+function of the observed history, it is exactly independent censoring;
+its benefit is not repairing the mechanism but capping each dead firm's
+phantom exposure at $E$ years. Second, an explicit \emph{active model}
+--- a point-in-time classifier of ``still alive'' --- used as a
+feature, not as a hard filter: we do not expect even a good
+discriminative exit model to reconstruct truthful risk sets, a
+hypothesis \cref{ch:results-synth} will test, so it may inform but must
+not silently redefine the estimand. Third, the staleness age itself
+partially absorbs the defect: dead firms accumulate very large
+$\staleage$, and a flexible learner routes their predicted probability
+toward zero through the $\staleage$ feature --- which is also why the
+fitted $\staleage$ effect is \emph{not} interpretable as the true
+renewal profile (it mixes the genuine gap dependence with the
+contamination). The residual bias after all three mitigations is
+signed: fitted hazards remain biased \emph{downward}, most severely at
+large staleness ages, and every probability this chapter emits for a
+long-quiet firm should be read as a lower bound in that direction.
+
+\begin{protocol}[Panel construction and audits]\label{prot:ch09:panel}
+The panel builder emits, per horizon: the grid \cref{eq:ch09:grid}; rows
+filtered by $\entry_i \le t_b < \Tend$, the exposure-window rule with
+recorded $E$, and $\atrisk_i(t_b)=1$; labels \cref{eq:ch09:label} for
+fully exposed buckets and censor flags with $e_{i,b}$ otherwise;
+features exactly as \cref{def:ch09:panel} under \cref{prot:ch02:pit},
+with the exp26 prohibition on end-of-sample snapshot columns (the
+companies-table \code{last\_*} fields, totals, employees) enforced by
+schema. Audits, run on every build: (a) no row precedes its firm's
+entry; (b) no label consults data past $\Tend$; (c) censor-flag
+retention --- the count of censored rows must equal the count implied by
+the grid and $\Tend$; (d) as-of-join look-ahead test on macro features;
+(e) cross-horizon coherence --- empirical event rates must be
+nondecreasing in $\horizon$ on shared origins; (f) base rate and row
+count by era, published next to every fit.
+\end{protocol}
+
+\section{Dependence: what the rows share}\label{ch09:sec:dependence}
+
+The panel looks like a supervised-learning table but is not an i.i.d.\
+sample. Rows share firms across buckets: the latent quality that
+\cref{ch:stale} models as a persistent state makes $y_{i,b}$ and
+$y_{i,b'}$ positively dependent for all bucket pairs of the same firm.
+Rows share time within buckets: macro regimes and sector cycles are
+common shocks, and we expect this shared structure to carry much of the
+signal --- a hypothesis the synthetic study of \cref{ch:results-synth}
+will test. Both dependencies survive conditioning on the features
+whenever the features are incomplete, which defect (C5) guarantees.
+The effective sample size is therefore far smaller than the row count,
+nominal i.i.d.\ standard errors are wrong, and shuffled
+cross-validation leaks by construction (rows from the same firm and era
+land on both sides of the fold).
+
+\begin{warning}\label{warn:ch09:sliding}
+Sliding the bucket window (origins every $s < \horizon$ weeks) does not
+create data. Each realized deal then appears in $\lceil \horizon/s
+\rceil$ positive labels, and overlapping windows re-count the same
+survival exposure: the resulting objective is not the likelihood of any
+process, and any resampling scheme that treats the rows as exchangeable
+understates uncertainty by a factor up to $\sqrt{\horizon/s}$. Sliding
+windows are pseudo-replication, not augmentation.
+\end{warning}
+
+\begin{decision}{D9.3 --- disjoint buckets for training, sliding for
+evaluation only}
+Training panels use disjoint (non-overlapping) buckets per horizon, as
+in \cref{eq:ch09:grid}; the likelihood factorization of
+\cref{thm:ch09:hazardlink}(i) is exact only then. Phase-shifted disjoint
+grids (origins offset by $s < \horizon$) may be built as robustness
+replicates but are never pooled into one training set. Sliding origins
+\emph{are} permitted for evaluation curves --- lift@$K$ or calibration
+as a function of the decision date --- because evaluation is
+description, not estimation; their inference uses the blocked resampling
+below. Rationale: disjointness trades a constant factor of rows for an
+exact likelihood and honest uncertainty; we expect between-era variance
+to dominate, so the discarded overlap should buy little
+(\cref{ch:results-synth} will check). Reversal trigger: if the $\horizon=104$
+panel's bucket count per firm ($\approx 6$ over the 2011--2024 window)
+proves too coarse for stable fitting, revisit pooled phase-shifted grids
+with firm-and-era clustered inference priced in.
+\end{decision}
+
+Uncertainty for every panel-derived quantity --- metrics, calibration
+curves, coefficient contrasts --- is computed by resampling that
+respects both sharing directions: firms are resampled as whole clusters
+(all rows of a firm move together) and eras as contiguous blocks (all
+rows of a calendar block move together), following the temporal split
+and blocked-inference protocol fixed in \cref{ch:gof}. The split itself
+is temporal: training era, validation era (model selection, early
+stopping, calibration), test era touched once. This is the same
+discipline the exp26 benchmark harness already implements ---
+temporal early stopping strictly inside the training era, a single
+touch of the test era --- and the panel stack reuses that procedure
+under the calendar-era boundaries fixed by \cref{ch:gof}.
+
+\section{Class imbalance and negative sampling}\label{ch09:sec:sampling}
+
+Positives are rare: most at-risk firm-buckets contain no deal, with the
+base rate rising in $\horizon$. Rarity has two costs --- a statistical
+one for the parametric benchmarks and a computational one for the full
+panel --- and both have exact treatments; neither justifies ad hoc
+reweighting.
+
+For the linear cloglog and logistic benchmarks that every boosted model
+must beat, rare-event finite-sample bias is real: the MLE intercept is
+biased in small-event-count regimes and separation becomes possible in
+sparse eras. The corrections are standard and committed: the
+\citet{kingzeng2001} rare-events adjustment for logistic fits, and
+\citet{firth1993} penalization whenever any era-by-feature cell is
+sparse enough to threaten separation.
+
+For scale, the committed device is case-control subsampling of
+negatives, with its exact correction.
+
+\begin{proposition}[Subsampling offset]\label{prop:ch09:offset}
+Retain every positive row and each negative row independently with
+probability $r \in (0,1]$, with retention independent of $\zfeat$ given
+$y$; let $S=1$ denote retention. If $p(\zfeat) = \Prob(y=1 \st \zfeat)$,
+then
+\begin{equation}\label{eq:ch09:subsample}
+\operatorname{logit} \Prob\big(y = 1 \st \zfeat,\, S=1\big)
+\;=\; \operatorname{logit} p(\zfeat) \;-\; \log r .
+\end{equation}
+Hence if the population model is logistic with predictor
+$\alpha + f(\zfeat)$, the retained sample follows a logistic model with
+the same $f$ and intercept $\alpha - \log r$: fitting on the subsample
+with the fixed offset $-\log r$ in the predictor (equivalently, adding
+$\log r$ to every fitted margin at prediction time) recovers the
+population model exactly.
+\end{proposition}
+
+\begin{proof}
+By Bayes,
+$\Prob(y=1 \st \zfeat, S=1) = p(\zfeat) \cdot 1 \,\big/\,
+\big[ p(\zfeat) \cdot 1 + (1-p(\zfeat))\, r \big]$,
+so the retained odds are $p(\zfeat) / \big[(1-p(\zfeat))\, r\big]$, i.e.\
+the population odds divided by $r$; taking logs gives
+\cref{eq:ch09:subsample}. The second claim follows because the shift is
+constant in $\zfeat$ and the logistic family is closed under intercept
+shifts.
+\end{proof}
+
+Two remarks bound the result's reach. First, the exactness is a property
+of the \emph{logistic} link: the retained-sample law under a cloglog
+population model is not a cloglog model with shifted intercept, so
+subsampling lives in the logistic pipeline, where
+\cref{thm:ch09:hazardlink}(iii) already prices the link discrepancy, and
+the calibration layer absorbs the residual. Second, the same logic
+underwrites the ranking stack: estimating a conditional logit on a
+\emph{sampled subset of alternatives} is consistent when the sampling
+protocol satisfies the positive-conditioning property, by exactly the
+same Bayes correction \citep{mcfadden1978} --- the sampled-softmax
+training of \cref{ch:ranking} and \cref{eq:ch09:subsample} are the same
+result in two forms: a known sampling scheme induces a computable
+likelihood correction, so sampling is unbiased whenever the scheme is
+recorded.
+
+For the boosted trees themselves the common alternative is
+\code{scale\_pos\_weight}: multiply positive-class gradients by a
+constant $w$. We reject it for probability work. In the unregularized,
+infinite-capacity limit weighting shifts every logit by $\log w$
+uniformly --- harmless. In an actual boosted tree, leaf values are
+$-G/(H+\lambda_{\mathrm{reg}})$ (\cref{ch09:sec:xgb}) and splits are
+accepted against $\gamma$ and \code{min\_child\_weight} thresholds on
+$H$: reweighting rescales $G$ and $H$ heterogeneously across leaves,
+so the induced distortion is \emph{not} a constant shift, and no single
+intercept correction undoes it. Subsampling with the offset of
+\cref{prop:ch09:offset}, followed by post-hoc calibration on the
+\emph{unsubsampled} validation era, achieves the same variance-per-cost
+benefit with a distortion we can state and remove.
+
+\begin{decision}{D9.4 --- subsample negatives, correct exactly,
+calibrate after}
+Training panels may subsample negatives at a recorded rate $r$ per
+era-stratum; positives are never subsampled. Corrections are mandatory
+and layered: the $\log r$ margin correction of \cref{prop:ch09:offset}
+at prediction time, then the calibration map of
+\cref{ch09:sec:calibration} fit on the full (unsubsampled) validation
+era. \code{scale\_pos\_weight} and other loss reweightings are banned in
+the probability pipeline (permitted in pure-ranking experiments, where
+only order matters). Rationale: \cref{prop:ch09:offset} makes
+subsampling exactly correctable; reweighting is not. Reversal trigger:
+none; this is a mathematical, not empirical, commitment.
+\end{decision}
+
+\section{XGBoost as the committed learner}\label{ch09:sec:xgb}
+
+The learner attached to the panel is gradient-boosted trees in the
+XGBoost formulation \citep{chenguestrin2016}, i.e.\ the functional
+gradient view of \citet{friedman2001} with a second-order objective and
+explicit regularization. The same learners appear again in
+\cref{ch:nonparam} with a different target: here the tree model fits a
+discrete-time hazard on the bucketed panel, while in \cref{ch:nonparam}
+the same learners parameterize a continuous-time intensity through the
+binned likelihood --- same tooling, different target. We derive the
+fitting rule once, because two of its internals (the Hessian
+denominators and the default directions) are load-bearing for our data.
+
+The model after $m$ rounds is $F_m(\zfeat) = \sum_{k \le m}
+f_k(\zfeat)$, each $f_k$ a regression tree with $T$ leaves, leaf weights
+$w \in \R^T$, and leaf-assignment map $q$. Round $m$ solves
+\begin{equation}\label{eq:ch09:xgbobj}
+\min_{f} \;\; \sum_{n} l\big(y_n,\; F_{m-1}(\zfeat_n) + f(\zfeat_n)\big)
+\;+\; \gamma T \;+\; \tfrac{1}{2}\lambda_{\mathrm{reg}} \norm{w}^2 ,
+\end{equation}
+with $l$ the per-row loss --- for us \code{binary:logistic},
+$l(y, F) = -y F + \log(1 + e^{F})$, or the cloglog-exposure loss implied
+by \cref{eq:ch09:offsetlik} as a custom objective.
+
+\begin{proposition}[Second-order boosting step]\label{prop:ch09:xgb}
+Let $g_n = \partial_F\, l(y_n, F)\big|_{F_{m-1}(\zfeat_n)}$ and
+$h_n = \partial^2_F\, l(y_n, F)\big|_{F_{m-1}(\zfeat_n)}$, and for a
+fixed tree structure $q$ let $I_j = \{n : q(\zfeat_n) = j\}$,
+$G_j = \sum_{n \in I_j} g_n$, $H_j = \sum_{n \in I_j} h_n$. To second
+order in $f$, the objective \cref{eq:ch09:xgbobj} is minimized over leaf
+weights by
+\[
+w_j^{*} \;=\; -\,\frac{G_j}{H_j + \lambda_{\mathrm{reg}}},
+\qquad
+\text{with optimal value}
+\quad
+-\tfrac{1}{2} \sum_{j=1}^{T} \frac{G_j^{2}}{H_j + \lambda_{\mathrm{reg}}}
+\;+\; \gamma T,
+\]
+and the gain of splitting a leaf with statistics $(G, H)$ into
+$(G_L, H_L)$ and $(G_R, H_R)$ is
+\begin{equation}\label{eq:ch09:gain}
+\mathrm{Gain} \;=\; \tfrac{1}{2}\left[
+\frac{G_L^{2}}{H_L + \lambda_{\mathrm{reg}}}
++ \frac{G_R^{2}}{H_R + \lambda_{\mathrm{reg}}}
+- \frac{(G_L + G_R)^{2}}{H_L + H_R + \lambda_{\mathrm{reg}}}
+\right] - \gamma .
+\end{equation}
+For the logistic loss, $g_n = \sigma(F_{m-1}(\zfeat_n)) - y_n$ and
+$h_n = \sigma(F_{m-1}(\zfeat_n))\big(1 - \sigma(F_{m-1}(\zfeat_n))\big)$.
+\end{proposition}
+
+\begin{proof}
+Taylor-expanding each loss term to second order,
+$l(y_n, F_{m-1} + f) \approx l(y_n, F_{m-1}) + g_n f(\zfeat_n) +
+\tfrac12 h_n f(\zfeat_n)^2$, and summing within leaves (where
+$f \equiv w_j$) turns \cref{eq:ch09:xgbobj} into $\sum_j [\, G_j w_j +
+\tfrac12 (H_j + \lambda_{\mathrm{reg}}) w_j^2 \,] + \gamma T$ up to a
+constant: a separable quadratic, minimized at $w_j^{*}$ with the stated
+value. The gain formula is the difference of optimal values before and
+after the split, with $\gamma$ charged for the extra leaf
+\citep{chenguestrin2016}.
+\end{proof}
+
+\paragraph{Why boosted trees.} Four reasons. First, \emph{the staleness
+interaction is the model}: \cref{ch:stale} establishes that the
+predictive content of a LOCF covariate decays with its age, so the
+truth has the form $f(\tilde\xcov, \staleage)$ with effect modification
+in $\staleage$ --- exactly what axis-aligned splits represent cheaply
+and what a linear cloglog must hand-engineer term by term. Second,
+PitchBook columns are mixed-type: round-type categories, flags, sizes
+spanning orders of magnitude, and pervasive missingness; XGBoost's
+sparsity-aware default directions \citep{chenguestrin2016} learn, per
+split, which way missing values go --- and since missingness here is
+informative (undisclosed size is a signal, not an accident), learning
+the direction is modeling, not imputation. Third, nonlinearity in the
+engineered history (trailing counts, raised-to-date) is expected and
+cheap to capture. Fourth, we expect the linear-utility restriction to
+fail. The planned B1 benchmark of \cref{ch:results-synth} tests XGBoost
+against the linear conditional logit at strict feature parity --- the
+same features, the same choice sets, the same temporal split --- and
+the panel's feature set is wider and dirtier than any setting in which
+linearity is plausible. The linear cloglog GLM remains in the harness
+as the benchmark every boosted fit must beat, but it is the challenger,
+not the champion.
+
+\paragraph{Hyperparameters that matter.} Depth (\code{max\_depth})
+bounds interaction order; we expect gains at modest depth (3--5), with
+deeper trees mostly overfitting firm identity.
+\code{min\_child\_weight} thresholds the leaf Hessian mass $H_j$; under
+the logistic loss $h_n = p_n(1-p_n)$, so the threshold is an
+effective-count guard that, under class imbalance, mechanically prevents
+leaves fit to a handful of positives --- it is the imbalance safeguard
+that \emph{is} compatible with calibration, unlike loss reweighting.
+Row subsampling per boosting round reduces variance but should sample
+firms as clusters when feasible, for the reasons of
+\cref{ch09:sec:dependence}; column subsampling decorrelates trees in the
+presence of the many collinear trailing-window counts. The number of
+trees is chosen by early stopping on the temporal validation era ---
+never by shuffled cross-validation --- following the exp26 protocol
+(grid over depth and learning rate, early stop on the validation tail,
+refit at the chosen round count, one shot at test).
+
+\paragraph{Monotonicity constraints.} XGBoost accepts per-feature
+monotone constraints, and economics suggests candidates: probability
+nondecreasing in trailing deal counts, nonincreasing in the policy rate.
+We decline to impose the tempting constraint that intensity decreases
+in the staleness age $\staleage$. The true gap dependence
+is not monotone: renewal-style maturation pushes hazard \emph{up} over
+the first year-plus of a gap before frailty heterogeneity pulls the
+population hazard down \citep{vaupel1979,aalen2008}, and the apparent
+steep decline at large $\staleage$ is partly the (C3) contamination
+artifact of \cref{ch09:sec:censoring}, not economics. Forcing
+monotonicity would hard-code the artifact. Constraints are therefore
+used as robustness probes --- fit with and without, compare test loss
+and reliability --- and imposed only where the constrained fit is not
+measurably worse.
+
+\section{Probability calibration}\label{ch09:sec:calibration}
+
+The decision layer of \cref{ch:decision} consumes the panel's outputs as
+probabilities: expected shortlist yield $\sum_{i \in \text{list}}
+\hat p_i$, thresholds set by expected utility, horizon-qualified
+pipeline pacing. A model that ranks well but emits probabilities off by
+a factor of two corrupts every one of those computations, so
+calibration is mandatory infrastructure. Three distortions are
+anticipated and named: the
+logit--cloglog gap of \cref{thm:ch09:hazardlink}(iii), residual
+subsampling distortion after the $\log r$ correction of
+\cref{prop:ch09:offset}, and the boosted-margin distortion documented by
+\citet{niculescumizil2005}, who find boosted trees among the models that
+benefit most from post-hoc mapping.
+
+The committed instruments are the two standard ones. \emph{Platt
+scaling} \citep{platt1999}: fit $c(m) = \sigma(Am + B)$ on validation
+margins by logistic regression --- two parameters, stable on modest
+validation eras, and well matched to distortions that are smooth and
+sigmoidal in the margin. \emph{Isotonic regression}
+\citep{zadroznyelkan2002}: the nonparametric monotone map fit by pooled
+adjacent violators --- strictly more flexible, needs materially more
+validation data, and prone to piecewise-constant artifacts in the tails
+where our decisions live. Guidance follows
+\citet{niculescumizil2005}: Platt as default; isotonic when the
+validation reliability curve is visibly non-sigmoidal \emph{and} the
+validation era supplies enough positives per bin to estimate it ---
+per-horizon, the 26-week panel is the most likely to qualify, the
+104-week panel the least.
+
+\begin{protocol}[Calibration and its audit]\label{prot:ch09:calib}
+(a) The calibration map is fit on the validation era only, after the
+$\log r$ subsampling correction, and is part of the model artifact: no
+downstream consumer ever sees raw margins. (b) Reliability diagrams
+(binned $\hat p$ versus empirical frequency, with firm-cluster,
+era-block resampled bands) are produced per horizon and per era, before
+and after calibration. (c) Scores: the Brier score with its
+reliability--resolution--uncertainty decomposition, and the log score;
+both are proper, so no calibration map can game them in expectation
+\citep{gneitingraftery2007}. (d) Drift: calibration is re-audited on
+each new era; a reliability shift with stable discrimination triggers
+recalibration, not refitting.
+\end{protocol}
+
+\begin{decision}{D9.5 --- calibration is mandatory}
+Every deployed horizon model carries a calibration map fit per
+\cref{prot:ch09:calib}; uncalibrated scores are internal quantities.
+Rationale: the consuming actions are probability arithmetic
+(\cref{ch:decision}), and the three distortion sources above are known
+and repairable at the cost of a validation-era fit. Reversal trigger:
+none. If a future learner is verified reliably calibrated end-to-end,
+the map degenerates to the identity, at zero cost.
+\end{decision}
+
+\section{Survival-aware boosting alternatives}\label{ch09:sec:aft}
+
+The per-$\horizon$ classifier design pays two visible costs: censored
+buckets are dropped (\cref{ch09:sec:censoring}), losing the most recent
+eras precisely at the long horizons; and the three horizon models are
+fit separately, so nothing enforces coherence of
+$\hat p_i(t, 26) \le \hat p_i(t, 52) \le \hat p_i(t, 104)$ beyond the
+audit in \cref{prot:ch09:panel}. Both costs are removed by boosting a
+survival model instead of a classifier.
+
+\emph{XGBoost--AFT} \citep{barnwal2022} boosts an accelerated failure
+time model, $\log W_i = \mu(\zfeat_i) + \sigma \eps$, with $\eps$
+standard normal, logistic, or extreme-value, and $\mu$ the boosted
+ensemble. Its likelihood consumes exactly the data the classifier
+discards: an observed waiting time contributes a density term, a bucket
+that crosses $\Tend$ contributes a right-censored survival term
+$\Prob(W > \Tend - t_b)$, and grouped observations contribute
+interval-censored terms $\Prob(l < W \le u)$ --- censored rows are
+retained natively, no offsets required. One fitted model produces the
+whole curve $\horizon \mapsto \hat\Prob(W \le \horizon)$, monotone in
+$\horizon$ by construction, serving all three horizons and any future
+one. \emph{Gradient-boosted Cox} \citep{polsterl2020} boosts the partial
+likelihood instead: it inherits the proportional-hazards reading of
+\cref{thm:ch09:hazardlink}(i) and needs no error-distribution choice,
+but it delivers relative risks; absolute horizon probabilities require a
+Breslow-type baseline estimate on top, at which point its calibration
+story is no simpler than the classifier's.
+
+The costs run the other way. AFT buys its coherent curve with a global
+parametric assumption on $\eps$: a misspecified error shape miscalibrates
+\emph{every} horizon in a correlated way, and repairing it per horizon
+reintroduces exactly the per-$\horizon$ calibration maps the design was
+meant to avoid. AFT also consumes exact waiting times, thereby
+re-inheriting the date-jitter component of (C4) that the bucket design
+is immune to by construction. And the surrounding tooling ---
+imbalance-aware sampling theory (\cref{prop:ch09:offset} is
+logistic-specific), calibration instruments, evaluation conventions ---
+is mature for binary classification and improvised for boosted AFT.
+
+\begin{decision}{D9.6 --- per-$\horizon$ classifiers now, AFT as the
+benchmarked alternative}
+The committed T3 stack is the per-$\horizon$, cloglog-consistent
+classifier pipeline of this chapter. XGBoost--AFT is maintained in the
+benchmark harness on the identical feature set and splits, evaluated on
+the same per-horizon probabilities $\hat\Prob(W \le \horizon)$ after its
+own calibration audit. Rationale: exact censoring and sampling theory,
+mature calibration, and (C4) robustness today outweigh the coherent
+curve and censored-row retention. Reversal trigger: if AFT beats the
+calibrated per-$\horizon$ classifiers on test log score at two of three
+horizons in two consecutive evaluation campaigns --- or if D9.2's
+reversal fires and the decision layer demands curves --- AFT is
+promoted.
+\end{decision}
+
+The repository has prior art: experiment \code{exp16} implements a
+discrete-time logistic-hazard model with a Kaplan--Meier calibration
+reference and a pairwise ranking-loss hybrid on synthetic firms. The
+panel stack of this chapter builds that sketch out fully, with the
+labeling, censoring, and sampling theory made explicit.
+
+\section{Evaluation, and the bridge to ranking}\label{ch09:sec:eval}
+
+Evaluation follows the temporal split of \cref{ch:gof}, reuses the exp26
+harness conventions (selection on the validation era, one shot at test),
+and reports per horizon and per era. The headline metrics are chosen to
+proxy the consuming action, per \cref{eq:ch01:voi}. \emph{PR-AUC}, not
+ROC-AUC, is the discrimination summary: under heavy imbalance ROC-AUC is
+inflated by the ocean of easy negatives, while precision--recall tracks
+the operating region the sourcing action lives in; because PR-AUC
+depends on the base rate, it is reported next to the era's base rate
+and never compared across eras or horizons without that context.
+\emph{Lift at $K$} --- the event rate in the top-$K$ list divided by the
+base rate, at $K$ set to realistic diligence capacities --- is the
+closest offline proxy to sourcing value. \emph{Reliability and proper
+scores} per \cref{prot:ch09:calib} complete the set: discrimination
+without calibration is not enough here. All uncertainty is
+firm-clustered, era-blocked (\cref{ch09:sec:dependence}).
+
+Sorting firms by $\hat p_i(t, \horizon)$ is a ranking, and the T1
+machinery of \cref{ch:ranking} is close enough that the relationship
+must be stated explicitly. The two targets differ in
+conditioning: the ranker estimates $\Prob(i \st \text{deal in } s, t,
+\Hist)$ --- identity given that a deal happens, timing canceled ---
+while the horizon model estimates a marginal that mixes identity with
+timing mass; under the two-layer factorization of
+\cref{ch:question}, heuristically $p_i(t,\horizon) \approx 1 -
+\exp(-\int_t^{t+\horizon} \Lam_s(u)\, \pi_i(u) \dd u)$, so a
+mid-ranked firm in a hot sector can out-probability a top-ranked firm
+in a cold one. They differ in universe: the ranker competes firms
+within a sector risk set and must own the outside option (C6); the
+horizon model scores each tracked firm absolutely, no competition and
+no outside option. And they differ in unit: recall@$K$ is computed
+against realized deals and is calibration-free; lift@$K$ on the panel
+is computed on all at-risk rows and consumes calibrated levels. The two
+are complements, not rivals: the sector-conditional ranker is the
+defensible object when timing is untrusted (\cref{ch:question}), the
+firm-level horizon model is the object the diligence trigger consumes,
+and the composed continuous-time stack furnishes a third estimate of
+the same $p_i(t,\horizon)$ by integrating the fitted ground intensity
+against the mark factor. Comparing the boosted panel's
+$\hat p_i(t,\horizon)$ with that composed structural estimate on
+identical origins is the cross-stack audit demanded by design decision
+D1.2: when the two stacks disagree systematically, one of them is wrong
+about something specific, and the diagnostics in this chapter exist to
+locate it.
+
+\begin{codehooks}
+\emph{Panel layer} (to be written): \modrepo{panel/builder.py} ---
+grids, at-risk filtering, labels, exposure fractions $e_{i,b}$, censor
+flags, and feature assembly per \cref{def:ch09:panel} under
+\cref{prot:ch02:pit}; \modrepo{panel/audits.py} --- the audit battery of
+\cref{prot:ch09:panel} (entry consistency, censor-flag retention,
+look-ahead tests, cross-horizon monotonicity, base rates by era).
+\emph{Model layer} (to be written): \modrepo{models/xgb\_horizon.py} ---
+per-$\horizon$ XGBoost with the D9.4 subsampling-offset correction, an
+optional cloglog-exposure custom objective implementing
+\cref{eq:ch09:offsetlik}, monotone-constraint configuration, and the
+calibration map of \cref{prot:ch09:calib} as part of the persisted
+artifact; \modrepo{models/xgb\_aft.py} --- the D9.6 AFT benchmark on
+identical features and splits. \emph{Harness}: the temporal-split,
+validation-tail early-stopping, grid-then-one-test-shot protocol is
+inherited from \code{experiments/exp26\_xgb\_benchmark.py} and must not
+be reimplemented; \code{experiments/exp16\_survival.py} (discrete-time
+logistic hazard, KM calibration, ranking-loss hybrid) is the prior art
+this chapter supersedes. Linear benchmarks (cloglog GLM with
+\citet{firth1993} penalization) live beside the boosted models in the
+same harness so that every gain is measured at feature parity.
+\end{codehooks}
